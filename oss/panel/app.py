@@ -413,6 +413,21 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception as e:
             return jsonify({"error": f"refresh failed: {e}"}), 502
 
+    @app.post("/api/subscriptions/<int:sid>/reimport")
+    def sub_reimport(sid: int):
+        """Manually update nodes from pasted content (for URL-less subs)."""
+        d = request.get_json(force=True, silent=True) or {}
+        content = (d.get("content") or "").strip()
+        if not content:
+            return jsonify({"error": "content is required"}), 400
+        try:
+            return jsonify(dbmod.reimport_subscription(
+                db(), sid, content, d.get("format", "auto")))
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except Exception as e:
+            return jsonify({"error": f"parse failed: {e}"}), 400
+
     # ---- subscription shares (public capability links) ----
     @app.get("/api/subscription-shares")
     def subshare_list():

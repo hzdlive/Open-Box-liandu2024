@@ -1417,8 +1417,16 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
                                 pass
         nodes.extend(parse_clash_yaml(content) if looks_like_clash(content)
                      else parse_subscription(content))
-    # rename rules
-    rename_cfg = {
+    return _replace_nodes(conn, sid, name, nodes, userinfo,
+                          _rename_cfg_from_row(row))
+
+
+def _rename_cfg_from_row(row) -> dict:
+    """Build rename cfg from the SELECT row in refresh_subscription."""
+    from core import rename as _rn
+    (name, url, urls_json, rn_en, rn_prefix, rn_order, rn_digits,
+     rn_regions, rn_fallback, rn_features, rn_filter) = row
+    return {
         "enabled": bool(rn_en), "prefix": bool(rn_prefix), "sub_name": name,
         "order": json.loads(rn_order or "[]") or ["region", "feature", "seq"],
         "seq_digits": rn_digits or 2,
@@ -1427,6 +1435,18 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
         "features": rn_features if rn_features != "" else _rn.DEFAULT_FEATURES,
         "filter": rn_filter if rn_filter != "" else _rn.DEFAULT_FILTER,
     }
+
+
+def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
+                   nodes: list, userinfo: dict | None = None,
+                   rename_cfg: dict | None = None) -> dict:
+    """Shared import pipeline: rename rules, filter keywords, preserve
+    per-node custom names / disabled flags across replacement."""
+    from core import rename as _rn
+    rename_cfg = rename_cfg or {"enabled": False}
+    # remember per-node customizations before wiping
+    kept = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT orig_tag, custom_tag, disabled FROM nodes WHERE sub_id=?", (sid,))}
     renamed = _rn.rename_nodes([n.tag for n in nodes], rename_cfg) \
         if rename_cfg["enabled"] else \
         [{"orig": n.tag, "new": n.tag, "filtered": False} for n in nodes]
@@ -1457,8 +1477,33 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
         count += 1
     conn.execute("UPDATE subscriptions SET updated_at=?, userinfo=? WHERE id=?",
                  (time.strftime("%Y-%m-%dT%H:%M:%S"),
-                  json.dumps(userinfo, ensure_ascii=False), sid))
+                  json.dumps(userinfo or {}, ensure_ascii=False), sid))
     conn.commit()
     bump_rev(conn)
     return {"id": sid, "name": name, "node_count": count,
-            "filtered_count": filtered_count, "userinfo": userinfo}
+            "filtered_count": filtered_count, "userinfo": userinfo or {}}
+
+
+def reimport_subscription(conn: sqlite3.Connection, sid: int, content: str,
+                          format: str = "auto") -> dict:
+    """Manually update a subscription's nodes from pasted content.
+
+    Same import pipeline as refresh (rename rules, filter, preserve
+    per-node custom names / disabled flags), but the source is pasted
+    text instead of fetched URL(s).
+    """
+    import urllib.request
+    row = conn.execute(
+        "SELECT name, url, urls, rename_enabled, rename_prefix, rename_order,"
+        " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
+        " rename_filter FROM subscriptions WHERE id=?", (sid,)).fetchone()
+    if not row:
+        raise KeyError("not found")
+    name = row[0]
+    from core.subscription import parse_subscription
+    from core.clash import parse_clash_yaml, looks_like_clash
+    nodes = (parse_clash_yaml(content) if format == "clash"
+             or (format == "auto" and looks_like_clash(content))
+             else parse_subscription(content))
+    return _replace_nodes(conn, sid, name, nodes,
+                          rename_cfg=_rename_cfg_from_row(row))

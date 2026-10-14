@@ -12,7 +12,8 @@
       <div class="actions">
         <button class="icon" :class="{ on: s.enabled }" @click="toggleEnabled(s)" title="启用/禁用">⏻</button>
         <button class="icon" @click="testSub(s)" title="测速">⚡</button>
-        <button v-if="s.urls?.length" class="icon" @click="refresh(s)" :disabled="refreshing === s.id" title="刷新">⟳</button>
+        <button class="icon" @click="s.urls?.length ? refresh(s) : openEdit(s)"
+          :disabled="refreshing === s.id" :title="s.urls?.length ? '刷新' : '手动更新'">⟳</button>
         <button class="icon" @click="openEdit(s)" title="编辑">✎</button>
         <button class="icon danger" @click="delSub(s)" title="删除">🗑</button>
       </div>
@@ -112,6 +113,15 @@
             <option value="auto">自动</option><option value="direct">直连</option><option value="proxy">代理</option>
           </select></div>
         </div>
+        <div style="margin-top:14px;border-top:1px solid rgba(255,255,255,.08);padding-top:12px">
+          <b>手动更新节点</b>
+          <p class="muted" style="font-size:12px">粘贴新的订阅内容，直接替换当前节点（保留改名/禁用设置）。无订阅链接时用这个更新。</p>
+          <textarea v-model="manualContent" rows="4" placeholder="粘贴 base64 订阅 / 链接列表 / Clash YAML"></textarea>
+          <div style="margin-top:8px">
+            <button type="button" class="small" @click="doReimport" :disabled="!manualContent.trim() || reimporting">
+              {{ reimporting ? '导入中…' : '手动更新节点' }}</button>
+          </div>
+        </div>
       </div>
 
       <!-- tab: rename rules -->
@@ -207,6 +217,8 @@ const editing = ref(null), editTab = ref('sub'), nodeTab = ref('ok')
 const editTabs = [{ id: 'sub', name: '订阅' }, { id: 'rule', name: '规则' }, { id: 'node', name: '节点' }]
 const ef = ref(null)
 const testingAll = ref(false)
+const manualContent = ref('')
+const reimporting = ref(false)
 
 const shareUrl = s => location.origin + '/sub/' + s.token
 const slotName = s => ({ region: '地区', feature: '特征', seq: '序号' }[s] || s)
@@ -310,6 +322,7 @@ function openEdit(s) {
   editing.value = s.id
   editTab.value = 'sub'
   nodeTab.value = 'ok'
+  manualContent.value = ''
   ef.value = {
     name: s.name,
     urls: [...(s.urls || [])],
@@ -389,6 +402,17 @@ async function testAllNodes() {
     toast('测速完成')
   } catch (e) { toast(e.message) }
   testingAll.value = false
+}
+async function doReimport() {
+  reimporting.value = true
+  try {
+    const r = await post(`/api/subscriptions/${editing.value}/reimport`,
+      { content: manualContent.value })
+    toast(`已更新：${r.node_count} 个节点` + (r.filtered_count ? `（过滤 ${r.filtered_count}）` : ''))
+    manualContent.value = ''
+    load()
+  } catch (e) { toast(e.message) }
+  reimporting.value = false
 }
 
 async function createShare() {
