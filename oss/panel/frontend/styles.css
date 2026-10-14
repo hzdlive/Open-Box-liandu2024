@@ -1,0 +1,64 @@
+:root{
+  --bg:#0e1320; --bg2:#141b2e; --card:#182136; --card2:#1e2942;
+  --line:#2a3654; --text:#e8edf7; --muted:#8b98b8; --accent:#4f9cff;
+  --green:#3ddc84; --red:#ff6b6b; --orange:#ffa94d; --radius:10px;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font:14px/1.6 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+.topbar{display:flex;align-items:center;gap:24px;padding:12px 20px;
+  background:var(--bg2);border-bottom:1px solid var(--line);
+  position:sticky;top:0;z-index:10}
+.brand{font-weight:700;font-size:16px;white-space:nowrap}
+.brand .logo{color:var(--accent)}
+.brand .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);
+  border-radius:20px;padding:2px 8px;margin-left:8px;font-weight:400}
+#nav{display:flex;gap:4px;flex-wrap:wrap}
+#nav a{color:var(--muted);text-decoration:none;padding:6px 12px;border-radius:8px}
+#nav a:hover{color:var(--text);background:var(--card2)}
+#nav a.active{color:#fff;background:var(--accent)}
+.view{max-width:1080px;margin:0 auto;padding:20px}
+h2{margin:4px 0 16px} h3{margin:24px 0 12px;color:var(--muted);font-size:13px;
+  text-transform:uppercase;letter-spacing:.08em}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.card .num{font-size:26px;font-weight:700}
+.card .lbl{color:var(--muted);font-size:12px;margin-top:4px}
+table{width:100%;border-collapse:collapse;background:var(--card);
+  border-radius:var(--radius);overflow:hidden}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);font-size:13px}
+th{color:var(--muted);font-weight:500;background:var(--card2)}
+tr:last-child td{border-bottom:none}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px}
+.pill.ok{background:rgba(61,220,132,.15);color:var(--green)}
+.pill.bad{background:rgba(255,107,107,.15);color:var(--red)}
+.pill.skip{background:rgba(139,152,184,.15);color:var(--muted)}
+.pill.proxy{background:rgba(79,156,255,.15);color:var(--accent)}
+.pill.direct{background:rgba(61,220,132,.15);color:var(--green)}
+.pill.reject{background:rgba(255,107,107,.15);color:var(--red)}
+form.panel{background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:16px;margin:16px 0}
+form.panel h3{margin-top:0}
+label{display:block;margin:10px 0 4px;color:var(--muted);font-size:13px}
+input[type=text],input[type=number],input[type=password],select,textarea{
+  width:100%;background:var(--bg);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:8px 10px;font-size:13px;font-family:inherit}
+textarea{font-family:ui-monospace,monospace;resize:vertical}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button,.btn{background:var(--accent);color:#fff;border:none;border-radius:8px;
+  padding:8px 16px;font-size:13px;cursor:pointer;margin:8px 8px 0 0}
+button:hover{filter:brightness(1.1)}
+button.ghost{background:var(--card2);color:var(--text);border:1px solid var(--line)}
+button.danger{background:transparent;color:var(--red);border:1px solid var(--red);padding:4px 10px;margin:0}
+button.small{padding:4px 10px;margin:0 4px 0 0;font-size:12px}
+.muted{color:var(--muted);font-size:12px}
+pre.cfg{background:#0a0e18;border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px;overflow:auto;max-height:60vh;font-size:12px}
+.result{border:1px solid var(--line);border-radius:var(--radius);padding:16px;
+  background:var(--card);margin-top:16px}
+.result .big{font-size:20px;font-weight:700}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  background:var(--card2);border:1px solid var(--line);padding:10px 20px;
+  border-radius:8px;z-index:50}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:720px){.row,.grid2{grid-template-columns:1fr}.cards{grid-template-columns:1fr 1fr}}

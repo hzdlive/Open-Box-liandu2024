@@ -3,15 +3,17 @@ documented management capabilities; no proprietary code involved."""
 
 from __future__ import annotations
 
+import os
 import sqlite3
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 from core.routing import preview_route
 from core.singbox import build_config
 from panel import db as dbmod
 
 VERSION = "0.1.0-oss"
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 
 
 def create_app(db_path: str = ":memory:") -> Flask:
@@ -278,5 +280,16 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
                          "error": r.error, "checked_at": r.checked_at}
                         for r in results])
+
+    # ---- frontend (SPA, no build step) ----
+    @app.get("/", defaults={"path": ""})
+    @app.get("/<path:path>")
+    def frontend(path: str):
+        if path.startswith("api/"):
+            return jsonify({"error": "not found"}), 404
+        full = os.path.join(FRONTEND_DIR, path)
+        if path and os.path.isfile(full):
+            return send_from_directory(FRONTEND_DIR, path)
+        return send_from_directory(FRONTEND_DIR, "index.html")
 
     return app
