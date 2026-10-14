@@ -104,8 +104,51 @@ class KernelManager:
             return None
         return pid
 
-    def status(self) -> ServiceStatus:
+    def _scan_pid(self) -> tuple[int | None, float | None]:
+        """Fallback: find a sing-box process started outside the panel
+        (manual run, init script, old CLI). Returns (pid, uptime_s)."""
+        me = os.getpid()
+        procdir = "/proc"
+        try:
+            pids = [p for p in os.listdir(procdir) if p.isdigit()]
+        except OSError:
+            return None, None
+        for p in pids:
+            ipid = int(p)
+            if ipid == me:
+                continue
+            try:
+                with open(f"{procdir}/{p}/cmdline", "rb") as f:
+                    parts = f.read().split(b"\0")
+            except OSError:
+                continue
+            if not parts or not parts[0]:
+                continue
+            exe = parts[0].decode(errors="replace")
+            base = os.path.basename(exe)
+            if base == "sing-box" or exe == self.bin_path or base == "openbox-core":
+                try:
+                    uptime = time.time() - os.path.getmtime(f"{procdir}/{p}")
+                except OSError:
+                    uptime = None
+                return ipid, uptime
+        return None, None
+
+    def _resolve_pid(self) -> tuple[int | None, float | None, bool]:
+        """(pid, uptime_s, external). Prefers our pidfile, falls back to a
+        system-wide scan for sing-box started outside the panel."""
         pid = self._read_pid()
+        if pid is not None:
+            try:
+                uptime_s = time.time() - os.path.getmtime(self.pidfile)
+            except OSError:
+                uptime_s = None
+            return pid, uptime_s, False
+        pid, uptime_s = self._scan_pid()
+        return pid, uptime_s, pid is not None
+
+    def status(self) -> ServiceStatus:
+        pid, uptime_s, _external = self._resolve_pid()
         st = ServiceStatus(
             installed=self.is_installed(),
             running=pid is not None,
@@ -113,11 +156,7 @@ class KernelManager:
             version=self.version() if self.is_installed() else None,
             config_path=self.config_path,
         )
-        if pid is not None:
-            try:
-                st.uptime_s = time.time() - os.path.getmtime(self.pidfile)
-            except OSError:
-                st.uptime_s = None
+        st.uptime_s = uptime_s
         return st
 
     def start(self) -> ServiceStatus:
@@ -150,7 +189,7 @@ class KernelManager:
         return self.status()
 
     def stop(self, timeout: float = 10.0) -> ServiceStatus:
-        pid = self._read_pid()
+        pid, _uptime, _external = self._resolve_pid()
         if pid is None:
             self._clear_pidfile()
             return self.status()

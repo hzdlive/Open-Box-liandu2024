@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, inject } from 'vue'
+import { ref, computed, onMounted, inject } from 'vue'
 import { get, post } from '../api.js'
 
 const toast = inject('toast')
@@ -77,7 +77,7 @@ const showLog = ref(false), logText = ref('(空)')
 const slSites = ref([]), slChecks = ref([])
 const checking = ref(false), showSiteForm = ref(false), siteText = ref('')
 
-const healthOk = () => health.value.filter(h => h.ok).length
+const healthOk = computed(() => health.value.filter(h => h.ok).length)
 
 function latestLat(id) {
   const c = [...slChecks.value].reverse().find(c => c.site_id === id)
