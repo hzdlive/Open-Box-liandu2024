@@ -4,7 +4,7 @@ Served via GET /api/client/config. Reuses the router's outbound/rule
 building blocks (core/singbox.py) but with client-local inbounds and a
 mode-dependent final outbound:
 
-- mode=global: everything through the proxy group ("auto").
+- mode=global: everything through the proxy group ("所有-自动").
 - mode=rule:    site-set rules apply, unmatched -> final_outbound.
 - mode=direct:  everything direct (rules still emitted for DNS only).
 
@@ -32,7 +32,7 @@ def build_client_config(cfg, mode: str = "rule", ruleset: str = "follow",
         raise ValueError("ruleset must be follow|local")
 
     if mode == "global":
-        final = "auto"
+        final = "所有-自动"
     elif mode == "direct":
         final = "direct"
     else:
@@ -42,7 +42,7 @@ def build_client_config(cfg, mode: str = "rule", ruleset: str = "follow",
         "log": {"level": "warn"},
         "dns": {
             "servers": (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct")
-                        + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto")),
+                        + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "所有-自动")),
             "rules": dns_rules,
             "final": "direct-dns",
         },

@@ -30,7 +30,7 @@ class SiteSet:
     domain_keyword: list = field(default_factory=list)
     ip_cidr: list = field(default_factory=list)
     rule_sets: list = field(default_factory=list)      # referenced rule set names
-    group: str = "auto"  # outbound group tag used when action == "proxy"
+    group: str = "所有-自动"  # outbound group tag used when action == "proxy"
     flip: str = ""  # hot-switch state: "" (= follow action) | "direct" | "proxy"
     sid: int = 0  # database id (used for the hot-switch selector tag)
 
@@ -50,7 +50,7 @@ class SiteSet:
             domain_keyword=pick("domain_keyword"),
             ip_cidr=pick("ip_cidr"),
             rule_sets=list(d.get("rule_sets", rules.get("rule_sets", []))),
-            group=d.get("group", "auto"),
+            group=d.get("group", "所有-自动"),
         )
 
 
@@ -79,7 +79,7 @@ class Chain:
     server: str = ""
     server_port: int = 0
     params: dict = field(default_factory=dict)  # username, password
-    front: str = "auto"  # tag of the node/group to detour through
+    front: str = "所有-自动"  # tag of the node/group to detour through
 
 
 @dataclass
@@ -128,7 +128,7 @@ class AppConfig:
     dns: DnsConfig = field(default_factory=DnsConfig)
     dns_rewrites: list = field(default_factory=list)  # list[DnsRewrite]
     terminals: list = field(default_factory=list)     # list[TerminalPolicy]
-    final_outbound: str = "auto"  # fallback route
+    final_outbound: str = "所有-自动"  # fallback route
     tun_stack: str = "mixed"     # mixed | gvisor | system
     tun_mtu: int = 9000
     quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)

@@ -64,7 +64,7 @@ def test_factory_reset():
     n = conn.execute("SELECT COUNT(*) FROM subscriptions").fetchone()[0]
     groups = [x[0] for x in conn.execute("SELECT name FROM groups ORDER BY position")]
     conn.close()
-    assert n == 0 and groups == ["auto", "manual"], (n, groups)
+    assert n == 0 and groups == ["所有-自动", "所有-手动"], (n, groups)
     print("ok factory reset")
 
 

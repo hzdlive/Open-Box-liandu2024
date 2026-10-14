@@ -787,6 +787,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.post("/api/groups/reorder")
+    def groups_reorder():
+        d = request.get_json(force=True, silent=True) or {}
+        ids = d.get("ids") or []
+        if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
+            return jsonify({"error": "ids must be a list of ints"}), 400
+        dbmod.reorder_groups(db(), ids)
+        return jsonify({"ok": True})
+
     @app.get("/api/groups/<int:gid>/members")
     def group_members(gid: int):
         """Resolved member tags for a group (dynamic expansion included)."""

@@ -1,1 +1,1 @@
-[{"action":"proxy","domain_suffix":["google.com","youtube.com","github.com"],"group":"auto","name":"国外"},{"action":"direct","domain_suffix":["baidu.com","qq.com"],"ip_cidr":["114.114.114.114/32"],"name":"国内"},{"action":"reject","domain_keyword":["ads","tracking"],"name":"广告"}]
+[{"action":"proxy","domain_suffix":["google.com","youtube.com","github.com"],"group":"所有-自动","name":"国外"},{"action":"direct","domain_suffix":["baidu.com","qq.com"],"ip_cidr":["114.114.114.114/32"],"name":"国内"},{"action":"reject","domain_keyword":["ads","tracking"],"name":"广告"}]

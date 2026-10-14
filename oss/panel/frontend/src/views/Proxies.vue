@@ -88,28 +88,36 @@
 
   <div class="card">
     <h3>节点组</h3>
-    <div class="grid c2">
-      <div v-for="g in groups" :key="g.id" class="card" style="margin:0">
-        <div><b>{{ g.name }}</b>
-          <span class="muted">{{ typeName(g.type) }}</span>
-          <span v-if="g.builtin" class="pill">内置</span>
-          <span v-if="!g.enabled && !g.builtin" class="pill warn">已禁用</span>
+    <div v-for="g in sortedGroups" :key="g.id" class="card" style="margin:0 0 8px 0">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span v-if="!g.builtin" class="muted" style="cursor:ns-resize;user-select:none"
+              title="拖动排序">≡</span>
+        <div style="flex:1">
+          <div><b>{{ g.builtin ? (g.name === 'direct' ? '直连' : '拒绝') : g.name }}</b>
+            <span class="pill">{{ g.builtin ? '内置' : typeName(g.type) + ' (' + g.type + ')' }}</span>
+            <span v-if="!g.enabled && !g.builtin" class="pill warn">已禁用</span>
+          </div>
+          <div v-if="g.builtin" class="muted">{{ g.detail }}</div>
+          <div v-else class="muted" style="font-size:12px">
+            <template v-if="g.type === 'urltest'">{{ g.member_count }} 个成员 · 检测间隔 {{ g.interval_s }}s · 容差 {{ g.tolerance_ms }}ms</template>
+            <template v-else-if="g.type === 'failover'">{{ g.member_count }} 个节点 · 检测间隔 {{ g.interval_s }}s · 容差 {{ g.tolerance_ms }}ms</template>
+            <template v-else>{{ g.dynamic ? '动态组 · ' : '' }}当前 {{ g.member_count }} 个节点</template>
+            <button class="small ghost" @click="toggleMembers(g)" style="margin-left:6px">
+              {{ expandedGroup === g.id ? '收起成员' : '查看成员' }}</button>
+          </div>
+          <div v-if="expandedGroup === g.id" class="muted" style="font-size:12px;margin-top:4px;max-height:120px;overflow-y:auto">
+            {{ groupMembers.join(', ') || '无成员' }}
+          </div>
+          <div v-if="!g.builtin && g.dynamic_keywords.length" class="muted" style="font-size:12px">
+            关键词: {{ g.dynamic_keywords.join(', ') }}</div>
         </div>
-        <div v-if="g.desc" class="muted">{{ g.desc }}</div>
-        <div v-if="!g.builtin" class="muted" style="font-size:12px">
-          {{ g.dynamic ? '动态组' : '' }} · 当前 {{ g.member_count }} 个节点
-          <template v-if="g.type === 'urltest'"> · 检测间隔 {{ g.interval_s }}s · 容差 {{ g.tolerance_ms }}ms</template>
-          <button class="small ghost" @click="toggleMembers(g)" style="margin-left:6px">
-            {{ expandedGroup === g.id ? '收起成员' : '查看成员' }}</button>
-        </div>
-        <div v-if="expandedGroup === g.id" class="muted" style="font-size:12px;margin-top:4px;max-height:120px;overflow-y:auto">
-          {{ groupMembers.join(', ') || '无成员' }}
-        </div>
-        <div v-if="!g.builtin" class="muted" style="font-size:12px">关键词: {{ g.dynamic_keywords.length ? g.dynamic_keywords.join(', ') : '—' }}</div>
-        <div v-if="!g.builtin" style="margin-top:6px">
-          <button class="small ghost" @click="editGroup(g)">编辑</button>
-          <button class="small ghost" @click="toggleGroup(g)">{{ g.enabled ? '禁用' : '启用' }}</button>
-          <button class="small danger" @click="delGroup(g.id)">删除</button>
+        <div style="white-space:nowrap">
+          <button v-if="!g.builtin" class="small ghost" @click="moveGroup(g, -1)" title="上移">↑</button>
+          <button v-if="!g.builtin" class="small ghost" @click="moveGroup(g, 1)" title="下移">↓</button>
+          <button class="small ghost" @click="g.builtin ? null : toggleGroup(g)"
+                  :title="g.enabled ? '禁用' : '启用'">{{ g.enabled ? '⏻' : '○' }}</button>
+          <button v-if="!g.builtin" class="small ghost" @click="editGroup(g)" title="编辑">✎</button>
+          <button v-if="!g.builtin" class="small danger" @click="delGroup(g.id)" title="删除">🗑</button>
         </div>
       </div>
     </div>
@@ -177,6 +185,10 @@ const filteredNodes = computed(() => {
   if (!f) return nodes.value
   return nodes.value.filter(n => (n.tag + n.server + n.protocol).toLowerCase().includes(f))
 })
+
+const sortedGroups = computed(() =>
+  [...groups.value].sort((a, b) => (a.builtin ? 1 : 0) - (b.builtin ? 1 : 0)
+    || (a.position ?? 0) - (b.position ?? 0)))
 
 function lastLat(tag) {
   const h = (latHist.value[tag] || []).filter(x => x.ok && x.latency_ms != null)
@@ -314,6 +326,16 @@ async function toggleMembers(g) {
     groupMembers.value = r.members || []
     expandedGroup.value = g.id
   } catch (e) { toast(e.message) }
+}
+async function moveGroup(g, dir) {
+  const order = sortedGroups.value.filter(x => !x.builtin)
+  const i = order.findIndex(x => x.id === g.id)
+  const j = i + dir
+  if (j < 0 || j >= order.length) return
+  const ids = order.map(x => x.id)
+  ;[ids[i], ids[j]] = [ids[j], ids[i]]
+  try { await post('/api/groups/reorder', { ids }); load() }
+  catch (e) { toast(e.message) }
 }
 
 onMounted(load)

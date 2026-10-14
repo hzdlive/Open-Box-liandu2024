@@ -76,7 +76,7 @@ def test_api():
 
     # default groups seeded (+ built-in direct/block)
     groups = c.get("/api/groups").get_json()
-    assert {g["name"] for g in groups} == {"auto", "manual", "direct", "block"}, groups
+    assert {g["name"] for g in groups} == {"所有-自动", "所有-手动", "direct", "block"}, groups
 
     # clash subscription import via API (auto-detect)
     clash_text = (ROOT / "sample-clash.yaml").read_text()
@@ -100,14 +100,14 @@ def test_api():
     r = c.post("/api/chains", json={"name": "chain1", "exit_protocol": "socks",
                                    "server": "203.0.113.60", "port": 1080,
                                    "params": {"username": "u", "password": "p"},
-                                   "front": "auto"})
+                                   "front": "所有-自动"})
     assert r.status_code == 201, r.get_data(as_text=True)
     conf = c.get("/api/config").get_json()
     chain_ob = [o for o in conf["outbounds"] if o["tag"] == "chain1"][0]
-    assert chain_ob["detour"] == "auto" and chain_ob["username"] == "u", chain_ob
-    manual = [o for o in conf["outbounds"] if o["tag"] == "manual"][0]
+    assert chain_ob["detour"] == "所有-自动" and chain_ob["username"] == "u", chain_ob
+    manual = [o for o in conf["outbounds"] if o["tag"] == "所有-手动"][0]
     assert "chain1" in manual["outbounds"]  # chains join the static selector
-    auto = [o for o in conf["outbounds"] if o["tag"] == "auto"][0]
+    auto = [o for o in conf["outbounds"] if o["tag"] == "所有-自动"][0]
     assert "chain1" not in auto["outbounds"]  # but not the dynamic urltest
 
     # ruleset: local HTTP stub -> refresh -> site set reference

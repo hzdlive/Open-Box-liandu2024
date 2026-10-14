@@ -115,7 +115,7 @@ def test_client_api():
     assert len(nodes) == 5 and "latency_ms" in nodes[0]
 
     groups = c.get("/api/client/groups", headers=hdr).get_json()
-    assert any(g["name"] == "auto" for g in groups)
+    assert any(g["name"] == "所有-自动" for g in groups)
 
     # group select with no kernel -> 502, but validates input first
     r = c.post("/api/client/groups/auto/select", headers=hdr, json={})
@@ -124,7 +124,7 @@ def test_client_api():
                json={"tag": nodes[0]["tag"]})
     assert r.status_code == 502  # clash API not running here
 
-    for mode, final in (("global", "auto"), ("rule", "auto"), ("direct", "direct")):
+    for mode, final in (("global", "所有-自动"), ("rule", "所有-自动"), ("direct", "direct")):
         conf = c.get(f"/api/client/config?mode={mode}", headers=hdr).get_json()
         assert conf["route"]["final"] == final, (mode, conf["route"]["final"])
         assert conf["inbounds"][0]["type"] == "tun"

@@ -60,7 +60,7 @@
         <div><label>动作</label><select v-model="f.action">
           <option value="proxy">代理</option><option value="direct">直连</option><option value="reject">拦截</option>
         </select></div>
-        <div><label>节点组（代理时）</label><input v-model="f.group" placeholder="auto"></div>
+        <div><label>节点组（代理时）</label><input v-model="f.group" placeholder="所有-自动"></div>
       </div>
       <div class="form-row">
         <div><label>域名（逗号分隔）</label><textarea v-model="f.domains" rows="2"></textarea></div>
@@ -92,7 +92,7 @@ const sites = ref([])
 const rulesets = ref([])
 const frontRules = ref([])
 const editing = ref(null)
-const f = ref({ name: '', action: 'proxy', group: 'auto', domains: '', suffix: '', ip: '', keyword: '', rulesets: [] })
+const f = ref({ name: '', action: 'proxy', group: '所有-自动', domains: '', suffix: '', ip: '', keyword: '', rulesets: [] })
 const fr = ref({ domain: '', target: '' })
 
 const actName = a => ({ proxy: '代理', direct: '直连', reject: '拦截' }[a] || a)
@@ -118,7 +118,7 @@ async function load() {
 
 function reset() {
   editing.value = null
-  f.value = { name: '', action: 'proxy', group: 'auto', domains: '', suffix: '', ip: '', keyword: '', rulesets: [] }
+  f.value = { name: '', action: 'proxy', group: '所有-自动', domains: '', suffix: '', ip: '', keyword: '', rulesets: [] }
 }
 function edit(s) {
   editing.value = s.id

@@ -168,7 +168,7 @@ def test_failover():
     t.start()
     try:
         groups = [{"name": "fo", "type": "failover", "members": ["n1", "n2"]},
-                  {"name": "auto", "type": "urltest", "members": ["n1"]}]
+                  {"name": "所有-自动", "type": "urltest", "members": ["n1"]}]
         health = [{"tag": "n1", "ok": False}, {"tag": "n2", "ok": True}]
         actions = fom.watch_once(groups, health, f"http://127.0.0.1:{port}", "")
         assert len(actions) == 1, actions

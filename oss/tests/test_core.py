@@ -27,7 +27,7 @@ def main() -> int:
     cfg = AppConfig(nodes=nodes, site_sets=site_sets, dns=DnsConfig())
     conf = build_config(cfg)
 
-    assert conf["route"]["final"] == "auto"
+    assert conf["route"]["final"] == "所有-自动"
     # sniff action + 3 site sets + dns rule
     assert len(conf["route"]["rules"]) == 5
     assert conf["route"]["rules"][0] == {"action": "sniff"}
@@ -37,7 +37,7 @@ def main() -> int:
     assert conf["route"]["rules"][3]["outbound"] == "block"
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) == 2, [o["tag"] for o in flips]
-    assert {o["tag"] for o in conf["outbounds"]} >= {"auto", "manual", "direct", "block"}
+    assert {o["tag"] for o in conf["outbounds"]} >= {"所有-自动", "所有-手动", "direct", "block"}
     assert "dns-out" not in {o["tag"] for o in conf["outbounds"]}
     assert conf["dns"]["servers"][0]["tag"] == "direct-dns"
     json.dumps(conf)  # must be serializable

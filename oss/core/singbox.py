@@ -117,8 +117,8 @@ def chain_to_outbound(chain: Chain) -> dict:
 
 def default_groups() -> list[Group]:
     return [
-        Group(name="auto", type="urltest", members=["*nodes*"], position=0),
-        Group(name="manual", type="selector", members=["*all*"], position=1),
+        Group(name="所有-自动", type="urltest", members=["*nodes*"], position=0),
+        Group(name="所有-手动", type="selector", members=["*all*"], position=1),
     ]
 
 

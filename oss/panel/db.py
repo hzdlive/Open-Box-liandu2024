@@ -203,7 +203,7 @@ DEFAULT_SETTINGS = {
     "dns_mode": "dnsmasq",          # dnsmasq | firewall | off
     "dns_region": "auto",           # auto | cn | outside
     "dns_region_detected": "",
-    "final_outbound": "auto",
+    "final_outbound": "所有-自动",
     "tun_stack": "mixed",
     "tun_mtu": "9000",
     "quic_block": "1",              # reject UDP/443 on proxy lines (default on)
@@ -229,6 +229,27 @@ DEFAULT_SETTINGS = {
     "share_lan_enabled": "0",   # expose a mixed inbound on LAN for other devices
     "share_lan_port": "8088",
 }
+
+
+def _migrate_default_groups(conn: sqlite3.Connection) -> None:
+    """Rename legacy default groups auto/manual to 所有-自动/所有-手动,
+    updating all references (site sets, front rules, final_outbound)."""
+    renames = {"auto": "所有-自动", "manual": "所有-手动"}
+    for old, new in renames.items():
+        row = conn.execute("SELECT id FROM groups WHERE name=?", (old,)).fetchone()
+        if not row:
+            continue
+        exists = conn.execute("SELECT id FROM groups WHERE name=?", (new,)).fetchone()
+        if exists:
+            # new name already taken: drop the legacy duplicate
+            conn.execute("DELETE FROM groups WHERE name=?", (old,))
+        else:
+            conn.execute("UPDATE groups SET name=? WHERE name=?", (new, old))
+        conn.execute("UPDATE site_sets SET grp=? WHERE grp=?", (new, old))
+        conn.execute("UPDATE front_rules SET target=? WHERE target=?", (new, old))
+        if get_setting(conn, "final_outbound", "") == old:
+            set_setting(conn, "final_outbound", new)
+    conn.commit()
 
 
 def init_db(conn: sqlite3.Connection) -> None:
@@ -270,14 +291,17 @@ def init_db(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE nodes ADD COLUMN {col} {ddl}")
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
-    # default outbound groups: auto = urltest over nodes, manual = selector over all
+    # default outbound groups (match original naming):
+    # 所有-自动 = urltest over nodes, 所有-手动 = selector over all
     conn.execute(
         "INSERT OR IGNORE INTO groups(name, type, members, dynamic_keywords, position)"
-        " VALUES ('auto', 'urltest', '[\"*nodes*\"]', '[]', 0)")
+        " VALUES ('所有-自动', 'urltest', '[\"*nodes*\"]', '[]', 0)")
     conn.execute(
         "INSERT OR IGNORE INTO groups(name, type, members, dynamic_keywords, position)"
-        " VALUES ('manual', 'selector', '[\"*all*\"]', '[]', 1)")
+        " VALUES ('所有-手动', 'selector', '[\"*all*\"]', '[]', 1)")
     conn.commit()
+    # migrate old default names (auto/manual) to the new ones, fixing references
+    _migrate_default_groups(conn)
 
 
 def add_subscription(conn: sqlite3.Connection, name: str, content: str,
@@ -930,11 +954,13 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     out.append({"id": 0, "name": "direct", "type": "builtin", "members": [],
                 "dynamic_keywords": [], "position": 9998, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
-                "dynamic": False, "builtin": True, "desc": "直连（内置）"})
+                "dynamic": False, "builtin": True, "desc": "直连",
+                "detail": "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。"})
     out.append({"id": -1, "name": "block", "type": "builtin", "members": [],
                 "dynamic_keywords": [], "position": 9999, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
-                "dynamic": False, "builtin": True, "desc": "拒绝（内置）"})
+                "dynamic": False, "builtin": True, "desc": "拒绝",
+                "detail": "命中的流量直接丢弃。"})
     return out
 
 
@@ -993,6 +1019,14 @@ def delete_group(conn: sqlite3.Connection, gid: int) -> bool:
     conn.commit()
     bump_rev(conn)
     return cur.rowcount > 0
+
+
+def reorder_groups(conn: sqlite3.Connection, ordered_ids: list[int]) -> None:
+    """Set group positions from an ordered list of group ids."""
+    for pos, gid in enumerate(ordered_ids):
+        conn.execute("UPDATE groups SET position=? WHERE id=?", (pos, gid))
+    conn.commit()
+    bump_rev(conn)
 
 
 # ---- node health ----
@@ -1156,10 +1190,10 @@ def factory_reset(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO settings(key, value) VALUES (?, ?)", (k, v))
     conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
-        " VALUES ('auto', 'urltest', '[\"*nodes*\"]', '[]', 0)")
+        " VALUES ('所有-自动', 'urltest', '[\"*nodes*\"]', '[]', 0)")
     conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
-        " VALUES ('manual', 'selector', '[\"*all*\"]', '[]', 1)")
+        " VALUES ('所有-手动', 'selector', '[\"*all*\"]', '[]', 1)")
     conn.execute("INSERT OR REPLACE INTO settings(key, value)"
                  " VALUES ('applied_rev', '')")
     conn.commit()
