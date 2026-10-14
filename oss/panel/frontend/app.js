@@ -87,7 +87,53 @@ async function vOverview() {
     ${health.length ? `<table><tr><th>节点</th><th>状态</th><th>检查时间</th></tr>
       ${health.map(h => `<tr><td>${esc(h.tag)}</td><td>${healthPill(h)}</td><td class="muted">${esc(h.checked_at)}</td></tr>`).join('')}
       </table>` : '<p class="muted">暂无数据，去「代理」页执行健康检查。</p>'}
-    <p class="muted">版本 ${esc(st.version)} · sing-box 内核：${esc(st.singbox)}</p>`;
+    <p class="muted">版本 ${esc(st.version)} · sing-box 内核：${esc(st.singbox)}</p>
+    <h3>站点延迟 <span class="muted">经内核回环代理测速</span></h3>
+    <div id="site-lat"></div>`;
+  try {
+    const sl = await get('/site-latency');
+    const box = $('#site-lat');
+    const renderCards = async () => {
+      try {
+        const h = await get('/site-latency/history?days=1');
+        const latest = {};
+        for (const c of h.checks) latest[c.site_id] = c;
+        box.innerHTML = sl.sites.length ? `<div class="grid2">` + sl.sites.map(s => {
+          const c = latest[s.id];
+          return `<div class="card"><div class="num">${c && c.ok ? c.latency_ms + ' ms' : '—'}</div>
+            <div class="lbl">${esc(s.name)}</div>
+            <div class="muted">${esc(s.url)}${c ? ' · ' + esc(c.checked_at.slice(11, 16)) : ''}</div></div>`;
+        }).join('') + `</div>
+        <div><button id="sl-check" class="ghost">立即测速</button>
+          <button id="sl-edit" class="ghost">管理站点</button></div>
+        <div id="sl-form"></div>` : '<p class="muted">尚未配置测试站点。</p>';
+        const bc = $('#sl-check');
+        if (bc) bc.onclick = async () => {
+          box.innerHTML = '<p class="muted">测速中…</p>';
+          try { await post('/site-latency/check', {}); toast('测速完成'); }
+          catch (e) { toast(e.message, false); }
+          renderCards();
+        };
+        const be = $('#sl-edit');
+        if (be) be.onclick = () => {
+          $('#sl-form').innerHTML = `<form id="f-sl"><label>站点（每行：名称|URL）</label>
+            <textarea name="sites" rows="4" style="width:100%">${esc(sl.sites.map(s => s.name + '|' + s.url).join('\n'))}</textarea>
+            <div><button>保存</button></div></form>`;
+          $('#f-sl').onsubmit = async e => {
+            e.preventDefault();
+            const lines = new FormData(e.target).get('sites').split('\n');
+            const sites = lines.map(l => l.trim()).filter(Boolean).map(l => {
+              const [name, ...rest] = l.split('|');
+              return rest.length ? { name: name.trim(), url: rest.join('|').trim() } : { name: l, url: l };
+            });
+            try { await post('/site-latency', { sites }); toast('已保存'); vOverview(); }
+            catch (err) { toast(err.message, false); }
+          };
+        };
+      } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+    };
+    renderCards();
+  } catch (e) { /* optional */ }
   const svcAct = async (path, label) => {
     try { await post(path, {}); toast(label + '已执行'); vOverview(); }
     catch (e) { toast(e.message, false); }
@@ -114,19 +160,25 @@ async function vOverview() {
 
 /* ---------- 代理 ---------- */
 async function vProxy() {
-  const [nodes, health, groups] = await Promise.all(
-    [get('/nodes'), get('/health'), get('/groups')]);
+  const [nodes, health, groups, latHist] = await Promise.all(
+    [get('/nodes'), get('/health'), get('/groups'), get('/latency/history').catch(() => ({}))]);
   const hm = Object.fromEntries(health.map(h => [h.tag, h]));
+  const lastLat = t => {
+    const h = (latHist[t] || []).filter(x => x.ok && x.latency_ms != null);
+    return h.length ? h[h.length - 1].latency_ms + ' ms' : '—';
+  };
   $('#view').innerHTML = `
     <h2>代理</h2>
     <div><button id="btn-health">检查健康</button>
+      <button id="btn-lat-sync" class="ghost">从内核同步延迟</button>
       <span class="muted">TCP 连通 + TLS 握手延迟；UDP 协议会标记为跳过</span></div>
     <h3>节点（${nodes.length}）</h3>
-    <table><tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th></tr>
+    <table><tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th><th>延迟历史</th></tr>
     ${nodes.map(n => `<tr><td><input type="checkbox" data-share-tag="${esc(n.tag)}"></td>
       <td>${esc(n.tag)}</td><td>${esc(n.protocol)}</td>
       <td class="muted">${esc(n.server)}:${n.port}</td>
-      <td>${hm[n.tag] ? healthPill(hm[n.tag]) : '<span class="muted">—</span>'}</td></tr>`).join('')}
+      <td>${hm[n.tag] ? healthPill(hm[n.tag]) : '<span class="muted">—</span>'}</td>
+      <td class="muted">${lastLat(n.tag)}</td></tr>`).join('')}
     </table>
     <div><button id="btn-share">生成分享链接</button>
       <span class="muted">勾选节点后生成 vmess/vless/trojan/ss 链接 + 二维码</span></div>
@@ -204,6 +256,15 @@ async function vProxy() {
     toast('检查中…');
     try { await post('/health/check', {}); toast('检查完成'); vProxy(); }
     catch (e) { toast(e.message, false); }
+  };
+  $('#btn-lat-sync').onclick = async () => {
+    try {
+      const r = await post('/latency/history/sync', {});
+      const samples = health.filter(h => h.latency_ms != null)
+        .map(h => ({ tag: h.tag, ok: !!h.ok, latency_ms: h.latency_ms }));
+      if (samples.length) await post('/latency/history/samples', { samples });
+      toast(`已同步 ${r.synced} 条内核延迟`); vProxy();
+    } catch (e) { toast(e.message, false); }
   };
   $('#f-group').onsubmit = async e => {
     e.preventDefault();
@@ -576,6 +637,149 @@ async function vDns() {
     try { await delReq('/dns/rewrite/' + b.dataset.delRw); toast('已删除'); vDns(); }
     catch (e) { toast(e.message, false); }
   });
+  // ---- DNS filter ----
+  try {
+    const f = await get('/dns/filter');
+    const fel = document.createElement('div');
+    fel.innerHTML = `
+    <h3>DNS 过滤 <span class="muted">广告/恶意域名拦截（dnsmasq address= 屏蔽）</span></h3>
+    <div class="panel"><div class="row">
+      <div><label>启用过滤</label><select id="df-enabled">
+        <option value="1"${f.enabled ? ' selected' : ''}>开</option>
+        <option value="0"${f.enabled ? '' : ' selected'}>关</option></select></div>
+      <div class="muted">已编译 ${f.compiled_domains} 个域名<br>
+        ${f.applied_at ? '最近应用：' + esc(f.applied_at) : '尚未应用'}</div>
+    </div>
+    <table><tr><th>名单</th><th>地址</th><th>启用</th><th>域名数</th><th></th></tr>
+      ${f.lists.map((l, i) => `<tr><td>${esc(l.name)}</td>
+        <td class="muted">${esc(l.url.slice(0, 60))}…</td>
+        <td><input type="checkbox" data-df-en="${i}"${l.enabled ? ' checked' : ''}></td>
+        <td class="muted">${l.domains ?? '—'}</td>
+        <td><button class="small danger" data-df-del="${i}">删除</button></td></tr>`).join('')}
+    </table>
+    <form id="f-df-add" class="row">
+      <div><label>名单名称</label><input type="text" name="name" required></div>
+      <div><label>名单 URL</label><input type="text" name="url" size="40" required></div>
+      <div><label>&nbsp;</label><button>添加</button></div>
+    </form>
+    <div><button id="df-save">保存设置</button>
+      <button id="df-apply" class="ghost">下载并应用名单</button>
+      <button id="df-update" class="ghost">仅更新名单</button></div>
+    <div id="df-result"></div></div>
+    <h3>过滤预览 / 拦截记录</h3>
+    <div class="panel"><div class="row">
+      <div><label>测试域名</label><input type="text" id="df-domain" placeholder="ads.example.com"></div>
+      <div><label>&nbsp;</label><button id="df-preview" class="ghost">预览是否拦截</button></div>
+    </div><div id="df-preview-r"></div></div>
+    <div class="panel"><div>
+      <button id="df-records" class="ghost">查看拦截记录</button>
+      <button id="df-qlog" class="ghost">查看 DNS 查询日志</button></div>
+      <div id="df-logs"></div></div>
+    <h3>上游测试 / 链路追踪</h3>
+    <div class="panel"><div class="row">
+      <div><label>上游</label><input type="text" id="dt-upstream" value="223.5.5.5" size="30"></div>
+      <div><label>测试域名</label><input type="text" id="dt-domain" value="www.google.com"></div>
+      <div><label>&nbsp;</label><button id="dt-test" class="ghost">测试上游</button></div>
+    </div><div id="dt-result"></div>
+    <div class="row">
+      <div><label>追踪域名</label><input type="text" id="dtr-domain" placeholder="www.youtube.com"></div>
+      <div><label>&nbsp;</label><button id="dtr-go" class="ghost">追踪</button></div>
+    </div><div id="dtr-result"></div>
+    <div><button id="dt-wan" class="ghost">查看系统当前上游（/etc/resolv.conf）</button>
+      <span id="dt-wan-r" class="muted"></span></div></div>`;
+    $('#view').appendChild(fel);
+    let lists = f.lists;
+    fel.querySelector('#df-save').onclick = async () => {
+      lists = lists.map((l, i) => ({ ...l,
+        enabled: fel.querySelector(`[data-df-en="${i}"]`).checked }));
+      try {
+        await put('/dns/filter', { enabled: fel.querySelector('#df-enabled').value === '1', lists });
+        toast('已保存'); vDns();
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#f-df-add').onsubmit = e => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      lists = [...lists, { name: fd.get('name'), url: fd.get('url'), enabled: true }];
+      vDns();
+    };
+    fel.querySelectorAll('[data-df-del]').forEach(b => b.onclick = () => {
+      lists = lists.filter((_, i) => i !== +b.dataset.dfDel); vDns();
+    });
+    const doApply = async (update) => {
+      fel.querySelector('#df-result').innerHTML = '<p class="muted">下载编译中…</p>';
+      try {
+        const r = await post('/dns/filter/apply' + (update ? '?update=1' : ''), {});
+        fel.querySelector('#df-result').innerHTML =
+          `<p>共 ${r.total_domains} 个域名 ${r.dnsmasq_reloaded ? '（dnsmasq 已重载）' : '（dnsmasq 未重载，需手动重载）'}</p>` +
+          r.lists.map(l => `<div class="muted">${esc(l.name)}: ${l.domains} ${esc(l.error || '')}</div>`).join('');
+      } catch (e) { fel.querySelector('#df-result').innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+    };
+    fel.querySelector('#df-apply').onclick = () => doApply(false);
+    fel.querySelector('#df-update').onclick = () => doApply(true);
+    fel.querySelector('#df-preview').onclick = async () => {
+      const dom = fel.querySelector('#df-domain').value.trim();
+      if (!dom) return;
+      try {
+        const r = await get('/dns/filter/preview?domain=' + encodeURIComponent(dom));
+        fel.querySelector('#df-preview-r').innerHTML =
+          `<p>${r.blocked ? `<b>会被拦截</b>（命中 ${esc(r.matched)}）` : '不会被拦截'}</p>`;
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#df-records').onclick = async () => {
+      try {
+        const r = await get('/dns/filter/records?n=100');
+        fel.querySelector('#df-logs').innerHTML =
+          (r.note ? `<p class="muted">${esc(r.note)}</p>` : '') +
+          (r.records.length ? `<table><tr><th>域名</th><th>来源</th><th>主机名</th></tr>` +
+            r.records.map(q => `<tr><td>${esc(q.domain)}</td><td class="muted">${esc(q.client)}</td>
+              <td class="muted">${esc(q.hostname || '—')}</td></tr>`).join('') + '</table>'
+            : '<p class="muted">暂无拦截记录</p>');
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#df-qlog').onclick = async () => {
+      try {
+        const r = await get('/dns/query-log?n=100');
+        fel.querySelector('#df-logs').innerHTML =
+          (r.note ? `<p class="muted">${esc(r.note)}</p>` : '') +
+          (r.queries.length ? `<table><tr><th>域名</th><th>类型</th><th>来源</th><th>主机名</th><th>拦截</th></tr>` +
+            r.queries.map(q => `<tr><td>${esc(q.domain)}</td><td class="muted">${esc(q.qtype)}</td>
+              <td class="muted">${esc(q.client)}</td><td class="muted">${esc(q.hostname || '—')}</td>
+              <td>${q.blocked ? '<span class="pill bad">拦截</span>' : ''}</td></tr>`).join('') + '</table>'
+            : '<p class="muted">暂无查询记录</p>');
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#dt-test').onclick = async () => {
+      const up = fel.querySelector('#dt-upstream').value.trim();
+      const dom = fel.querySelector('#dt-domain').value.trim() || 'www.google.com';
+      fel.querySelector('#dt-result').innerHTML = '<p class="muted">测试中…</p>';
+      try {
+        const r = await post('/dns/upstream-test', { upstream: up, domain: dom });
+        fel.querySelector('#dt-result').innerHTML = r.ok
+          ? `<p>延迟 <b>${r.latency_ms} ms</b> · 应答 ${r.answers} 条 · 经 ${esc(r.via)}</p>`
+          : `<p class="warn">失败：${esc(r.error || '')}</p>`;
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#dtr-go').onclick = async () => {
+      const dom = fel.querySelector('#dtr-domain').value.trim();
+      if (!dom) return;
+      fel.querySelector('#dtr-result').innerHTML = '<p class="muted">追踪中…</p>';
+      try {
+        const r = await post('/dns/trace', { domain: dom });
+        fel.querySelector('#dtr-result').innerHTML = r.ok
+          ? `<p>${esc(dom)} 走 <b>${r.route === 'proxy' ? '代理' : '直连'}</b> ·
+             上游 ${esc(r.upstream)} · 延迟 <b>${r.latency_ms} ms</b> · 应答 ${r.answers}</p>`
+          : `<p class="warn">失败：${esc(r.error || '')}</p>`;
+      } catch (e) { toast(e.message, false); }
+    };
+    fel.querySelector('#dt-wan').onclick = async () => {
+      try {
+        const r = await get('/dns/wan');
+        fel.querySelector('#dt-wan-r').textContent =
+          r.upstreams.length ? r.upstreams.join(', ') : '无';
+      } catch (e) { toast(e.message, false); }
+    };
+  } catch (e) { /* filter section optional */ }
 }
 
 /* ---------- 连接 ---------- */
@@ -611,7 +815,17 @@ async function vConns() {
     <div class="grid2" id="traf-now"></div>
     <div id="conns-tbl"><p class="muted">加载中…</p></div>
     <h3>每日流量 <span class="muted">按终端 / 出口 / 目标聚合</span></h3>
-    <div id="traf-daily"><p class="muted">加载中…</p></div>`;
+    <div id="traf-daily"><p class="muted">加载中…</p></div>
+    <h3>月度流量</h3>
+    <div class="panel"><div class="row">
+      <div><label>月份</label><input type="month" id="tm-month"></div>
+      <div><label>下钻维度</label><select id="tm-dim">
+        <option value="proxy">按出口</option><option value="host">按目标</option>
+        <option value="client">按终端</option></select></div>
+      <div><label>&nbsp;</label><button id="tm-go" class="ghost">查看</button></div>
+    </div>
+    <div id="tm-result"></div>
+    <div id="tm-usage" class="muted"></div></div>`;
   load();
   connsTimer = setInterval(load, 5000);
   try {
@@ -623,6 +837,34 @@ async function vConns() {
         <td>${fmt(x.up)}</td><td>${fmt(x.down)}</td></tr>`).join('')}</table>`
       : '<p class="muted">暂无记录（需要内核运行且流量采集开启）</p>';
   } catch (e) { $('#traf-daily').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  // month view + drill
+  try {
+    const u = await get('/traffic/usage');
+    const gb = n => (n / 1e9).toFixed(2) + ' GB';
+    $('#tm-usage').textContent =
+      `保留 ${u.days} 天 · ${u.rows} 条记录 · 累计上行 ${gb(u.up)} / 下行 ${gb(u.down)}` +
+      (u.oldest_day ? ` · 最早 ${u.oldest_day}` : '');
+  } catch (e) { /* optional */ }
+  $('#tm-month').value = new Date().toISOString().slice(0, 7);
+  $('#tm-go').onclick = async () => {
+    const month = $('#tm-month').value, dim = $('#tm-dim').value;
+    const box = $('#tm-result');
+    box.innerHTML = '<p class="muted">加载中…</p>';
+    try {
+      const [m, dr] = await Promise.all([
+        get('/traffic/month?month=' + month), get(`/traffic/drill?month=${month}&dim=${dim}`)]);
+      box.innerHTML = `
+        <p class="muted">合计上行 ${fmt(m.total.up)} / 下行 ${fmt(m.total.down)} ·
+          日均上行 ${fmt(m.daily_avg.up)} / 下行 ${fmt(m.daily_avg.down)}</p>
+        <table><tr><th>日期</th><th>上传</th><th>下载</th></tr>
+          ${m.days.map(d => `<tr><td>${esc(d.day)}</td><td>${fmt(d.up)}</td><td>${fmt(d.down)}</td></tr>`).join('')}
+        </table>
+        <h4>下钻（${{ proxy: '按出口', host: '按目标', client: '按终端' }[dim]}）</h4>
+        <table><tr><th>${{ proxy: '出口', host: '目标', client: '终端' }[dim]}</th><th>上传</th><th>下载</th></tr>
+          ${dr.rows.map(r => `<tr><td>${esc(r[dim] || '—')}</td><td>${fmt(r.up)}</td><td>${fmt(r.down)}</td></tr>`).join('')}
+        </table>`;
+    } catch (e) { box.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
 }
 
 /* ---------- 终端 ---------- */

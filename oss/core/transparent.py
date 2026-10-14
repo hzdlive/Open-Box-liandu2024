@@ -52,6 +52,7 @@ class TransparentConfig:
     dns_direct_ip: str = ""         # direct upstream, for per-domain server= lines
     dns_proxy_ip: str = ""          # proxy upstream, for per-domain server= lines
     site_domains: list = field(default_factory=list)  # (action, [domains/suffixes]) for server= lines
+    dns_filter_conf: str = ""       # path to dnsmasq-blocklist.conf ("" = filter off)
 
 
 def nft_script(cfg: TransparentConfig) -> str:
@@ -156,4 +157,7 @@ def dnsmasq_snippet(cfg: TransparentConfig) -> str:
             lines.append(f"server=/{d}/{upstream}")
     for domain, target in cfg.dns_rewrites:
         lines.append(f"address=/{domain}/{target}")
+    if cfg.dns_filter_conf:
+        lines.append(f"# DNS filter blocklist ({cfg.dns_filter_conf})")
+        lines.append(f"conf-file={cfg.dns_filter_conf}")
     return "\n".join(lines) + "\n"

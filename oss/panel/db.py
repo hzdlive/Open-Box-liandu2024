@@ -108,6 +108,26 @@ CREATE TABLE IF NOT EXISTS failover_state(
   updated_at TEXT NOT NULL DEFAULT '',
   last_switch_at TEXT
 );
+CREATE TABLE IF NOT EXISTS latency_history(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tag TEXT NOT NULL,
+  ok INTEGER NOT NULL DEFAULT 1,
+  latency_ms REAL,
+  checked_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_latency_history_tag ON latency_history(tag, id);
+CREATE TABLE IF NOT EXISTS site_latency_sites(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  url TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS site_latency_checks(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL REFERENCES site_latency_sites(id) ON DELETE CASCADE,
+  ok INTEGER NOT NULL DEFAULT 1,
+  latency_ms REAL,
+  checked_at TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -123,6 +143,9 @@ DEFAULT_SETTINGS = {
     "client_mode": "rule",
     "state_rev": "0",
     "wifi_policy": '{"enabled": false, "pause_ssids": [], "action": "pause"}',
+    "dns_filter_enabled": "0",
+    "dns_filter_lists": "[]",   # JSON: [{name, url, enabled}]
+    "dns_filter_applied_at": "",
 }
 
 
@@ -779,3 +802,127 @@ def factory_reset(conn: sqlite3.Connection) -> None:
     conn.execute("INSERT OR REPLACE INTO settings(key, value)"
                  " VALUES ('applied_rev', '')")
     conn.commit()
+
+
+# ---- latency history (shared across browsers) ----
+def record_latency(conn: sqlite3.Connection, tag: str, ok: bool,
+                   latency_ms: float | None) -> None:
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    conn.execute(
+        "INSERT INTO latency_history(tag, ok, latency_ms, checked_at)"
+        " VALUES (?, ?, ?, ?)", (tag, 1 if ok else 0, latency_ms, now))
+    conn.execute(
+        "DELETE FROM latency_history WHERE tag=? AND id NOT IN"
+        " (SELECT id FROM latency_history WHERE tag=? ORDER BY id DESC LIMIT 50)",
+        (tag, tag))
+    conn.commit()
+
+
+def get_latency_history(conn: sqlite3.Connection) -> dict:
+    out: dict = {}
+    for tag, ok, ms, at in conn.execute(
+            "SELECT tag, ok, latency_ms, checked_at FROM latency_history"
+            " ORDER BY id DESC LIMIT 2000"):
+        out.setdefault(tag, []).append(
+            {"ok": bool(ok), "latency_ms": ms, "checked_at": at})
+    for v in out.values():
+        v.reverse()
+    return out
+
+
+# ---- site latency ----
+def set_site_latency_sites(conn: sqlite3.Connection, sites: list[dict]) -> list[dict]:
+    conn.execute("DELETE FROM site_latency_sites")
+    for s in sites:
+        if not s.get("url"):
+            continue
+        conn.execute("INSERT INTO site_latency_sites(name, url) VALUES (?, ?)",
+                     (s.get("name") or s["url"], s["url"]))
+    conn.commit()
+    return list_site_latency_sites(conn)
+
+
+def list_site_latency_sites(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "name": r[1], "url": r[2]}
+            for r in conn.execute(
+                "SELECT id, name, url FROM site_latency_sites ORDER BY id")]
+
+
+def record_site_check(conn: sqlite3.Connection, site_id: int, ok: bool,
+                      latency_ms: float | None) -> None:
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    conn.execute(
+        "INSERT INTO site_latency_checks(site_id, ok, latency_ms, checked_at)"
+        " VALUES (?, ?, ?, ?)", (site_id, 1 if ok else 0, latency_ms, now))
+    conn.execute(
+        "DELETE FROM site_latency_checks WHERE site_id=? AND id NOT IN"
+        " (SELECT id FROM site_latency_checks WHERE site_id=?"
+        "  ORDER BY id DESC LIMIT 100)", (site_id, site_id))
+    conn.commit()
+
+
+def site_latency_history(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
+    return [{"site_id": r[0], "ok": bool(r[1]), "latency_ms": r[2],
+             "checked_at": r[3]}
+            for r in conn.execute(
+                "SELECT site_id, ok, latency_ms, checked_at FROM site_latency_checks"
+                " WHERE checked_at >= datetime('now', ? || ' days')"
+                " ORDER BY checked_at", (-days,))]
+
+
+# ---- traffic aggregation ----
+def traffic_month(conn: sqlite3.Connection, month: str) -> dict:
+    """month='YYYY-MM'. Per-day rows + total + daily average."""
+    rows = conn.execute(
+        "SELECT day, SUM(up), SUM(down) FROM traffic_daily"
+        " WHERE substr(day, 1, 7)=? GROUP BY day ORDER BY day", (month,)).fetchall()
+    days = [{"day": r[0], "up": r[1] or 0, "down": r[2] or 0} for r in rows]
+    total_up = sum(d["up"] for d in days)
+    total_down = sum(d["down"] for d in days)
+    n = len(days) or 1
+    return {"month": month, "days": days,
+            "total": {"up": total_up, "down": total_down},
+            "daily_avg": {"up": total_up // n, "down": total_down // n}}
+
+
+def traffic_day(conn: sqlite3.Connection, day: str, limit: int = 50) -> dict:
+    by_proxy = [{"proxy": r[0], "up": r[1] or 0, "down": r[2] or 0}
+                for r in conn.execute(
+                    "SELECT proxy, SUM(up), SUM(down) FROM traffic_daily"
+                    " WHERE day=? GROUP BY proxy ORDER BY SUM(up)+SUM(down) DESC"
+                    " LIMIT ?", (day, limit))]
+    by_host = [{"host": r[0], "up": r[1] or 0, "down": r[2] or 0}
+               for r in conn.execute(
+                   "SELECT host, SUM(up), SUM(down) FROM traffic_daily"
+                   " WHERE day=? GROUP BY host ORDER BY SUM(up)+SUM(down) DESC"
+                   " LIMIT ?", (day, limit))]
+    by_client = [{"client": r[0], "up": r[1] or 0, "down": r[2] or 0}
+                 for r in conn.execute(
+                     "SELECT client, SUM(up), SUM(down) FROM traffic_daily"
+                     " WHERE day=? GROUP BY client ORDER BY SUM(up)+SUM(down) DESC"
+                     " LIMIT ?", (day, limit))]
+    return {"day": day, "by_proxy": by_proxy, "by_host": by_host,
+            "by_client": by_client}
+
+
+def traffic_drill(conn: sqlite3.Connection, month: str, dim: str) -> list[dict]:
+    """Aggregate one month by dimension: proxy | host | client."""
+    col = {"proxy": "proxy", "host": "host", "client": "client"}.get(dim, "proxy")
+    return [{dim: r[0], "up": r[1] or 0, "down": r[2] or 0}
+            for r in conn.execute(
+                f"SELECT {col}, SUM(up), SUM(down) FROM traffic_daily"
+                " WHERE substr(day, 1, 7)=? GROUP BY 1"
+                " ORDER BY SUM(up)+SUM(down) DESC LIMIT 100", (month,))]
+
+
+def traffic_usage(conn: sqlite3.Connection) -> dict:
+    days = conn.execute(
+        "SELECT COUNT(DISTINCT day) FROM traffic_daily").fetchone()[0]
+    rows = conn.execute("SELECT COUNT(*) FROM traffic_daily").fetchone()[0]
+    total = conn.execute(
+        "SELECT COALESCE(SUM(up),0), COALESCE(SUM(down),0)"
+        " FROM traffic_daily").fetchone()
+    oldest = conn.execute(
+        "SELECT MIN(day) FROM traffic_daily").fetchone()[0]
+    return {"days": days, "rows": rows, "up": total[0], "down": total[1],
+            "oldest_day": oldest}

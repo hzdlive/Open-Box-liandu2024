@@ -633,7 +633,16 @@ def create_app(db_path: str = ":memory:") -> Flask:
             dns_direct_ip=_strip_scheme(cfg.dns.direct_dns),
             dns_proxy_ip=_strip_scheme(cfg.dns.proxy_dns),
             site_domains=site_domains,
+            dns_filter_conf=_dns_filter_conf_path(c),
         )
+
+    def _dns_filter_conf_path(c) -> str:
+        from panel.db import get_setting
+        from core import dnsfilter as _df
+        from core.service import manager_from_env
+        if get_setting(c, "dns_filter_enabled", "0") != "1":
+            return ""
+        return _df.blocklist_path(manager_from_env().workdir)
 
     @app.get("/api/transparent/nft")
     def transparent_nft():
@@ -941,6 +950,154 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    def _df_workdir() -> str:
+        from core.service import manager_from_env
+        return manager_from_env().workdir
+
+    def _trace_proxy_route(c, domain: str) -> bool:
+        """Best-effort: would *domain* go through the proxy? Used to pick
+        the trace upstream. Pure rule matching, no network."""
+        from core.routing import preview_route
+        from panel.db import get_setting
+        try:
+            cfg = dbmod.load_app_config(c)
+            r = preview_route(cfg.site_sets, domain)
+            action = r.get("action") or ""
+            if action == "proxy":
+                return True
+            if action == "direct":
+                return False
+            return get_setting(c, "final_outbound", "auto") not in ("direct",)
+        except Exception:
+            return False
+
+    # ---- DNS filter (ad/malware blocklists) ----
+    def _dns_filter_lists(c):
+        import json as _json
+        from panel.db import get_setting
+        try:
+            lists = _json.loads(get_setting(c, "dns_filter_lists", "[]"))
+        except ValueError:
+            lists = []
+        if not lists:
+            from core.dnsfilter import BUILTIN_LISTS
+            lists = [dict(x) for x in BUILTIN_LISTS]
+        return lists
+
+    @app.get("/api/dns/filter")
+    def dns_filter_get():
+        from panel.db import get_setting
+        from core import dnsfilter as _df
+        c = db()
+        m = _df.load_compiled(_df_workdir())
+        return jsonify({
+            "enabled": get_setting(c, "dns_filter_enabled", "0") == "1",
+            "lists": _dns_filter_lists(c),
+            "compiled_domains": len(m),
+            "applied_at": get_setting(c, "dns_filter_applied_at", ""),
+            "blocklist_path": _df.blocklist_path(_df_workdir()),
+        })
+
+    @app.put("/api/dns/filter")
+    def dns_filter_put():
+        import json as _json
+        from panel.db import set_setting
+        d = request.get_json(force=True, silent=True) or {}
+        lists = d.get("lists", [])
+        clean = [{"name": str(x.get("name", ""))[:80],
+                  "url": str(x.get("url", ""))[:500],
+                  "enabled": bool(x.get("enabled", True))}
+                 for x in lists if x.get("name") and x.get("url")]
+        c = db()
+        set_setting(c, "dns_filter_enabled",
+                    "1" if d.get("enabled") else "0")
+        set_setting(c, "dns_filter_lists", _json.dumps(clean, ensure_ascii=False))
+        return jsonify({"ok": True, "lists": clean})
+
+    @app.post("/api/dns/filter/apply")
+    def dns_filter_apply():
+        import json as _json
+        from panel.db import get_setting, set_setting
+        from core import dnsfilter as _df
+        c = db()
+        update_only = request.args.get("update") == "1"
+        lists = _dns_filter_lists(c)
+        result = _df.apply_lists(_df_workdir(), lists)
+        if not update_only:
+            set_setting(c, "dns_filter_enabled", "1")
+        set_setting(c, "dns_filter_applied_at", result["applied_at"])
+        set_setting(c, "dns_filter_lists", _json.dumps(
+            [{**l, "domains": s.get("domains", 0),
+              "updated_at": s.get("updated_at", ""),
+              "error": s.get("error", "")}
+             for l, s in zip(lists, result["lists"])], ensure_ascii=False))
+        return jsonify(result)
+
+    @app.get("/api/dns/filter/preview")
+    def dns_filter_preview():
+        from core import dnsfilter as _df
+        domain = request.args.get("domain", "").strip()
+        if not domain:
+            return jsonify({"error": "domain required"}), 400
+        hit = _df.match_domain(domain, _df.load_compiled(_df_workdir()))
+        return jsonify({"domain": domain, "blocked": hit is not None,
+                        "matched": hit})
+
+    @app.get("/api/dns/filter/records")
+    def dns_filter_records():
+        from core import dnsfilter as _df
+        from core import dnslog as _dl
+        n = min(int(request.args.get("n", 200)), 2000)
+        log_path = os.environ.get("OBX_DNSMASQ_LOG", "/var/log/dnsmasq.log")
+        queries, note = _dl.parse_dnsmasq_log(log_path, n * 2)
+        blocked = [q for q in _dl.enrich(
+            queries, _df.load_compiled(_df_workdir())) if q["blocked"]]
+        return jsonify({"records": blocked[:n], "note": note})
+
+    # ---- DNS query log ----
+    @app.get("/api/dns/query-log")
+    def dns_query_log():
+        from core import dnslog as _dl
+        from core import dnsfilter as _df
+        n = min(int(request.args.get("n", 200)), 2000)
+        log_path = os.environ.get("OBX_DNSMASQ_LOG", "/var/log/dnsmasq.log")
+        queries, note = _dl.parse_dnsmasq_log(log_path, n)
+        return jsonify({"queries": _dl.enrich(
+            queries, _df.load_compiled(_df_workdir())), "note": note,
+            "log_path": log_path})
+
+    # ---- DNS upstream test / WAN DNS / trace ----
+    @app.post("/api/dns/upstream-test")
+    def dns_upstream_test():
+        from core import dnstest as _dt
+        d = request.get_json(force=True, silent=True) or {}
+        upstream = (d.get("upstream") or "").strip()
+        if not upstream:
+            return jsonify({"error": "upstream required"}), 400
+        return jsonify(_dt.test_upstream(
+            upstream, d.get("domain") or "www.google.com",
+            timeout=float(d.get("timeout", 5.0))))
+
+    @app.get("/api/dns/wan")
+    def dns_wan():
+        from core import dnstest as _dt
+        return jsonify({"upstreams": _dt.system_upstreams()})
+
+    @app.post("/api/dns/trace")
+    def dns_trace():
+        from core import dnstest as _dt
+        from panel.db import get_setting
+        d = request.get_json(force=True, silent=True) or {}
+        domain = (d.get("domain") or "").strip()
+        if not domain:
+            return jsonify({"error": "domain required"}), 400
+        c = db()
+        direct = get_setting(c, "dns_direct", "223.5.5.5")
+        proxy = get_setting(c, "dns_proxy", "tcp://1.1.1.1")
+        route = d.get("route") or ("proxy" if _trace_proxy_route(c, domain) else "direct")
+        return jsonify(_dt.trace(domain, direct, proxy, route,
+                                 timeout=float(d.get("timeout", 5.0))))
+
     # ---- live connections (via kernel clash API) ----
     @app.get("/api/connections")
     def connections_list():
@@ -987,6 +1144,115 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def traffic_daily():
         days = min(max(int(request.args.get("days", 7)), 1), 90)
         return jsonify({"rows": dbmod.traffic_summary(db(), days)})
+
+    @app.get("/api/traffic/usage")
+    def traffic_usage():
+        return jsonify(dbmod.traffic_usage(db()))
+
+    @app.get("/api/traffic/month")
+    def traffic_month():
+        import time as _time
+        month = request.args.get("month") or _time.strftime("%Y-%m")
+        if not __import__("re").match(r"^\d{4}-\d{2}$", month):
+            return jsonify({"error": "month must be YYYY-MM"}), 400
+        return jsonify(dbmod.traffic_month(db(), month))
+
+    @app.get("/api/traffic/day")
+    def traffic_day():
+        import time as _time, re as _re
+        day = request.args.get("day") or _time.strftime("%Y-%m-%d")
+        if not _re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+            return jsonify({"error": "day must be YYYY-MM-DD"}), 400
+        return jsonify(dbmod.traffic_day(db(), day))
+
+    @app.get("/api/traffic/drill")
+    def traffic_drill():
+        import time as _time, re as _re
+        month = request.args.get("month") or _time.strftime("%Y-%m")
+        dim = request.args.get("dim", "proxy")
+        if not _re.match(r"^\d{4}-\d{2}$", month):
+            return jsonify({"error": "month must be YYYY-MM"}), 400
+        if dim not in ("proxy", "host", "client"):
+            return jsonify({"error": "dim must be proxy|host|client"}), 400
+        return jsonify({"month": month, "dim": dim,
+                        "rows": dbmod.traffic_drill(db(), month, dim)})
+
+    # ---- latency history (shared across browsers) ----
+    @app.get("/api/latency/history")
+    def latency_history():
+        return jsonify(dbmod.get_latency_history(db()))
+
+    @app.post("/api/latency/history/samples")
+    def latency_samples():
+        d = request.get_json(force=True, silent=True) or {}
+        samples = d.get("samples", [])
+        c = db()
+        n = 0
+        for s in samples:
+            tag = str(s.get("tag", ""))
+            if not tag:
+                continue
+            dbmod.record_latency(c, tag, bool(s.get("ok", True)),
+                                 s.get("latency_ms"))
+            n += 1
+        return jsonify({"recorded": n})
+
+    @app.post("/api/latency/history/sync")
+    def latency_history_sync():
+        """Pull per-proxy delay history from the kernel clash API."""
+        from core import clashapi
+        ok, data = clashapi.get_proxies()
+        c = db()
+        n = 0
+        if ok and isinstance(data, dict):
+            for tag, p in (data.get("proxies") or {}).items():
+                hist = (p or {}).get("history") or []
+                if not hist:
+                    continue
+                last = hist[-1]
+                try:
+                    dbmod.record_latency(c, tag, True, float(last.get("delay")))
+                    n += 1
+                except (TypeError, ValueError):
+                    pass
+        return jsonify({"ok": ok, "synced": n,
+                        "history": dbmod.get_latency_history(c)})
+
+    # ---- site latency ----
+    @app.get("/api/site-latency")
+    def site_latency_get():
+        return jsonify({"sites": dbmod.list_site_latency_sites(db())})
+
+    @app.post("/api/site-latency")
+    def site_latency_set():
+        d = request.get_json(force=True, silent=True) or {}
+        sites = d.get("sites", [])
+        clean = [{"name": str(s.get("name", ""))[:60],
+                  "url": str(s.get("url", ""))[:500]}
+                 for s in sites if s.get("url")]
+        return jsonify({"sites": dbmod.set_site_latency_sites(db(), clean)})
+
+    @app.post("/api/site-latency/check")
+    def site_latency_check():
+        from core import sitelatency as _sl
+        cfg = dbmod.load_app_config(db())
+        m = _manager()
+        proxy = None
+        if m.status().running:
+            proxy = "http://127.0.0.1:2080"  # kernel loopback mixed inbound
+        c = db()
+        out = []
+        for s in dbmod.list_site_latency_sites(c):
+            r = _sl.check_site(s["url"], proxy)
+            dbmod.record_site_check(c, s["id"], r["ok"], r["latency_ms"])
+            out.append({"id": s["id"], "name": s["name"], "url": s["url"], **r})
+        return jsonify(out)
+
+    @app.get("/api/site-latency/history")
+    def site_latency_history():
+        days = min(max(int(request.args.get("days", 7)), 1), 90)
+        return jsonify({"checks": dbmod.site_latency_history(db(), days),
+                        "sites": dbmod.list_site_latency_sites(db())})
 
     # ---- domain penetration: full chain site set -> group -> node ----
     @app.post("/api/route/penetrate")
