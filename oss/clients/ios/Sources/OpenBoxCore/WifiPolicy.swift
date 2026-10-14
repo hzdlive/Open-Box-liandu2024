@@ -1,6 +1,7 @@
 import Foundation
-import OpenBoxCore
+#if os(iOS)
 import SystemConfiguration.CaptiveNetwork
+#endif
 
 /// Wi-Fi auto-pause policy evaluation (documented client behavior).
 ///
@@ -9,8 +10,12 @@ import SystemConfiguration.CaptiveNetwork
 /// (com.apple.developer.networking.wifi-info) + Location permission, and
 /// evaluation happens when the app is foregrounded or woken by the tunnel.
 /// NEHotspotHelper would allow more but needs a special Apple entitlement.
+///
+/// NOTE: CaptiveNetwork is iOS-only; on macOS (where this package also
+/// builds) SSID lookup is unavailable and returns nil.
 public enum WifiPolicyEvaluator {
     public static func currentSSID() -> String? {
+        #if os(iOS)
         guard let ifs = CNCopySupportedInterfaces() as? [String] else { return nil }
         for name in ifs {
             guard let info = CNCopyCurrentNetworkInfo(name as CFString) as? [String: Any],
@@ -18,6 +23,9 @@ public enum WifiPolicyEvaluator {
             return ssid
         }
         return nil
+        #else
+        return nil
+        #endif
     }
 
     /// Returns true when the VPN should pause right now.
