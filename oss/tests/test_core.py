@@ -37,7 +37,8 @@ def main() -> int:
     assert conf["route"]["rules"][3]["outbound"] == "block"
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) == 2, [o["tag"] for o in flips]
-    assert {o["tag"] for o in conf["outbounds"]} >= {"auto", "manual", "direct", "block", "dns-out"}
+    assert {o["tag"] for o in conf["outbounds"]} >= {"auto", "manual", "direct", "block"}
+    assert "dns-out" not in {o["tag"] for o in conf["outbounds"]}
     assert conf["dns"]["servers"][0]["tag"] == "direct-dns"
     json.dumps(conf)  # must be serializable
 

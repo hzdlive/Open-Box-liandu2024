@@ -14,7 +14,7 @@ ruleset=local:  omit site-set rules (client manages its own rules).
 
 from __future__ import annotations
 
-from core.singbox import build_outbounds, build_route_rules
+from core.singbox import build_outbounds, build_route_rules, _dns_servers
 
 VALID_MODES = ("global", "rule", "direct")
 
@@ -41,10 +41,8 @@ def build_client_config(cfg, mode: str = "rule", ruleset: str = "follow",
     return {
         "log": {"level": "warn"},
         "dns": {
-            "servers": [
-                {"tag": "direct-dns", "address": cfg.dns.direct_dns, "detour": "direct"},
-                {"tag": "proxy-dns", "address": cfg.dns.proxy_dns, "detour": "auto"},
-            ],
+            "servers": (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct")
+                        + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto")),
             "rules": dns_rules,
             "final": "direct-dns",
         },
@@ -52,13 +50,14 @@ def build_client_config(cfg, mode: str = "rule", ruleset: str = "follow",
             # Client-local: no auto_route here; the client app (VpnService /
             # utun / wintun) owns routing and points at this tun.
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,
-             "auto_route": False, "sniff": True},
+             "auto_route": False},
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1",
-             "listen_port": mixed_port, "sniff": True},
+             "listen_port": mixed_port},
         ],
         "outbounds": outbounds,
         "route": {
-            "rules": route_rules + [{"protocol": "dns", "outbound": "dns-out"}],
+            "rules": ([{"action": "sniff"}] + route_rules
+                      + [{"protocol": "dns", "action": "hijack-dns"}]),
             "final": final,
             "auto_detect_interface": True,
         },

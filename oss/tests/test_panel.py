@@ -49,10 +49,10 @@ def main() -> int:
     r = c.post("/api/route/preview", json={"target": "114.114.114.114.example.com"})
     assert r.get_json()["site_set"] is None, r.get_json()
 
-    # generated config reflects DB state (10 base + 2 flip selectors for the 2 site sets)
+    # generated config reflects DB state (9 base + 2 flip selectors for the 2 site sets)
     r = c.get("/api/config")
     conf = r.get_json()
-    assert len(conf["outbounds"]) == 12, len(conf["outbounds"])
+    assert len(conf["outbounds"]) == 11, len(conf["outbounds"])
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) == 2 and all(o["type"] == "selector" for o in flips), flips
     assert conf["route"]["final"] == "auto"

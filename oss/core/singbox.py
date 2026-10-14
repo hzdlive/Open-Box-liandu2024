@@ -185,7 +185,6 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
     outbounds += [
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},
-        {"type": "dns", "tag": "dns-out"},
     ]
     # Hot-switch selectors, one per proxy/direct site set (see flip_outbound).
     group_names = {g.name for g in groups}
@@ -282,9 +281,9 @@ def build_config(cfg: AppConfig) -> dict:
              if cfg.share_lan_enabled else []),
         "outbounds": outbounds,
         "route": {
-            # sing-box >= 1.13: inbound "sniff" field removed; sniffing is now
-            # a route rule action.
-            "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "outbound": "dns-out"}],
+            # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol
+            # traffic is handed to the DNS module via the hijack-dns action.
+            "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "action": "hijack-dns"}],
             "final": cfg.final_outbound,
             "auto_detect_interface": True,
         },
