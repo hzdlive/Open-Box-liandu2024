@@ -29,19 +29,63 @@ class SiteSet:
     domain_suffix: list = field(default_factory=list)  # domain suffixes
     domain_keyword: list = field(default_factory=list)
     ip_cidr: list = field(default_factory=list)
+    rule_sets: list = field(default_factory=list)      # referenced rule set names
     group: str = "auto"  # outbound group tag used when action == "proxy"
 
     @classmethod
     def from_dict(cls, d: dict) -> "SiteSet":
+        rules = d.get("rules", {}) if isinstance(d.get("rules"), dict) else {}
+
+        def pick(key: str) -> list:
+            v = rules.get(key, d.get(key, []))
+            return list(v) if isinstance(v, list) else []
+
         return cls(
             name=d["name"],
             action=d.get("action", "proxy"),
-            domains=list(d.get("domains", [])),
-            domain_suffix=list(d.get("domain_suffix", [])),
-            domain_keyword=list(d.get("domain_keyword", [])),
-            ip_cidr=list(d.get("ip_cidr", [])),
+            domains=pick("domains"),
+            domain_suffix=pick("domain_suffix"),
+            domain_keyword=pick("domain_keyword"),
+            ip_cidr=pick("ip_cidr"),
+            rule_sets=list(d.get("rule_sets", rules.get("rule_sets", []))),
             group=d.get("group", "auto"),
         )
+
+
+@dataclass
+class Group:
+    """An outbound group. Members resolve at build time."""
+
+    name: str
+    type: str = "urltest"  # urltest | selector
+    members: list = field(default_factory=list)
+    # member tags; "*nodes*" = all node tags, "*all*" = nodes + chains
+    dynamic_keywords: list = field(default_factory=list)
+    # node tags containing (case-insensitive) any keyword are auto-included
+    position: int = 0
+
+
+@dataclass
+class Chain:
+    """Chain proxy: exit (socks5/http) reached through a front node/group."""
+
+    name: str
+    exit_protocol: str = "socks"  # socks | http
+    server: str = ""
+    server_port: int = 0
+    params: dict = field(default_factory=dict)  # username, password
+    front: str = "auto"  # tag of the node/group to detour through
+
+
+@dataclass
+class RuleSet:
+    """A remote/local rule list referenced by site sets."""
+
+    name: str
+    url: str = ""
+    format: str = "auto"  # auto | clash-classical | domain-list
+    content: str = ""
+    updated_at: str = ""
 
 
 @dataclass
@@ -55,6 +99,8 @@ class DnsConfig:
 class AppConfig:
     nodes: list = field(default_factory=list)      # list[Node]
     site_sets: list = field(default_factory=list)  # list[SiteSet], top-down order
+    groups: list = field(default_factory=list)     # list[Group]
+    chains: list = field(default_factory=list)     # list[Chain]
     dns: DnsConfig = field(default_factory=DnsConfig)
     final_outbound: str = "auto"  # fallback route
     tun_stack: str = "mixed"     # mixed | gvisor | system

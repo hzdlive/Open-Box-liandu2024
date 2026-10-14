@@ -1,0 +1,39 @@
+proxies:
+  - {name: clash-ss, type: ss, server: 203.0.113.20, port: 8388, cipher: aes-256-gcm, password: pass1}
+  - name: clash-vmess
+    type: vmess
+    server: 203.0.113.21
+    port: 443
+    uuid: 11111111-2222-3333-4444-555555555555
+    alterId: 0
+    cipher: auto
+    tls: true
+    servername: example.com
+    network: ws
+    ws-opts: {path: /ws, headers: {Host: example.com}}
+  - name: clash-vless-reality
+    type: vless
+    server: 203.0.113.22
+    port: 443
+    uuid: 22222222-2222-3333-4444-555555555555
+    network: tcp
+    tls: true
+    servername: example.com
+    client-fingerprint: chrome
+    reality-opts: {public-key: pk123, short-id: ab12}
+    flow: xtls-rprx-vision
+  - name: clash-trojan
+    type: trojan
+    server: 203.0.113.23
+    port: 443
+    password: trojanpass
+    sni: example.com
+    alpn: [h2, http/1.1]
+  - name: clash-wg
+    type: wireguard
+    server: 203.0.113.24
+    port: 51820
+    ip: 10.0.0.2/32
+    public-key: wpubkey
+    private-key: wprivkey
+    mtu: 1280

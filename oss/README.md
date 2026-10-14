@@ -20,10 +20,13 @@ OpenWrt 一体化透明代理方案的**开源重构**（clean-room reimplementa
 ## 当前进度
 
 - [x] Phase 0：分支骨架、许可边界、首个模块 `core/`（订阅解析 → sing-box 配置生成）
-- [x] Phase 1（部分）：Flask 面板后端 API——SQLite 存储（订阅/节点/站点集/设置）、
-      订阅 CRUD、站点集 CRUD、路由预览（域名/IP 命中判定）、配置生成/预览接口、系统状态
-- [ ] Phase 1（剩余）：Clash YAML 导入、anytls/wireguard 解析、规则集、链式代理、
-      节点健康检查、故障转移组/动态组
+- [x] Phase 1（后端大部）：Flask 面板后端 API——SQLite 存储（订阅/节点/站点集/设置）、
+      订阅 CRUD（自动识别 base64 链接 / Clash YAML）、站点集 CRUD、路由预览（域名/IP 命中判定）、
+      配置生成/预览接口、系统状态
+- [x] Phase 1（协议与策略）：anytls/wireguard 解析与出站生成；规则集（远程规则抓取/解析/合并进站点集）；
+      链式代理（socks/http 出口经前置 detour）；节点组（urltest/selector、动态关键词、默认 auto/manual）；
+      节点健康检查（TCP 连通 + TLS 握手延迟，UDP 协议如实标记跳过）
+- [ ] Phase 1（剩余）：故障转移组（需真 failover 语义，见下）、订阅分享、导入导出整包
 - [ ] Phase 2：管理面板前端（zashboard MIT 基座 + 自研页面）
 - [ ] Phase 3：系统集成（nftables/TUN 部署、DNS 接管、安装/升级脚本）
 - [ ] Phase 4：客户端（长期可选）

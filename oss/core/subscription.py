@@ -176,6 +176,28 @@ def _parse_tuic_hysteria2(link: str, seen: set) -> Node | None:
     )
 
 
+def _parse_anytls(link: str, seen: set) -> Node | None:
+    # anytls://password@host:port/?sni=..&alpn=..&insecure=..&fp=..
+    u = urlparse(link)
+    q = dict(parse_qsl(u.query))
+    try:
+        port = int(u.port or 0)
+    except (TypeError, ValueError):
+        return None
+    tls: dict = {"enabled": True, "server_name": q.get("sni") or u.hostname}
+    if q.get("alpn"):
+        tls["alpn"] = q["alpn"].split(",")
+    if q.get("insecure") in ("1", "true"):
+        tls["insecure"] = True
+    if q.get("fp"):
+        tls["fingerprint"] = q["fp"]
+    return Node(
+        tag=_unique_tag(unquote(u.fragment) or "anytls", seen),
+        protocol="anytls", server=u.hostname or "", server_port=port,
+        params={"password": unquote(u.username or ""), "tls": tls},
+    )
+
+
 def parse_subscription(text: str) -> list[Node]:
     """Parse subscription text into a list of Nodes. Unknown lines are skipped."""
     nodes: list[Node] = []
@@ -194,6 +216,8 @@ def parse_subscription(text: str) -> list[Node]:
                 node = _parse_ss(line, seen)
             elif line.startswith(("tuic://", "hysteria2://", "hy2://")):
                 node = _parse_tuic_hysteria2(line, seen)
+            elif line.startswith("anytls://"):
+                node = _parse_anytls(line, seen)
         except Exception:
             node = None
         if node and node.server and node.server_port:

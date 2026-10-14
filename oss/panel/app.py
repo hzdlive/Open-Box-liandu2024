@@ -40,7 +40,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "name and content are required"}), 400
         try:
             sid, n = dbmod.add_subscription(db(), d["name"], d["content"],
-                                            d.get("source", "manual"))
+                                            d.get("source", "manual"),
+                                            d.get("format", "auto"))
         except Exception as e:
             return jsonify({"error": f"parse failed: {e}"}), 400
         return jsonify({"id": sid, "name": d["name"], "node_count": n}), 201
@@ -140,7 +141,142 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "subscriptions": len(dbmod.list_subscriptions(c)),
             "nodes": len(dbmod.list_nodes(c)),
             "site_sets": len(dbmod.list_site_sets(c)),
+            "groups": len(dbmod.list_groups(c)),
+            "chains": len(dbmod.list_chains(c)),
+            "rule_sets": len(dbmod.list_rule_sets(c)),
             "singbox": "not-installed",
         })
+
+    # ---- rule sets ----
+    @app.get("/api/rulesets")
+    def ruleset_list():
+        return jsonify(dbmod.list_rule_sets(db()))
+
+    @app.post("/api/rulesets")
+    def ruleset_create():
+        d = request.get_json(force=True, silent=True) or {}
+        if not d.get("name"):
+            return jsonify({"error": "name is required"}), 400
+        try:
+            return jsonify(dbmod.create_rule_set(db(), d)), 201
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "name already exists"}), 400
+
+    @app.get("/api/rulesets/<int:rid>")
+    def ruleset_get(rid: int):
+        rs = dbmod.get_rule_set(db(), rid)
+        if not rs:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(rs)
+
+    @app.put("/api/rulesets/<int:rid>")
+    def ruleset_update(rid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        rs = dbmod.update_rule_set(db(), rid, d)
+        if not rs:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(rs)
+
+    @app.delete("/api/rulesets/<int:rid>")
+    def ruleset_delete(rid: int):
+        if not dbmod.delete_rule_set(db(), rid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    @app.post("/api/rulesets/<int:rid>/refresh")
+    def ruleset_refresh(rid: int):
+        try:
+            return jsonify(dbmod.refresh_rule_set(db(), rid))
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": f"fetch failed: {e}"}), 502
+
+    # ---- chains ----
+    @app.get("/api/chains")
+    def chain_list():
+        return jsonify(dbmod.list_chains(db()))
+
+    @app.post("/api/chains")
+    def chain_create():
+        d = request.get_json(force=True, silent=True) or {}
+        if not d.get("name"):
+            return jsonify({"error": "name is required"}), 400
+        try:
+            return jsonify(dbmod.create_chain(db(), d)), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "name already exists"}), 400
+
+    @app.put("/api/chains/<int:cid>")
+    def chain_update(cid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            row = dbmod.update_chain(db(), cid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(row)
+
+    @app.delete("/api/chains/<int:cid>")
+    def chain_delete(cid: int):
+        if not dbmod.delete_chain(db(), cid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    # ---- groups ----
+    @app.get("/api/groups")
+    def group_list():
+        return jsonify(dbmod.list_groups(db()))
+
+    @app.post("/api/groups")
+    def group_create():
+        d = request.get_json(force=True, silent=True) or {}
+        if not d.get("name"):
+            return jsonify({"error": "name is required"}), 400
+        try:
+            return jsonify(dbmod.create_group(db(), d)), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "name already exists"}), 400
+
+    @app.put("/api/groups/<int:gid>")
+    def group_update(gid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            row = dbmod.update_group(db(), gid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(row)
+
+    @app.delete("/api/groups/<int:gid>")
+    def group_delete(gid: int):
+        if not dbmod.delete_group(db(), gid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    # ---- node health ----
+    @app.get("/api/health")
+    def health_list():
+        return jsonify(dbmod.list_health(db()))
+
+    @app.post("/api/health/check")
+    def health_check():
+        from core.health import check_nodes
+        d = request.get_json(force=True, silent=True) or {}
+        cfg = dbmod.load_app_config(db())
+        results = check_nodes(cfg.nodes, timeout=float(d.get("timeout", 5.0)),
+                              max_workers=int(d.get("max_workers", 20)))
+        dbmod.save_health(db(), results)
+        return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
+                         "error": r.error, "checked_at": r.checked_at}
+                        for r in results])
 
     return app

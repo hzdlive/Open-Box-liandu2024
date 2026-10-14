@@ -7,7 +7,7 @@ unmatched traffic falls through to ``final_outbound``.
 
 from __future__ import annotations
 
-from .models import AppConfig, Node
+from .models import AppConfig, Chain, Group, Node
 
 
 def _tls_block(params: dict) -> dict | None:
@@ -68,6 +68,18 @@ def node_to_outbound(node: Node) -> dict:
         ob["password"] = p.get("password", "")
         if p.get("obfs"):
             ob["obfs"] = p["obfs"]
+    elif node.protocol == "anytls":
+        ob["password"] = p.get("password", "")
+    elif node.protocol == "wireguard":
+        ob["system_interface"] = False
+        if p.get("local_address"):
+            ob["local_address"] = p["local_address"]
+        ob["private_key"] = p.get("private_key", "")
+        ob["peer_public_key"] = p.get("peer_public_key", "")
+        if p.get("pre_shared_key"):
+            ob["pre_shared_key"] = p["pre_shared_key"]
+        if p.get("mtu"):
+            ob["mtu"] = p["mtu"]
     tls = _tls_block(p)
     if tls:
         ob["tls"] = tls
@@ -77,18 +89,79 @@ def node_to_outbound(node: Node) -> dict:
     return ob
 
 
+def chain_to_outbound(chain: Chain) -> dict:
+    """A chain proxy is an exit outbound (socks5/http) dialing through a front."""
+    ob: dict = {
+        "type": chain.exit_protocol,
+        "tag": chain.name,
+        "server": chain.server,
+        "server_port": chain.server_port,
+        "detour": chain.front,
+    }
+    if chain.params.get("username"):
+        ob["username"] = chain.params["username"]
+    if chain.params.get("password"):
+        ob["password"] = chain.params["password"]
+    return ob
+
+
+def default_groups() -> list[Group]:
+    return [
+        Group(name="auto", type="urltest", members=["*nodes*"], position=0),
+        Group(name="manual", type="selector", members=["*all*"], position=1),
+    ]
+
+
+def resolve_group_members(group: Group, node_tags: list[str],
+                          chain_tags: list[str]) -> list[str]:
+    tags: list[str] = []
+    for m in group.members:
+        if m == "*nodes*":
+            tags.extend(node_tags)
+        elif m == "*all*":
+            tags.extend(node_tags + chain_tags)
+        elif (m in node_tags or m in chain_tags) and m not in tags:
+            tags.append(m)
+    for kw in group.dynamic_keywords:
+        kl = kw.lower()
+        for t in node_tags:
+            if kl in t.lower() and t not in tags:
+                tags.append(t)
+    return tags
+
+
 def build_config(cfg: AppConfig) -> dict:
     """Build the full sing-box config dict."""
     node_tags = [n.tag for n in cfg.nodes]
+    chain_tags = [c.name for c in cfg.chains]
+    groups = cfg.groups or default_groups()
+    group_names = {g.name for g in groups}
+
     outbounds = [node_to_outbound(n) for n in cfg.nodes]
+    outbounds += [chain_to_outbound(c) for c in cfg.chains]
+    for g in groups:
+        tags = resolve_group_members(g, node_tags, chain_tags)
+        if g.type == "selector":
+            outbounds.append({"type": "selector", "tag": g.name,
+                              "outbounds": tags or ["direct"],
+                              "default": tags[0] if tags else "direct"})
+        else:  # urltest
+            outbounds.append({"type": "urltest", "tag": g.name,
+                              "outbounds": tags or ["direct"],
+                              "url": "http://www.gstatic.com/generate_204",
+                              "interval": "5m", "tolerance": 50})
     outbounds += [
-        {"type": "urltest", "tag": "auto", "outbounds": node_tags,
-         "url": "http://www.gstatic.com/generate_204", "interval": "5m", "tolerance": 50},
-        {"type": "selector", "tag": "manual", "outbounds": node_tags, "default": node_tags[0] if node_tags else "direct"},
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},
         {"type": "dns", "tag": "dns-out"},
     ]
+
+    def target_of(action: str, group: str) -> str:
+        if action == "direct":
+            return "direct"
+        if action == "reject":
+            return "block"
+        return group if group in group_names else "auto"
 
     dns_rules = []
     route_rules = []
@@ -104,7 +177,7 @@ def build_config(cfg: AppConfig) -> dict:
             rule["ip_cidr"] = s.ip_cidr
         if not rule:
             continue
-        target = {"proxy": s.group, "direct": "direct", "reject": "block"}.get(s.action, s.group)
+        target = target_of(s.action, s.group)
         route_rules.append({**rule, "outbound": target})
         dns_rules.append({**rule, "server": "proxy-dns" if s.action == "proxy" else "direct-dns"})
 
