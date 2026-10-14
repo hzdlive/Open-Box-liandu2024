@@ -2,8 +2,9 @@
 
 OpenWrt 一体化透明代理方案的**开源重构**（clean-room reimplementation）。
 
-> 定位：与上游 Open-Box（闭源专有软件）行为兼容、代码完全独立重写的开源版本。
-> 本分支不包含任何 Open-Box 闭源二进制与混淆产物，不做反编译 / 反汇编 / 逆向。
+> 目标：复刻上游 Open-Box **闭源部分**（路由器端程序 + 客户端 App）的公开行为，
+> 代码完全独立重写。本分支不包含任何 Open-Box 闭源二进制与混淆产物，
+> 不做反编译 / 反汇编 / 逆向；授权/验签类机制不在复刻范围内。
 > 详细边界见 [BOUNDARY.md](BOUNDARY.md)。项目名称为暂定，正式发布前确认。
 
 ## 功能目标（对标公开文档描述的行为）
@@ -19,25 +20,28 @@ OpenWrt 一体化透明代理方案的**开源重构**（clean-room reimplementa
 ## 当前进度
 
 - [x] Phase 0：分支骨架、许可边界、首个模块 `core/`（订阅解析 → sing-box 配置生成）
-- [ ] Phase 1：配置生成器完善（Clash YAML、规则集、DNS 策略）
-- [ ] Phase 2：管理面板（后端 + 前端）
-- [ ] Phase 3：安装 / 升级 / 卸载脚本开源重写
+- [x] Phase 1（部分）：Flask 面板后端 API——SQLite 存储（订阅/节点/站点集/设置）、
+      订阅 CRUD、站点集 CRUD、路由预览（域名/IP 命中判定）、配置生成/预览接口、系统状态
+- [ ] Phase 1（剩余）：Clash YAML 导入、anytls/wireguard 解析、规则集、链式代理、
+      节点健康检查、故障转移组/动态组
+- [ ] Phase 2：管理面板前端（zashboard MIT 基座 + 自研页面）
+- [ ] Phase 3：系统集成（nftables/TUN 部署、DNS 接管、安装/升级脚本）
 - [ ] Phase 4：客户端（长期可选）
 
-路线图见 [docs/roadmap.md](docs/roadmap.md)。
-
-## 快速试用（Phase 0 模块）
-
-纯标准库，无第三方依赖：
+## 快速试用
 
 ```bash
 cd oss
-# 用示例订阅生成 sing-box 配置
+../.venv/bin/pip install -r requirements.txt   # 只需 Flask
+# 配置生成（纯标准库）
 python3 -m core.cli build --sub tests/sample-sub.txt --sites tests/sample-sites.json -o /tmp/config.json
-python3 -m json.tool /tmp/config.json | head -50
-# 跑自检
-python3 -m tests.test_core
+# 面板后端（开发模式）
+../.venv/bin/python panel/run.py   # http://127.0.0.1:8080/api/status
+# 自检
+python3 -m tests.test_core && ../.venv/bin/python -m tests.test_panel
 ```
+
+路线图见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 许可
 
