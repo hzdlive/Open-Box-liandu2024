@@ -1,0 +1,64 @@
+name: Kernel (sing-box tcp23)
+
+# Builds the patched sing-box kernel (1.14.1-openbox-tcp23) from the
+# GPL source bundle published with the upstream releases, for linux
+# amd64 + arm64. Binaries are uploaded as workflow artifacts.
+#
+# The build itself is upstream's own open-box-patch/build.sh
+# (patch order, build tags, ldflags and Go version all pinned in
+# versions.sh inside the bundle). This workflow only fetches the
+# pinned bundle, verifies its sha256, and runs the script.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [oss]
+    paths:
+      - '.github/workflows/kernel.yml'
+      - 'oss/kernel/**'
+
+env:
+  SOURCE_URL: https://github.com/liandu2024/Open-Box/releases/download/v0.1.326/sing-box-1.14.1-openbox-tcp23-source.tar.gz
+  # Pinned bundle hash (also mirrored in oss/kernel/README.md).
+  SOURCE_SHA256: daf38f19ec94ccdb0c3046de57f06f4950356b2f1be2850586b4988d844150a5
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Download and verify source bundle
+        run: |
+          curl -fSL --retry 3 "$SOURCE_URL" -o src.tar.gz
+          echo "$SOURCE_SHA256  src.tar.gz" | sha256sum -c -
+          tar -xzf src.tar.gz
+
+      - name: Read pinned Go version
+        id: goversion
+        run: |
+          v=$(grep '^SINGBOX_GO_VERSION=' source-bundle/open-box-patch/versions.sh | cut -d'"' -f2)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "pinned Go: $v"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.goversion.outputs.version }}
+
+      - name: Build kernel (${{ matrix.arch }})
+        run: |
+          OPENBOX_GO_BINARY="$(which go)" \
+            sh source-bundle/open-box-patch/build.sh ${{ matrix.arch }} "$PWD/out"
+
+      - name: Smoke test binary
+        run: ./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box version
+
+      - name: Upload kernel binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sing-box-tcp23-linux-${{ matrix.arch }}
+          path: out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box
+          if-no-files-found: error
