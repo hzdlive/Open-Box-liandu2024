@@ -37,13 +37,25 @@ Flask（Python）实现，对应源项目面板后端除授权外的全部管理
 - 页面对标：概览、代理·策略、域名穿透、规则调试、订阅管理、出站节点、
   目标分流、链式代理、DNS、后端设置、流量统计
 
-## Phase 3 — 系统集成
+## Phase 3 — 系统集成（2026-10-14 已交付，commit 695cc59）
 
-- sing-box 进程管理、配置热切换（复刻"切换不重启内核"：只改写小规则集；
-  可直接用 GPL 内核源码中的 `outbound-hot-replace` 补丁思想，自己实现）
-- nftables / TUN 透明代理部署、DNS 接管（dnsmasq / 防火墙劫持）
-- 安装 / 升级 / 回滚 / 卸载脚本（可复用并改进上游公开脚本）
-- 导出 / 导入整包配置、订阅分享（二维码/链接）
+- core/service.py：KernelManager，pidfile 守护 sing-box 进程，
+  启停/重启/版本/日志，只用公开 CLI（version/check/run）
+- core/apply.py：构建 → sing-box check 校验 → 原子写入 → 启动/重启；
+  坏配置永不替换线上配置
+- core/transparent.py：nftables TPROXY 脚本 + ip rule/route + dnsmasq 片段，
+  只生成不自动应用（需 root 手动操作）
+- 真 failover：failover 组类型（按成员顺序定优先级），core/failover.py
+  做健康选举，经公开 clash API（PUT /proxies/{组}）无重启切换；
+  明确为面板侧方案，非内核出站类型
+- 订阅分享：core/share.py 节点→链接编码器（vmess/vless/trojan/ss，
+  与 parser 往返验证），/api/share/qr 出 PNG 二维码
+- 整包备份/恢复：core/backup.py，全表 JSON，原子恢复
+- oss/scripts/：install/upgrade/rollback/uninstall.sh + OpenWrt procd init
+- 面板 API：/api/service*、/api/config/apply、/api/transparent/*、
+  /api/failover/elect、/api/share、/api/backup；前端对应页面已接线
+- tests/test_phase3.py：假 sing-box 二进制 + stub clash API，全绿
+- 未验证项：真机 nft 应用、OpenWrt 实机安装流程（无路由器环境）
 
 ## Phase 4 — 客户端（长期）
 
