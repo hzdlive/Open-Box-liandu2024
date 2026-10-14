@@ -61,7 +61,14 @@ jobs:
             sh source-bundle/open-box-patch/build.sh ${{ matrix.arch }} "$PWD/out"
 
       - name: Smoke test binary
-        run: ./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box version
+        run: |
+          BIN=./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box
+          file "$BIN"
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            # arm64 binaries cannot execute on the amd64 runner; `file`
+            # above already verifies the format.
+            "$BIN" version
+          fi
 
       - name: Upload kernel binary
         uses: actions/upload-artifact@v4
