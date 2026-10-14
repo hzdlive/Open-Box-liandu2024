@@ -368,6 +368,40 @@ def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
     return cur.rowcount > 0
 
 
+def add_manual_nodes(conn: sqlite3.Connection, content: str) -> dict:
+    """Manually add node(s) from pasted share link(s) into a '手动节点'
+    subscription (created on first use)."""
+    from core.subscription import parse_subscription
+    nodes = parse_subscription(content)
+    if not nodes:
+        raise ValueError("no nodes parsed from content")
+    row = conn.execute("SELECT id FROM subscriptions WHERE name='手动节点'").fetchone()
+    if row:
+        sid = row[0]
+    else:
+        cur = conn.execute(
+            "INSERT INTO subscriptions(name, source, created_at) VALUES (?, 'manual', ?)",
+            ("手动节点", time.strftime("%Y-%m-%dT%H:%M:%S")))
+        sid = cur.lastrowid
+    existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}
+    added = []
+    for n in nodes:
+        tag, i = n.tag, 2
+        while tag in existing:
+            tag = f"{n.tag} #{i}"
+            i += 1
+        existing.add(tag)
+        conn.execute(
+            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params, orig_tag)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sid, tag, n.protocol, n.server, n.server_port,
+             json.dumps(n.params, ensure_ascii=False), n.tag))
+        added.append(tag)
+    conn.commit()
+    bump_rev(conn)
+    return {"subscription_id": sid, "added": added, "node_count": len(added)}
+
+
 def list_nodes(conn: sqlite3.Connection) -> list[dict]:
     return [
         {"id": r[0], "tag": r[1], "protocol": r[2], "server": r[3],

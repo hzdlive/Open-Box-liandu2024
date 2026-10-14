@@ -487,6 +487,29 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def node_list():
         return jsonify(dbmod.list_nodes(db()))
 
+    @app.post("/api/nodes")
+    def node_create():
+        """Manually add node(s) from pasted share link(s)."""
+        d = request.get_json(force=True, silent=True) or {}
+        content = (d.get("content") or "").strip()
+        if not content:
+            return jsonify({"error": "content is required"}), 400
+        try:
+            r = dbmod.add_manual_nodes(db(), content)
+        except Exception as e:
+            return jsonify({"error": f"parse failed: {e}"}), 400
+        return jsonify(r), 201
+
+    @app.delete("/api/nodes/<int:nid>")
+    def node_delete(nid: int):
+        c = db()
+        cur = c.execute("DELETE FROM nodes WHERE id=?", (nid,))
+        c.commit()
+        if cur.rowcount == 0:
+            return jsonify({"error": "not found"}), 404
+        dbmod.bump_rev(c)
+        return jsonify({"ok": True})
+
     # ---- node exit info (via temp sing-box probe) ----
     def _node_by_tag(c, tag: str) -> dict | None:
         for n in dbmod.list_nodes(c):
@@ -763,6 +786,23 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if not dbmod.delete_group(db(), gid):
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
+
+    @app.get("/api/groups/<int:gid>/members")
+    def group_members(gid: int):
+        """Resolved member tags for a group (dynamic expansion included)."""
+        from core.singbox import resolve_group_members
+        from core.models import Group as _Group
+        c = db()
+        groups = [g for g in dbmod.list_groups(c) if g["id"] == gid]
+        if not groups:
+            return jsonify({"error": "not found"}), 404
+        g = groups[0]
+        node_tags = [n["tag"] for n in dbmod.list_nodes(c)]
+        chain_tags = [r[0] for r in c.execute("SELECT name FROM chains ORDER BY id")]
+        gm = _Group(name=g["name"], type=g["type"], members=g["members"],
+                    dynamic_keywords=g["dynamic_keywords"])
+        return jsonify({"group": g["name"],
+                        "members": resolve_group_members(gm, node_tags, chain_tags)})
 
     # ---- node health ----
     @app.get("/api/health")

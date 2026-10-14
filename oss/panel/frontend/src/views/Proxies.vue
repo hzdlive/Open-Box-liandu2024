@@ -10,16 +10,25 @@
 
   <div class="card">
     <h3>节点（{{ nodes.length }}）</h3>
+    <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center">
+      <input v-model="nodeFilter" placeholder="搜索标签 / 服务器" style="max-width:240px">
+      <span class="muted">{{ filteredNodes.length }} / {{ nodes.length }}</span>
+    </div>
     <table>
-      <tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th><th>延迟历史</th><th></th></tr>
-      <tr v-for="n in nodes" :key="n.tag">
+      <tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th><th>延迟</th><th></th></tr>
+      <tr v-for="n in filteredNodes" :key="n.tag">
         <td><input type="checkbox" :value="n.tag" v-model="selected"></td>
         <td>{{ n.tag }}</td><td>{{ n.protocol }}</td>
         <td class="muted">{{ n.server }}:{{ n.port }}</td>
         <td><span v-if="hm[n.tag]" :class="['pill', hm[n.tag].ok ? 'ok' : 'bad']">
           {{ hm[n.tag].ok ? '正常' : '异常' }}</span><span v-else class="muted">—</span></td>
         <td class="muted">{{ lastLat(n.tag) }}</td>
-        <td><button class="small ghost" @click="showNodeInfo(n.tag)">出口信息</button></td>
+        <td style="white-space:nowrap">
+          <button class="small ghost" @click="testOne(n.tag)" :disabled="testing === n.tag">
+            {{ testing === n.tag ? '测速中…' : '测速' }}</button>
+          <button class="small ghost" @click="showNodeInfo(n.tag)">出口信息</button>
+          <button class="small danger" @click="delNode(n)">删除</button>
+        </td>
       </tr>
     </table>
     <div style="margin-top:10px">
@@ -68,6 +77,16 @@
   </div>
 
   <div class="card">
+    <h3>手动添加节点</h3>
+    <form @submit.prevent="addManualNode">
+      <label>粘贴分享链接 <span class="muted">vmess / vless / trojan / ss / tuic / hysteria2，一行一个</span></label>
+      <textarea v-model="manualLinks" rows="3" placeholder="vless://…"></textarea>
+      <div style="margin-top:8px"><button class="small" :disabled="addingNode">
+        {{ addingNode ? '添加中…' : '添加' }}</button></div>
+    </form>
+  </div>
+
+  <div class="card">
     <h3>节点组</h3>
     <div class="grid c2">
       <div v-for="g in groups" :key="g.id" class="card" style="margin:0">
@@ -80,6 +99,11 @@
         <div v-if="!g.builtin" class="muted" style="font-size:12px">
           {{ g.dynamic ? '动态组' : '' }} · 当前 {{ g.member_count }} 个节点
           <template v-if="g.type === 'urltest'"> · 检测间隔 {{ g.interval_s }}s · 容差 {{ g.tolerance_ms }}ms</template>
+          <button class="small ghost" @click="toggleMembers(g)" style="margin-left:6px">
+            {{ expandedGroup === g.id ? '收起成员' : '查看成员' }}</button>
+        </div>
+        <div v-if="expandedGroup === g.id" class="muted" style="font-size:12px;margin-top:4px;max-height:120px;overflow-y:auto">
+          {{ groupMembers.join(', ') || '无成员' }}
         </div>
         <div v-if="!g.builtin" class="muted" style="font-size:12px">关键词: {{ g.dynamic_keywords.length ? g.dynamic_keywords.join(', ') : '—' }}</div>
         <div v-if="!g.builtin" style="margin-top:6px">
@@ -131,19 +155,28 @@
 </template>
 
 <script setup>
-import { ref, onMounted, inject } from 'vue'
-import { get, post, delReq } from '../api.js'
+import { ref, computed, onMounted, inject } from 'vue'
+import { get, post, put, delReq } from '../api.js'
 
 const toast = inject('toast')
 const nodes = ref([]), groups = ref([])
 const hm = ref({}), latHist = ref({})
 const selected = ref([]), shareResult = ref([])
-const busy = ref(false)
+const busy = ref(false), testing = ref(null)
 const failover = ref([])
 const nodeInfo = ref(null), niBusy = ref(false), entryText = ref('')
+const nodeFilter = ref('')
+const manualLinks = ref(''), addingNode = ref(false)
+const expandedGroup = ref(null), groupMembers = ref([])
 const gf = ref({ name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100 })
 const editingGroup = ref(null)
 const typeName = t => ({ urltest: '自动择优', selector: '手动选择', failover: '故障转移', builtin: '内置' }[t] || t)
+
+const filteredNodes = computed(() => {
+  const f = nodeFilter.value.trim().toLowerCase()
+  if (!f) return nodes.value
+  return nodes.value.filter(n => (n.tag + n.server + n.protocol).toLowerCase().includes(f))
+})
 
 function lastLat(tag) {
   const h = (latHist.value[tag] || []).filter(x => x.ok && x.latency_ms != null)
@@ -246,6 +279,40 @@ async function entryCountry(tag) {
   try {
     const r = await get('/api/node-info/' + encodeURIComponent(tag) + '/entry-country')
     entryText.value = r.ok ? `入口 ${r.ip} · ${r.country}` : '失败：' + (r.error || '')
+  } catch (e) { toast(e.message) }
+}
+async function testOne(tag) {
+  testing.value = tag
+  try {
+    await post('/api/health/check', { tag })
+    const h = await get('/api/health')
+    hm.value = Object.fromEntries(h.map(x => [x.tag, x]))
+    const r = hm.value[tag]
+    toast(r?.ok ? `${tag}: ${r.latency_ms ?? '—'} ms` : `${tag}: 异常`)
+  } catch (e) { toast(e.message) }
+  testing.value = null
+}
+async function delNode(n) {
+  if (!confirm(`删除节点 ${n.tag}？`)) return
+  try { await delReq('/api/nodes/' + n.id); toast('已删除'); load() }
+  catch (e) { toast(e.message) }
+}
+async function addManualNode() {
+  if (!manualLinks.value.trim()) return
+  addingNode.value = true
+  try {
+    const r = await post('/api/nodes', { content: manualLinks.value })
+    toast(`已添加 ${r.node_count} 个节点到「手动节点」`)
+    manualLinks.value = ''; load()
+  } catch (e) { toast(e.message) }
+  addingNode.value = false
+}
+async function toggleMembers(g) {
+  if (expandedGroup.value === g.id) { expandedGroup.value = null; return }
+  try {
+    const r = await get('/api/groups/' + g.id + '/members')
+    groupMembers.value = r.members || []
+    expandedGroup.value = g.id
   } catch (e) { toast(e.message) }
 }
 
