@@ -250,7 +250,9 @@ def build_config(cfg: AppConfig) -> dict:
              "mtu": cfg.tun_mtu,
              "auto_route": True, "strict_route": False, "sniff": True},
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080, "sniff": True},
-        ],
+        ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",
+               "listen_port": cfg.share_lan_port, "sniff": True}]
+             if cfg.share_lan_enabled else []),
         "outbounds": outbounds,
         "route": {
             "rules": route_rules + [{"protocol": "dns", "outbound": "dns-out"}],

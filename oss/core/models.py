@@ -129,3 +129,5 @@ class AppConfig:
     tun_mtu: int = 9000
     quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)
     clash_api_port: int = 9090
+    share_lan_enabled: bool = False  # expose mixed inbound on LAN (shared network)
+    share_lan_port: int = 8088

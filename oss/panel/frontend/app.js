@@ -173,13 +173,15 @@ async function vProxy() {
       <button id="btn-lat-sync" class="ghost">从内核同步延迟</button>
       <span class="muted">TCP 连通 + TLS 握手延迟；UDP 协议会标记为跳过</span></div>
     <h3>节点（${nodes.length}）</h3>
-    <table><tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th><th>延迟历史</th></tr>
+    <table><tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th><th>延迟历史</th><th></th></tr>
     ${nodes.map(n => `<tr><td><input type="checkbox" data-share-tag="${esc(n.tag)}"></td>
       <td>${esc(n.tag)}</td><td>${esc(n.protocol)}</td>
       <td class="muted">${esc(n.server)}:${n.port}</td>
       <td>${hm[n.tag] ? healthPill(hm[n.tag]) : '<span class="muted">—</span>'}</td>
-      <td class="muted">${lastLat(n.tag)}</td></tr>`).join('')}
+      <td class="muted">${lastLat(n.tag)}</td>
+      <td><button class="small ghost" data-nodeinfo="${esc(n.tag)}">出口信息</button></td></tr>`).join('')}
     </table>
+    <div id="nodeinfo-box"></div>
     <div><button id="btn-share">生成分享链接</button>
       <span class="muted">勾选节点后生成 vmess/vless/trojan/ss 链接 + 二维码</span></div>
     <div id="share-result"></div>
@@ -266,6 +268,55 @@ async function vProxy() {
       toast(`已同步 ${r.synced} 条内核延迟`); vProxy();
     } catch (e) { toast(e.message, false); }
   };
+  // node exit info
+  $('#view').querySelectorAll('[data-nodeinfo]').forEach(b => b.onclick = async () => {
+    const tag = b.dataset.nodeinfo;
+    const box = $('#nodeinfo-box');
+    const show = async (refreshed) => {
+      try {
+        const r = await get('/node-info/' + encodeURIComponent(tag));
+        box.innerHTML = `<div class="panel"><h3>${esc(tag)} 出口信息
+          ${r.cached ? '<span class="muted">（缓存）</span>' : ''}</h3>
+          <table><tr><th>项</th><th>值</th></tr>
+          ${[['出口 IP', r.ip], ['国家', r.country], ['地区', r.region], ['城市', r.city],
+              ['ISP', r.isp], ['ASN', r.asn], ['协议', r.proxy_type],
+              ['延迟', r.latency_ms != null ? r.latency_ms + ' ms' : '—']]
+            .map(([k, v]) => `<tr><td>${k}</td><td class="muted">${esc(v || '—')}</td></tr>`).join('')}
+          </table>
+          <div><button id="ni-refresh" class="ghost">刷新（经该节点实测）</button>
+            <button id="ni-entry" class="ghost">入口 IP 国家</button>
+            <span id="ni-entry-r" class="muted"></span></div></div>`;
+        box.querySelector('#ni-refresh').onclick = async () => {
+          box.innerHTML = '<p class="muted">经该节点探测中（约 10-20 秒）…</p>';
+          try {
+            const rr = await post('/node-info/' + encodeURIComponent(tag) + '/exit', {});
+            if (rr.error) toast(rr.error, false); else toast('已刷新');
+          } catch (e) { toast(e.message, false); }
+          show(true);
+        };
+        box.querySelector('#ni-entry').onclick = async () => {
+          try {
+            const er = await get('/node-info/' + encodeURIComponent(tag) + '/entry-country');
+            box.querySelector('#ni-entry-r').textContent = er.ok
+              ? `入口 ${er.ip} · ${er.country}` : ('失败：' + (er.error || ''));
+          } catch (e) { toast(e.message, false); }
+        };
+      } catch (e) {
+        box.innerHTML = `<div class="panel"><h3>${esc(tag)} 出口信息</h3>
+          <p class="muted">暂无缓存</p>
+          <div><button id="ni-refresh" class="ghost">经该节点实测</button></div></div>`;
+        box.querySelector('#ni-refresh').onclick = async () => {
+          box.innerHTML = '<p class="muted">经该节点探测中（约 10-20 秒）…</p>';
+          try {
+            const rr = await post('/node-info/' + encodeURIComponent(tag) + '/exit', {});
+            if (rr.error) toast(rr.error, false); else toast('已刷新');
+          } catch (e2) { toast(e2.message, false); }
+          show(true);
+        };
+      }
+    };
+    show(false);
+  });
   $('#f-group').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -290,10 +341,12 @@ async function vSubs() {
   const subs = await get('/subscriptions');
   $('#view').innerHTML = `
     <h2>订阅</h2>
-    <table><tr><th>名称</th><th>节点数</th><th>创建时间</th><th></th></tr>
+    <table><tr><th>名称</th><th>节点数</th><th>链接</th><th>创建时间</th><th></th></tr>
     ${subs.map(s => `<tr><td>${esc(s.name)}</td><td>${s.node_count}</td>
+      <td class="muted">${s.url ? '✓' : '—'}</td>
       <td class="muted">${esc(s.created_at)}</td>
-      <td><button class="small danger" data-del="${s.id}">删除</button></td></tr>`).join('')}
+      <td>${s.url ? `<button class="small ghost" data-refresh="${s.id}">刷新</button>` : ''}
+        <button class="small danger" data-del="${s.id}">删除</button></td></tr>`).join('')}
     </table>
     <form class="panel" id="f-sub"><h3>添加订阅</h3>
       <div class="row">
@@ -302,16 +355,28 @@ async function vSubs() {
           <option value="auto">自动识别</option><option value="links">分享链接</option><option value="clash">Clash YAML</option>
         </select></div>
       </div>
+      <label>订阅链接 URL（可选，填写后可一键刷新）</label>
+      <input type="text" name="url" placeholder="https://…">
       <label>订阅内容（粘贴 base64 订阅 / 链接列表 / Clash YAML）</label>
       <textarea name="content" rows="8" required></textarea>
       <div><button>解析并导入</button></div>
+    </form>
+    <h3>订阅分享 <span class="muted">生成免登录的公开订阅链接</span></h3>
+    <div id="subshares"><p class="muted">加载中…</p></div>
+    <form class="panel" id="f-share"><h3>新建分享</h3>
+      <div class="row">
+        <div><label>名称</label><input type="text" name="name" required></div>
+        <div><label>节点过滤（标签逗号分隔，空=全部）</label><input type="text" name="node_filter"></div>
+      </div>
+      <div><button>创建分享</button></div>
     </form>`;
   $('#f-sub').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
     try {
       const r = await post('/subscriptions', {
-        name: f.get('name').trim(), content: f.get('content'), format: f.get('format') });
+        name: f.get('name').trim(), content: f.get('content'), format: f.get('format'),
+        url: f.get('url').trim() || undefined });
       toast(`已导入 ${r.node_count} 个节点`); vSubs();
     } catch (err) { toast(err.message, false); }
   };
@@ -320,6 +385,52 @@ async function vSubs() {
     try { await delReq('/subscriptions/' + b.dataset.del); toast('已删除'); vSubs(); }
     catch (e) { toast(e.message, false); }
   });
+  $('#view').querySelectorAll('[data-refresh]').forEach(b => b.onclick = async () => {
+    b.disabled = true; b.textContent = '刷新中…';
+    try {
+      const r = await post('/subscriptions/' + b.dataset.refresh + '/refresh', {});
+      toast(`已刷新：${r.node_count} 个节点`); vSubs();
+    } catch (e) { toast(e.message, false); b.disabled = false; b.textContent = '刷新'; }
+  });
+  // shares
+  const loadShares = async () => {
+    try {
+      const list = await get('/subscription-shares');
+      $('#subshares').innerHTML = list.length ? `<table>
+        <tr><th>名称</th><th>公开链接</th><th>过滤</th><th></th></tr>
+        ${list.map(s => { const url = location.origin + '/sub/' + s.token; return `<tr>
+          <td>${esc(s.name)}</td>
+          <td><input type="text" readonly value="${esc(url)}" size="42"
+              onclick="this.select()"> <button class="small" data-copy="${esc(url)}">复制</button></td>
+          <td class="muted">${esc(s.node_filter || '全部')}</td>
+          <td><button class="small ghost" data-regen="${s.id}">换链接</button>
+            <button class="small danger" data-sdel="${s.id}">删除</button></td></tr>`; }).join('')}
+        </table>` : '<p class="muted">暂无分享</p>';
+      $('#subshares').querySelectorAll('[data-copy]').forEach(x => x.onclick = async () => {
+        try { await navigator.clipboard.writeText(x.dataset.copy); toast('已复制'); }
+        catch (e) { toast('复制失败', false); }
+      });
+      $('#subshares').querySelectorAll('[data-regen]').forEach(x => x.onclick = async () => {
+        if (!confirm('更换链接？旧链接将失效。')) return;
+        try { await post('/subscription-shares/' + x.dataset.regen + '/regenerate', {}); toast('已更换'); loadShares(); }
+        catch (e) { toast(e.message, false); }
+      });
+      $('#subshares').querySelectorAll('[data-sdel]').forEach(x => x.onclick = async () => {
+        if (!confirm('删除该分享？')) return;
+        try { await delReq('/subscription-shares/' + x.dataset.sdel); toast('已删除'); loadShares(); }
+        catch (e) { toast(e.message, false); }
+      });
+    } catch (e) { $('#subshares').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  $('#f-share').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await post('/subscription-shares', { name: f.get('name').trim(), node_filter: f.get('node_filter').trim() });
+      toast('已创建'); loadShares(); e.target.reset();
+    } catch (err) { toast(err.message, false); }
+  };
+  loadShares();
 }
 
 /* ---------- 站点集 ---------- */
@@ -902,6 +1013,49 @@ async function vTerminals() {
     try { await delReq('/terminals/' + b.dataset.delTerm); toast('已删除'); vTerminals(); }
     catch (e) { toast(e.message, false); }
   });
+  // probe + candidates
+  const pel = document.createElement('div');
+  pel.innerHTML = `
+    <h3>终端探测 <span class="muted">ping + 常用端口连通性</span></h3>
+    <div class="panel"><div class="row">
+      <div><label>目标（IP/域名）</label><input type="text" id="tp-target" placeholder="192.168.1.50"></div>
+      <div><label>&nbsp;</label><button id="tp-go" class="ghost">探测</button>
+        <span id="tp-cap" class="muted"></span></div>
+    </div><div id="tp-result"></div></div>
+    <h3>局域网候选 <span class="muted">DHCP 租约 + 流量中出现过的来源 IP</span></h3>
+    <div id="tp-cands"><p class="muted">加载中…</p></div>`;
+  $('#view').appendChild(pel);
+  try {
+    const cap = await get('/terminal-test/capability');
+    pel.querySelector('#tp-cap').textContent =
+      `探测能力：${cap.ping ? 'ping✓' : 'ping✗'} ${cap.tcp ? 'TCP✓' : 'TCP✗'}`;
+  } catch (e) { /* optional */ }
+  pel.querySelector('#tp-go').onclick = async () => {
+    const t = pel.querySelector('#tp-target').value.trim();
+    if (!t) return;
+    pel.querySelector('#tp-result').innerHTML = '<p class="muted">探测中…</p>';
+    try {
+      const r = await post('/terminal-test', { target: t });
+      pel.querySelector('#tp-result').innerHTML = `
+        <p>${r.ok ? '<b>可达</b>' : '<b>不可达</b>'} ·
+          ping ${r.ping.ok ? r.ping.latency_ms + ' ms' : '失败'} ·
+          开放端口 ${r.tcp.open_ports.length ? r.tcp.open_ports.join(', ') : '无'} ·
+          耗时 ${r.elapsed_ms} ms</p>`;
+    } catch (e) { toast(e.message, false); }
+  };
+  try {
+    const cands = await get('/terminal-candidates');
+    pel.querySelector('#tp-cands').innerHTML = cands.length ? `<table>
+      <tr><th>IP</th><th>主机名</th><th>来源</th><th></th></tr>
+      ${cands.map(c => `<tr><td>${esc(c.ip)}</td><td class="muted">${esc(c.hostname || '—')}</td>
+        <td class="muted">${c.source === 'dhcp' ? 'DHCP' : '流量'}</td>
+        <td><button class="small ghost" data-fill="${esc(c.ip)}">填入</button></td></tr>`).join('')}
+      </table>` : '<p class="muted">暂无候选</p>';
+    pel.querySelectorAll('[data-fill]').forEach(b => b.onclick = () => {
+      const inp = $('#view').querySelector('#f-term input[name=ident]');
+      if (inp) { inp.value = b.dataset.fill; inp.focus(); }
+    });
+  } catch (e) { pel.querySelector('#tp-cands').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
 /* ---------- 内核 ---------- */
@@ -1091,6 +1245,10 @@ async function vSettings() {
       </div>
       <div><button>保存</button> <span class="muted">DNS 详细设置已移至「DNS」页</span></div>
     </form>
+    <h3>共享网络 <span class="muted">在局域网开放代理入口，供其他设备使用</span></h3>
+    <div class="panel" id="sharenet-box"><p class="muted">加载中…</p></div>
+    <h3>系统时区</h3>
+    <div class="panel" id="tz-box"><p class="muted">加载中…</p></div>
     <h3>组件升级</h3>
     <div class="panel" id="upgrade-box"><p class="muted">加载中…</p></div>
     <h3>透明代理（生成预览 · 需 root 手动应用）</h3>
@@ -1115,9 +1273,70 @@ async function vSettings() {
     } catch (err) { toast(err.message, false); }
   };
 
+  // shared network
+  const snbox = $('#sharenet-box');
+  const renderShareNet = async () => {
+    try {
+      const sn = await get('/share-network');
+      snbox.innerHTML = `
+        <div class="row">
+          <div><label>启用局域网代理入口</label><select id="sn-enabled">
+            <option value="1"${sn.enabled ? ' selected' : ''}>开</option>
+            <option value="0"${sn.enabled ? '' : ' selected'}>关</option></select></div>
+          <div><label>端口</label><input type="number" id="sn-port" value="${sn.port}"></div>
+          <div><label>&nbsp;</label><button id="sn-check" class="ghost">端口冲突检测</button></div>
+        </div>
+        <div id="sn-conflicts"></div>
+        <div><button id="sn-save">保存</button>
+          <span class="muted">保存后需「应用配置」重启内核生效；局域网设备可将代理设为 路由器IP:${sn.port}</span></div>`;
+      snbox.querySelector('#sn-save').onclick = async () => {
+        try {
+          await put('/share-network', {
+            enabled: snbox.querySelector('#sn-enabled').value === '1',
+            port: +snbox.querySelector('#sn-port').value });
+          toast('已保存'); renderShareNet();
+        } catch (e) { toast(e.message, false); }
+      };
+      snbox.querySelector('#sn-check').onclick = async () => {
+        const port = +snbox.querySelector('#sn-port').value;
+        try {
+          const r = await get('/share-network/port-check?port=' + port);
+          snbox.querySelector('#sn-conflicts').innerHTML = r.ok
+            ? '<p>端口可用</p>'
+            : r.conflicts.map(c => `<p class="warn">${esc(c)}</p>`).join('');
+        } catch (e) { toast(e.message, false); }
+      };
+    } catch (e) { snbox.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  renderShareNet();
+
+  // timezone
+  const tzbox = $('#tz-box');
+  const renderTz = async () => {
+    try {
+      const t = await get('/system/timezone');
+      tzbox.innerHTML = `
+        <div class="row">
+          <div><label>当前时区（${esc(t.source)}）</label>
+            <select id="tz-sel" ${t.readonly ? 'disabled' : ''}>
+              ${t.options.map(z => `<option${z === t.timezone ? ' selected' : ''}>${z}</option>`).join('')}
+            </select></div>
+          <div><label>&nbsp;</label>${t.readonly ? '<span class="muted">当前环境不支持修改</span>'
+            : '<button id="tz-save">保存</button>'}</div>
+        </div>`;
+      const btn = tzbox.querySelector('#tz-save');
+      if (btn) btn.onclick = async () => {
+        try {
+          await put('/system/timezone', { timezone: tzbox.querySelector('#tz-sel').value });
+          toast('时区已更新'); renderTz();
+        } catch (e) { toast(e.message, false); }
+      };
+    } catch (e) { tzbox.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  renderTz();
+
   // component upgrade
-  const ubox = $('#upgrade-box');
-  const renderUpgrade = async () => {
+  const ubox = $('#upgrade-box');  const renderUpgrade = async () => {
     try {
       const st = await get('/upgrade/status');
       ubox.innerHTML = `

@@ -128,6 +128,18 @@ CREATE TABLE IF NOT EXISTS site_latency_checks(
   latency_ms REAL,
   checked_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS subscription_shares(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  token TEXT NOT NULL UNIQUE,
+  node_filter TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS node_info_cache(
+  tag TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -146,6 +158,8 @@ DEFAULT_SETTINGS = {
     "dns_filter_enabled": "0",
     "dns_filter_lists": "[]",   # JSON: [{name, url, enabled}]
     "dns_filter_applied_at": "",
+    "share_lan_enabled": "0",   # expose a mixed inbound on LAN for other devices
+    "share_lan_port": "8088",
 }
 
 
@@ -206,10 +220,10 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
 
 def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
     out = []
-    for sid, name, source, created in conn.execute(
-            "SELECT id, name, source, created_at FROM subscriptions ORDER BY id"):
+    for sid, name, source, url, created in conn.execute(
+            "SELECT id, name, source, url, created_at FROM subscriptions ORDER BY id"):
         n = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?", (sid,)).fetchone()[0]
-        out.append({"id": sid, "name": name, "source": source,
+        out.append({"id": sid, "name": name, "source": source, "url": url,
                     "created_at": created, "node_count": n})
     return out
 
@@ -449,6 +463,8 @@ def load_app_config(conn: sqlite3.Connection):
         tun_stack=get_setting(conn, "tun_stack", "mixed"),
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
+        share_lan_enabled=get_setting(conn, "share_lan_enabled", "0") == "1",
+        share_lan_port=int(get_setting(conn, "share_lan_port", "8088") or 8088),
     )
 
 
@@ -778,7 +794,9 @@ def set_failover_state(conn: sqlite3.Connection, group_name: str,
 # ---- factory reset ----
 _DATA_TABLES = ("subscriptions", "nodes", "site_sets", "rule_sets", "chains",
                 "groups", "node_health", "pair_codes", "devices", "dns_rewrite",
-                "terminal_policies", "traffic_daily", "failover_state")
+                "terminal_policies", "traffic_daily", "failover_state",
+                "latency_history", "site_latency_sites", "site_latency_checks",
+                "subscription_shares", "node_info_cache")
 
 
 def factory_reset(conn: sqlite3.Connection) -> None:
@@ -926,3 +944,153 @@ def traffic_usage(conn: sqlite3.Connection) -> dict:
         "SELECT MIN(day) FROM traffic_daily").fetchone()[0]
     return {"days": days, "rows": rows, "up": total[0], "down": total[1],
             "oldest_day": oldest}
+
+
+# ---- subscription shares (public capability links) ----
+def list_sub_shares(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "name": r[1], "token": r[2], "node_filter": r[3],
+             "created_at": r[4]}
+            for r in conn.execute(
+                "SELECT id, name, token, node_filter, created_at"
+                " FROM subscription_shares ORDER BY id")]
+
+
+def create_sub_share(conn: sqlite3.Connection, name: str,
+                     node_filter: str = "") -> dict:
+    import secrets as _secrets
+    token = _secrets.token_urlsafe(24)
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    cur = conn.execute(
+        "INSERT INTO subscription_shares(name, token, node_filter, created_at)"
+        " VALUES (?, ?, ?, ?)", (name, token, node_filter or "", now))
+    conn.commit()
+    return {"id": cur.lastrowid, "name": name, "token": token,
+            "node_filter": node_filter or "", "created_at": now}
+
+
+def update_sub_share(conn: sqlite3.Connection, sid: int, name: str | None,
+                     node_filter: str | None) -> dict | None:
+    row = conn.execute("SELECT id FROM subscription_shares WHERE id=?",
+                       (sid,)).fetchone()
+    if not row:
+        return None
+    if name is not None:
+        conn.execute("UPDATE subscription_shares SET name=? WHERE id=?",
+                     (name, sid))
+    if node_filter is not None:
+        conn.execute("UPDATE subscription_shares SET node_filter=? WHERE id=?",
+                     (node_filter, sid))
+    conn.commit()
+    return [s for s in list_sub_shares(conn) if s["id"] == sid][0]
+
+
+def regenerate_sub_share(conn: sqlite3.Connection, sid: int) -> dict | None:
+    import secrets as _secrets
+    if not conn.execute("SELECT id FROM subscription_shares WHERE id=?",
+                        (sid,)).fetchone():
+        return None
+    token = _secrets.token_urlsafe(24)
+    conn.execute("UPDATE subscription_shares SET token=? WHERE id=?",
+                 (token, sid))
+    conn.commit()
+    return [s for s in list_sub_shares(conn) if s["id"] == sid][0]
+
+
+def delete_sub_share(conn: sqlite3.Connection, sid: int) -> bool:
+    cur = conn.execute("DELETE FROM subscription_shares WHERE id=?", (sid,))
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def find_sub_share(conn: sqlite3.Connection, token: str) -> dict | None:
+    r = conn.execute(
+        "SELECT id, name, token, node_filter, created_at"
+        " FROM subscription_shares WHERE token=?", (token,)).fetchone()
+    return ({"id": r[0], "name": r[1], "token": r[2], "node_filter": r[3],
+             "created_at": r[4]} if r else None)
+
+
+# ---- node exit-info cache ----
+def get_node_info_cache(conn: sqlite3.Connection, tag: str,
+                        max_age_s: int = 21600) -> dict | None:
+    import json as _json
+    r = conn.execute("SELECT data, updated_at FROM node_info_cache WHERE tag=?",
+                     (tag,)).fetchone()
+    if not r:
+        return None
+    try:
+        data = _json.loads(r[0])
+    except ValueError:
+        return None
+    try:
+        age = time.time() - time.mktime(time.strptime(r[1], "%Y-%m-%dT%H:%M:%S"))
+    except (ValueError, TypeError):
+        age = max_age_s + 1
+    data["_age_s"] = age
+    return data if age <= max_age_s else None
+
+
+def set_node_info_cache(conn: sqlite3.Connection, tag: str, data: dict) -> None:
+    import json as _json
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    conn.execute(
+        "INSERT INTO node_info_cache(tag, data, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(tag) DO UPDATE SET data=excluded.data,"
+        " updated_at=excluded.updated_at",
+        (tag, _json.dumps(data, ensure_ascii=False), now))
+    conn.commit()
+
+
+# ---- terminal candidates (DHCP leases + traffic clients) ----
+def terminal_candidates(conn: sqlite3.Connection) -> list[dict]:
+    from core.dnslog import dhcp_hostnames
+    leases = dhcp_hostnames()
+    out = [{"ip": ip, "hostname": hn, "source": "dhcp"} for ip, hn in leases.items()]
+    seen = set(leases)
+    try:
+        for (client,) in conn.execute(
+                "SELECT DISTINCT client FROM traffic_daily WHERE client != ''"):
+            if client not in seen:
+                out.append({"ip": client, "hostname": "", "source": "traffic"})
+                seen.add(client)
+    except sqlite3.Error:
+        pass
+    return out
+
+
+def refresh_subscription(conn: sqlite3.Connection, sid: int,
+                         timeout: float = 30.0) -> dict:
+    """Re-fetch a subscription URL and replace its nodes. Returns stats."""
+    import urllib.request
+    row = conn.execute("SELECT name, url FROM subscriptions WHERE id=?",
+                       (sid,)).fetchone()
+    if not row:
+        raise KeyError("not found")
+    name, url = row
+    if not url:
+        raise ValueError("subscription has no URL to refresh")
+    req = urllib.request.Request(url, headers={"User-Agent": "openbox-oss/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        content = r.read().decode("utf-8", "replace")
+    from core.subscription import parse_subscription
+    from core.clash import parse_clash_yaml, looks_like_clash
+    nodes = (parse_clash_yaml(content) if looks_like_clash(content)
+             else parse_subscription(content))
+    conn.execute("DELETE FROM nodes WHERE sub_id=?", (sid,))
+    existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}
+    count = 0
+    for n in nodes:
+        tag, i = n.tag, 2
+        while tag in existing:
+            tag = f"{n.tag} #{i}"
+            i += 1
+        existing.add(tag)
+        conn.execute(
+            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (sid, tag, n.protocol, n.server, n.server_port,
+             json.dumps(n.params, ensure_ascii=False)))
+        count += 1
+    conn.commit()
+    bump_rev(conn)
+    return {"id": sid, "name": name, "node_count": count}

@@ -16,6 +16,57 @@ from core.singbox import build_config
 from panel import db as dbmod
 
 VERSION = "0.1.0-oss"
+
+COMMON_TIMEZONES = [
+    "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Taipei", "Asia/Tokyo",
+    "Asia/Seoul", "Asia/Singapore", "Asia/Bangkok", "Asia/Dubai",
+    "Asia/Kolkata", "Australia/Sydney", "Europe/London", "Europe/Paris",
+    "Europe/Berlin", "Europe/Moscow", "America/New_York", "America/Chicago",
+    "America/Denver", "America/Los_Angeles", "America/Anchorage",
+    "Pacific/Auckland", "UTC",
+]
+
+
+def _read_timezone() -> dict:
+    """Current timezone of the box. OpenWrt: /etc/TZ; else timedatectl/time."""
+    import subprocess
+    try:
+        with open("/etc/TZ", encoding="utf-8") as f:
+            return {"timezone": f.read().strip(), "source": "/etc/TZ",
+                    "options": COMMON_TIMEZONES}
+    except OSError:
+        pass
+    try:
+        p = subprocess.run(["timedatectl", "show", "-p", "Timezone"],
+                           capture_output=True, text=True, timeout=5)
+        if p.returncode == 0 and "=" in p.stdout:
+            return {"timezone": p.stdout.split("=", 1)[1].strip(),
+                    "source": "timedatectl", "options": COMMON_TIMEZONES}
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    import time as _time
+    name = _time.tzname[0] if _time.tzname else "UTC"
+    return {"timezone": name, "source": "system", "options": COMMON_TIMEZONES,
+            "readonly": True}
+
+
+def _write_timezone(tz: str) -> tuple[bool, str]:
+    """Set the box timezone. Only OpenWrt (/etc/TZ + uci) is supported."""
+    import subprocess
+    if not os.path.isfile("/etc/openwrt_release"):
+        return False, "仅支持在 OpenWrt 上修改时区"
+    try:
+        with open("/etc/TZ", "w", encoding="utf-8") as f:
+            f.write(tz + "\n")
+    except OSError as e:
+        return False, f"写入 /etc/TZ 失败：{e}"
+    try:
+        subprocess.run(["uci", "set", "system.@system[0].timezone=" + tz],
+                       timeout=5, capture_output=True)
+        subprocess.run(["uci", "commit", "system"], timeout=5, capture_output=True)
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return True, "ok"
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
 
 
@@ -193,7 +244,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
         try:
             sid, n = dbmod.add_subscription(db(), d["name"], d["content"],
                                             d.get("source", "manual"),
-                                            d.get("format", "auto"))
+                                            d.get("format", "auto"),
+                                            url=d.get("url"))
         except Exception as e:
             return jsonify({"error": f"parse failed: {e}"}), 400
         return jsonify({"id": sid, "name": d["name"], "node_count": n}), 201
@@ -208,10 +260,126 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.post("/api/subscriptions/<int:sid>/refresh")
+    def sub_refresh(sid: int):
+        try:
+            return jsonify(dbmod.refresh_subscription(db(), sid))
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": f"refresh failed: {e}"}), 502
+
+    # ---- subscription shares (public capability links) ----
+    @app.get("/api/subscription-shares")
+    def subshare_list():
+        return jsonify(dbmod.list_sub_shares(db()))
+
+    @app.post("/api/subscription-shares")
+    def subshare_create():
+        d = request.get_json(force=True, silent=True) or {}
+        if not d.get("name"):
+            return jsonify({"error": "name required"}), 400
+        return jsonify(dbmod.create_sub_share(
+            db(), d["name"], d.get("node_filter", ""))), 201
+
+    @app.patch("/api/subscription-shares/<int:sid>")
+    def subshare_patch(sid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        r = dbmod.update_sub_share(db(), sid, d.get("name"),
+                                   d.get("node_filter"))
+        if r is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.post("/api/subscription-shares/<int:sid>/regenerate")
+    def subshare_regen(sid: int):
+        r = dbmod.regenerate_sub_share(db(), sid)
+        if r is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.delete("/api/subscription-shares/<int:sid>")
+    def subshare_delete(sid: int):
+        if not dbmod.delete_sub_share(db(), sid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    @app.get("/sub/<token>")
+    def subshare_public(token: str):
+        """Public subscription file. The token is the credential;
+        this route is outside /api/* so the auth gate skips it."""
+        from core.share import encode_nodes
+        share = dbmod.find_sub_share(db(), token)
+        if not share:
+            return jsonify({"error": "not found"}), 404
+        filt = {t.strip() for t in (share["node_filter"] or "").split(",") if t.strip()}
+        nodes = dbmod.list_nodes(db())
+        if filt:
+            nodes = [n for n in nodes if n["tag"] in filt]
+        items = encode_nodes(nodes)
+        lines = [it["link"] for it in items if it.get("link")]
+        body = "\n".join(lines) + "\n"
+        return app.response_class(body, mimetype="text/plain",
+                                  headers={"Content-Disposition":
+                                           f"attachment; filename=\"{share['name']}.txt\""})
+
     # ---- nodes ----
     @app.get("/api/nodes")
     def node_list():
         return jsonify(dbmod.list_nodes(db()))
+
+    # ---- node exit info (via temp sing-box probe) ----
+    def _node_by_tag(c, tag: str) -> dict | None:
+        for n in dbmod.list_nodes(c):
+            if n["tag"] == tag:
+                return n
+        return None
+
+    @app.get("/api/node-info/<tag>")
+    def node_info(tag: str):
+        from core import nodeinfo as _ni
+        c = db()
+        node = _node_by_tag(c, tag)
+        if not node:
+            return jsonify({"error": "not found"}), 404
+        cached = dbmod.get_node_info_cache(c, tag)
+        if cached:
+            cached["cached"] = True
+            return jsonify(cached)
+        return jsonify({"ok": False, "cached": False,
+                        "message": "暂无缓存，请刷新"}), 404
+
+    @app.post("/api/node-info/<tag>/exit")
+    def node_info_exit(tag: str):
+        """Refresh exit info. Throttled to 15s per node (like the original)."""
+        import time as _time
+        from core import nodeinfo as _ni
+        from core.service import manager_from_env
+        c = db()
+        node = _node_by_tag(c, tag)
+        if not node:
+            return jsonify({"error": "not found"}), 404
+        cached = dbmod.get_node_info_cache(c, tag, max_age_s=2**31)
+        if cached and cached.get("_age_s", 1e9) < 15:
+            return jsonify({"error": "刷新过于频繁，请 15 秒后再试"}), 429
+        try:
+            r = _ni.probe_exit(node, manager_from_env().bin_path)
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 409
+        if r.get("ok"):
+            r["_fetched_at"] = _time.strftime("%Y-%m-%dT%H:%M:%S")
+            dbmod.set_node_info_cache(c, tag, r)
+        return jsonify(r)
+
+    @app.get("/api/node-info/<tag>/entry-country")
+    def node_info_entry(tag: str):
+        from core import nodeinfo as _ni
+        node = _node_by_tag(db(), tag)
+        if not node:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(_ni.entry_country(node))
 
     # ---- site sets ----
     @app.get("/api/sitesets")
@@ -1337,6 +1505,80 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if not dbmod.delete_terminal(db(), tid):
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
+
+    @app.get("/api/terminal-test/capability")
+    def terminal_test_capability():
+        from core import terminalprobe as _tp
+        return jsonify(_tp.capability())
+
+    @app.post("/api/terminal-test")
+    def terminal_test():
+        from core import terminalprobe as _tp
+        d = request.get_json(force=True, silent=True) or {}
+        target = (d.get("target") or "").strip()
+        if not target:
+            return jsonify({"error": "target required"}), 400
+        return jsonify(_tp.probe(target, timeout=float(d.get("timeout", 3.0))))
+
+    @app.get("/api/terminal-candidates")
+    def terminal_candidates():
+        return jsonify(dbmod.terminal_candidates(db()))
+
+    # ---- shared network (LAN proxy inbound) ----
+    @app.get("/api/share-network")
+    def share_network_get():
+        from panel.db import get_setting
+        c = db()
+        return jsonify({
+            "enabled": get_setting(c, "share_lan_enabled", "0") == "1",
+            "port": int(get_setting(c, "share_lan_port", "8088") or 8088),
+        })
+
+    @app.put("/api/share-network")
+    def share_network_put():
+        from panel.db import set_setting
+        d = request.get_json(force=True, silent=True) or {}
+        port = int(d.get("port", 8088))
+        if not 1024 <= port <= 65535:
+            return jsonify({"error": "port must be 1024-65535"}), 400
+        c = db()
+        set_setting(c, "share_lan_enabled", "1" if d.get("enabled") else "0")
+        set_setting(c, "share_lan_port", str(port))
+        return jsonify({"ok": True, "enabled": bool(d.get("enabled")), "port": port})
+
+    @app.get("/api/share-network/port-check")
+    def share_network_port_check():
+        import socket as _socket
+        port = int(request.args.get("port", 8088))
+        conflicts = []
+        s = _socket.socket()
+        try:
+            s.bind(("0.0.0.0", port))
+        except OSError as e:
+            conflicts.append(f"本机端口 {port} 已被占用：{e}")
+        finally:
+            s.close()
+        for reserved, name in ((53, "DNS"), (80, "HTTP"), (443, "HTTPS"),
+                               (8080, "面板"), (9090, "clash API")):
+            if port == reserved:
+                conflicts.append(f"端口 {port} 与{ name}服务冲突")
+        return jsonify({"port": port, "ok": not conflicts, "conflicts": conflicts})
+
+    # ---- system timezone ----
+    @app.get("/api/system/timezone")
+    def system_timezone_get():
+        return jsonify(_read_timezone())
+
+    @app.put("/api/system/timezone")
+    def system_timezone_put():
+        d = request.get_json(force=True, silent=True) or {}
+        tz = (d.get("timezone") or "").strip()
+        if not tz or "/" not in tz and tz != "UTC":
+            return jsonify({"error": "timezone 无效（如 Asia/Shanghai）"}), 400
+        ok, msg = _write_timezone(tz)
+        if not ok:
+            return jsonify({"error": msg}), 409
+        return jsonify({"ok": True, "timezone": tz})
 
     # ---- hot-switch a site set between direct and proxy (no restart) ----
     @app.post("/api/sitesets/<int:sid>/flip")
