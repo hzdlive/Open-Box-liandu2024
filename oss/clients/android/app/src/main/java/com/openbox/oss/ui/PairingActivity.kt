@@ -33,7 +33,7 @@ class PairingActivity : Activity() {
             text = "粘贴面板配对链接（openbox://pair?host=…&port=…&token=…）\n" +
                 "扫码版需接入 CameraX + ZXing（见 TODO）"
         }
-        val input = EditText(this).apply { hintText = "openbox://pair?…" }
+        val input = EditText(this).apply { hint = "openbox://pair?…" }
         val btn = Button(this).apply { text = "配对" }
         layout.addView(hint)
         layout.addView(input)
