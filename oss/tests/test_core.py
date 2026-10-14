@@ -28,11 +28,13 @@ def main() -> int:
     conf = build_config(cfg)
 
     assert conf["route"]["final"] == "auto"
-    assert len(conf["route"]["rules"]) == 4  # 3 site sets + dns rule
+    # sniff action + 3 site sets + dns rule
+    assert len(conf["route"]["rules"]) == 5
+    assert conf["route"]["rules"][0] == {"action": "sniff"}
     # proxy/direct site sets route through their hot-switch selector
-    assert conf["route"]["rules"][0]["outbound"].startswith("flip-")
     assert conf["route"]["rules"][1]["outbound"].startswith("flip-")
-    assert conf["route"]["rules"][2]["outbound"] == "block"
+    assert conf["route"]["rules"][2]["outbound"].startswith("flip-")
+    assert conf["route"]["rules"][3]["outbound"] == "block"
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) == 2, [o["tag"] for o in flips]
     assert {o["tag"] for o in conf["outbounds"]} >= {"auto", "manual", "direct", "block", "dns-out"}

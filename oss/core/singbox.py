@@ -275,14 +275,16 @@ def build_config(cfg: AppConfig) -> dict:
         "inbounds": [
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,
              "mtu": cfg.tun_mtu,
-             "auto_route": True, "strict_route": False, "sniff": True},
-            {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080, "sniff": True},
+             "auto_route": True, "strict_route": False},
+            {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080},
         ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",
-               "listen_port": cfg.share_lan_port, "sniff": True}]
+               "listen_port": cfg.share_lan_port}]
              if cfg.share_lan_enabled else []),
         "outbounds": outbounds,
         "route": {
-            "rules": route_rules + [{"protocol": "dns", "outbound": "dns-out"}],
+            # sing-box >= 1.13: inbound "sniff" field removed; sniffing is now
+            # a route rule action.
+            "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "outbound": "dns-out"}],
             "final": cfg.final_outbound,
             "auto_detect_interface": True,
         },
