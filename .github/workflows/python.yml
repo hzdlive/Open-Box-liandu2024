@@ -1,0 +1,63 @@
+name: Python (panel + core)
+
+on:
+  push:
+    branches: [oss]
+    paths:
+      - 'oss/**'
+      - '.github/workflows/python.yml'
+  pull_request:
+    paths:
+      - 'oss/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: oss/requirements.txt
+
+      - name: Set up Node (jsdom smoke)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: oss/tests/frontend/package.json
+
+      - name: Install deps
+        run: |
+          python -m pip install -r oss/requirements.txt
+          npm ci --no-audit --no-fund
+        working-directory: oss/tests/frontend
+
+      - name: Run Python suites
+        run: |
+          for t in test_core test_panel test_phase1b test_phase3 test_phase4 test_frontend_contract; do
+            python -m tests.$t || exit 1
+          done
+        working-directory: oss
+
+      - name: Frontend render smoke (jsdom)
+        run: |
+          python - <<'EOF'
+          import sqlite3, json, sys
+          sys.path.insert(0, 'oss')
+          from panel import db as dbmod
+          conn = sqlite3.connect('/tmp/obx-demo.db'); dbmod.init_db(conn)
+          dbmod.add_subscription(conn, 'demo', open('oss/tests/sample-sub.txt').read())
+          for d in json.load(open('oss/tests/sample-sites.json')):
+              dbmod.create_site_set(conn, d)
+          conn.close()
+          EOF
+          OBX_DB=/tmp/obx-demo.db PORT=8080 python oss/panel/run.py &
+          SRV=$!
+          sleep 4
+          npm --prefix oss/tests/frontend run smoke
+          kill $SRV

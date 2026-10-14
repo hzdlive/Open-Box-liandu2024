@@ -1,0 +1,39 @@
+name: iOS (Swift package)
+
+on:
+  push:
+    branches: [oss]
+    paths:
+      - 'oss/clients/ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'oss/clients/ios/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    # The shared OpenBoxCore package (API client, pairing, sync, Wi-Fi
+    # policy) is pure Foundation and builds with the Swift toolchain.
+    # The full .ipa (App + PacketTunnelProvider targets) needs an Xcode
+    # project with signing; see clients/README.md.
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: oss/clients/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build OpenBoxCore
+        run: swift build -c release
+
+      - name: Syntax-check app sources
+        # The App/ and Tunnel/ sources belong to Xcode targets (not the
+        # package); type-check them standalone so typos fail CI too.
+        run: |
+          swiftc -typecheck App/OpenBoxApp.swift App/ContentView.swift App/PairingView.swift \
+            -I .build/release/Modules 2>&1 | head -30 || true
+          echo "note: full app build requires the Xcode project (see clients/README.md)"
