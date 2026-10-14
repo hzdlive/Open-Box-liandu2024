@@ -30,6 +30,9 @@ jobs:
       matrix:
         arch: [amd64, arm64]
     steps:
+      - name: Check out this repo (manifest.py records the build's source commit)
+        uses: actions/checkout@v4
+
       - name: Download and verify source bundle
         run: |
           curl -fSL --retry 3 "$SOURCE_URL" -o src.tar.gz
