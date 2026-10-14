@@ -34,7 +34,8 @@ class PanelApi(
         return b
     }
 
-    private fun <T> get(path: String, deser: (String) -> T, authed: Boolean = true): T {
+    // NOTE: deser is last so call sites can use trailing-lambda syntax.
+    private fun <T> get(path: String, authed: Boolean = true, deser: (String) -> T): T {
         req(path, authed).get().build().let { http.newCall(it).execute() }.use { r ->
             check(r.isSuccessful) { "GET $path -> ${r.code}" }
             return deser(r.body!!.string())
