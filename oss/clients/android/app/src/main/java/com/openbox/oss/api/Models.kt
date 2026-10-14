@@ -3,7 +3,7 @@ package com.openbox.oss.api
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Mirrors docs/client-api.md and the tested /api/client/* surface. */
+/** Mirrors docs/client-api.md and the tested client API surface. */
 
 @Serializable
 data class ClientStatus(
