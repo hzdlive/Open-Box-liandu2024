@@ -50,6 +50,10 @@ jobs:
 
       - name: Build kernel (${{ matrix.arch }})
         run: |
+          # Upstream packaging quirk: build.sh expects dt-needed.py one level
+          # ABOVE open-box-patch/ (as in their dev tree), but the source
+          # bundle ships it INSIDE open-box-patch/. Shim the expected layout.
+          cp source-bundle/open-box-patch/dt-needed.py source-bundle/dt-needed.py
           OPENBOX_GO_BINARY="$(which go)" \
             sh source-bundle/open-box-patch/build.sh ${{ matrix.arch }} "$PWD/out"
 
