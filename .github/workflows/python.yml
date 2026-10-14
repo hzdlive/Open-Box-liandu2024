@@ -24,17 +24,23 @@ jobs:
           cache: pip
           cache-dependency-path: oss/requirements.txt
 
-      - name: Set up Node (jsdom smoke)
+      - name: Set up Node (frontend build + jsdom smoke)
         uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-          cache-dependency-path: oss/tests/frontend/package.json
+          cache-dependency-path: |
+            oss/tests/frontend/package.json
+            oss/panel/frontend/package.json
 
       - name: Install deps
         run: |
           python -m pip install -r oss/requirements.txt
           npm ci --no-audit --no-fund --prefix oss/tests/frontend
+          npm ci --no-audit --no-fund --prefix oss/panel/frontend
+
+      - name: Build Vue frontend
+        run: npm --prefix oss/panel/frontend run build
 
       - name: Run Python suites
         run: |

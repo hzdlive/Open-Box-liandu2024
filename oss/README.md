@@ -27,7 +27,8 @@ OpenWrt 一体化透明代理方案的**开源重构**（clean-room reimplementa
       链式代理（socks/http 出口经前置 detour）；节点组（urltest/selector、动态关键词、默认 auto/manual）；
       节点健康检查（TCP 连通 + TLS 握手延迟，UDP 协议如实标记跳过）
 - [ ] Phase 1（剩余）：故障转移组（需真 failover 语义，见下）、订阅分享、导入导出整包
-- [ ] Phase 2：管理面板前端（zashboard MIT 基座 + 自研页面）
+- [x] Phase 2：管理面板前端（Vue 3 自研实现，15 个页面；源码在 `oss/panel/frontend/src/`，
+      构建产物提交于 `oss/panel/frontend/dist/`，Flask 直接托管 dist，部署时不需要 node）
 - [ ] Phase 3：系统集成（nftables/TUN 部署、DNS 接管、安装/升级脚本）
 - [ ] Phase 4：客户端（长期可选）
 
@@ -43,6 +44,13 @@ python3 -m venv .venv
 ```
 
 可选环境变量：
+
+前端开发（Vue 3 + Vite，源码 `oss/panel/frontend/src/`）：
+
+```bash
+cd oss/panel/frontend && npm install && npm run dev   # 开发服务器 http://127.0.0.1:5173（代理到后端 8080）
+npm run build                                          # 构建到 dist/（已提交，Flask 直接托管）
+```
 
 - `OPENBOX_PANEL_PASSWORD=xxx` —— 给面板设置登录密码（不设则为开放开发模式）
 - `OPENBOX_SINGBOX_BIN=/path/to/sing-box` —— 指定 sing-box 内核二进制（默认 `/usr/local/bin/sing-box`）

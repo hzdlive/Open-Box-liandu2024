@@ -67,7 +67,7 @@ def _write_timezone(tz: str) -> tuple[bool, str]:
     except (OSError, subprocess.TimeoutExpired):
         pass
     return True, "ok"
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
 
 
 def create_app(db_path: str = ":memory:") -> Flask:

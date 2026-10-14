@@ -1,4 +1,4 @@
-"""Contract test: every endpoint the frontend (app.js) calls must exist and work."""
+"""Contract test: every endpoint the Vue frontend calls must exist and work."""
 
 import sys
 from pathlib import Path
@@ -14,11 +14,12 @@ def main() -> int:
     app = create_app(":memory:")
     c = app.test_client()
 
-    # static + SPA fallback
-    assert c.get("/").status_code == 200
-    assert c.get("/app.js").status_code == 200
-    assert c.get("/styles.css").status_code == 200
-    assert c.get("/#/proxy").status_code == 200
+    # static + SPA fallback (Vue build output in panel/frontend/dist)
+    r = c.get("/")
+    assert r.status_code == 200
+    assert b'<div id="app">' in r.data, "Vue mount point missing"
+    assert b"assets/" in r.data, "built asset reference missing"
+    assert c.get("/#/proxies").status_code == 200  # SPA fallback
     assert c.get("/api/nope").status_code == 404
 
     # reads used by every view
