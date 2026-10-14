@@ -57,10 +57,14 @@ Flask（Python）实现，对应源项目面板后端除授权外的全部管理
 - tests/test_phase3.py：假 sing-box 二进制 + stub clash API，全绿
 - 未验证项：真机 nft 应用、OpenWrt 实机安装流程（无路由器环境）
 
-## Phase 4 — 客户端（长期）
+## Phase 4 — 客户端（2026-10-14 选型：原生 Kotlin+Swift；面板侧 4a 与双端骨架 4b 已交付推送）
 
-- 路由器端配对、本地分流/节点分流、订阅同步
-- 选型待定（Tauri / Flutter / 原生），先以后端 API 为准
+- 选型无关准备：`oss/docs/client-api.md`（配对/鉴权/同步协议，见 Phase 4a）
+- 面板侧：鉴权、配对、`api/client/*`（见 Phase 4a，已测试）
+- `oss/clients/android/`：Kotlin 骨架（API 客户端、VpnService、同步、Wi-Fi 暂停、配对/导入 UI）
+- `oss/clients/ios/`：Swift 骨架（OpenBoxCore 包、SwiftUI App、PacketTunnelProvider）
+- 未验证：Kotlin/Swift 本机无工具链未编译；libbox 需 gomobile 自行构建；
+  iOS 后台 SSID 监控受系统限制
 
 ## 不做的事
 
