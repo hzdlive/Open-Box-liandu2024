@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
+      fail-fast: false
       matrix:
         arch: [amd64, arm64]
     steps:
@@ -61,13 +62,14 @@ jobs:
             sh source-bundle/open-box-patch/build.sh ${{ matrix.arch }} "$PWD/out"
 
       - name: Smoke test binary
+        # NOTE: keep the glob inline in the command — bash does not expand
+        # wildcards inside a variable assignment.
         run: |
-          BIN=./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box
-          file "$BIN"
+          file ./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box
           if [ "${{ matrix.arch }}" = "amd64" ]; then
             # arm64 binaries cannot execute on the amd64 runner; `file`
             # above already verifies the format.
-            "$BIN" version
+            ./out/sing-box-*-linux-${{ matrix.arch }}-musl/sing-box version
           fi
 
       - name: Upload kernel binary
