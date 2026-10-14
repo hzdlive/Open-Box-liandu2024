@@ -60,5 +60,6 @@ def build_client_config(cfg, mode: str = "rule", ruleset: str = "follow",
                       + [{"protocol": "dns", "action": "hijack-dns"}]),
             "final": final,
             "auto_detect_interface": True,
+            "default_domain_resolver": "direct-dns",
         },
     }

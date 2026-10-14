@@ -286,6 +286,9 @@ def build_config(cfg: AppConfig) -> dict:
             "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "action": "hijack-dns"}],
             "final": cfg.final_outbound,
             "auto_detect_interface": True,
+            # sing-box >= 1.12 requires an explicit resolver for outbound
+            # server domain names (was implicit, removed in 1.14).
+            "default_domain_resolver": "direct-dns",
         },
         "experimental": {
             "clash_api": {"external_controller": f"127.0.0.1:{cfg.clash_api_port}"},
