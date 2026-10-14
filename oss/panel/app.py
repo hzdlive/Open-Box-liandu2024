@@ -500,18 +500,108 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/config/apply")
     def config_apply():
         from core.apply import apply_config
+        from core.hotapply import hot_apply_config
+        mode = (request.args.get("mode") or "auto").lower()
+        if mode not in ("auto", "hot", "full"):
+            return jsonify({"error": "mode must be auto|hot|full"}), 400
+        cfg = dbmod.load_app_config(db())
+        api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+        secret = getattr(cfg, "clash_api_secret", "") or ""
         try:
-            result = apply_config(db(), _manager())
+            if mode == "full":
+                result = apply_config(db(), _manager())
+                result["mode"] = "full"
+            else:
+                result = hot_apply_config(db(), _manager(), api_base, secret,
+                                          force=mode)
         except RuntimeError as e:
             return jsonify({"error": str(e)}), 422
         # remember which rev is live, so the kernel page can flag stale config
+        # + persist last deploy result for the deploy-state poll
         try:
             from panel.db import get_setting, set_setting
+            import json as _json
             c = db()
             set_setting(c, "applied_rev", get_setting(c, "state_rev", "0"))
+            set_setting(c, "deploy_state", _json.dumps({
+                "at": result.get("at"), "mode": result.get("mode"),
+                "ok": True, "outbounds": result.get("outbounds"),
+                "route_rules": result.get("route_rules"),
+                "validation": result.get("validation"),
+                "hot_detail": result.get("hot_detail"),
+                "hot_fallback": result.get("hot_fallback"),
+            }, ensure_ascii=False))
         except Exception:
             pass
         return jsonify(result)
+
+    @app.get("/api/deploy/state")
+    def deploy_state():
+        import json as _json
+        try:
+            from panel.db import get_setting
+            raw = get_setting(db(), "deploy_state", "")
+            return jsonify(_json.loads(raw) if raw else {"ok": False, "message": "尚未部署过"})
+        except Exception as e:
+            return jsonify({"ok": False, "message": str(e)})
+
+    @app.post("/api/deploy/rollback")
+    def deploy_rollback():
+        """Roll back to a direct-only config and disable autostart."""
+        import json as _json, time as _time
+        m = _manager()
+        direct_cfg = {"log": {"level": "info"},
+                      "outbounds": [{"type": "direct", "tag": "direct"}]}
+        try:
+            tmp = m.config_path + ".rollback"
+            with open(tmp, "w", encoding="utf-8") as f:
+                _json.dump(direct_cfg, f, ensure_ascii=False, indent=2)
+            ok, msg = m.check_config(tmp)
+            import os as _os
+            _os.replace(tmp, m.config_path)
+        except OSError as e:
+            return jsonify({"error": str(e)}), 500
+        if not ok:
+            return jsonify({"error": f"rollback config invalid: {msg}"}), 422
+        if m.is_installed():
+            try:
+                if m.status().running:
+                    m.restart()
+                else:
+                    m.start()
+            except RuntimeError as e:
+                return jsonify({"error": str(e)}), 409
+        # disable autostart (best effort; needs root on the router)
+        disabled = []
+        for p in ("/etc/init.d/openbox-oss",
+                  "/etc/systemd/system/openbox-oss.service"):
+            try:
+                if os.path.isfile(p):
+                    os.remove(p)
+                    disabled.append(p)
+            except OSError:
+                pass
+        try:
+            from panel.db import set_setting
+            set_setting(db(), "deploy_state", _json.dumps({
+                "at": _time.strftime("%Y-%m-%dT%H:%M:%S"), "mode": "rollback",
+                "ok": True, "message": "已回滚到直连配置",
+            }, ensure_ascii=False))
+            set_setting(db(), "applied_rev", "")
+        except Exception:
+            pass
+        return jsonify({"ok": True, "autostart_disabled": disabled,
+                        "service": m.to_dict()})
+
+    @app.post("/api/factory-reset")
+    def factory_reset():
+        m = _manager()
+        try:
+            m.stop()
+        except Exception:
+            pass
+        dbmod.factory_reset(db())
+        return jsonify({"ok": True, "message": "已恢复出厂：数据已清空，内核已停止"})
 
     # ---- transparent proxy artifacts (generate-only) ----
     def _tconfig():
@@ -561,15 +651,82 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify({"script": dnsmasq_snippet(_tconfig())})
 
     # ---- failover ----
+    def _failover_ctx():
+        cfg = dbmod.load_app_config(db())
+        api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+        secret = getattr(cfg, "clash_api_secret", "") or ""
+        return cfg, api_base, secret
+
+    def _failover_record(c, actions):
+        for a in actions:
+            if a.get("action") in ("switch", "failed") and a.get("target"):
+                prev = dbmod.get_failover_state(c, a["group"])
+                switched = (not prev) or (prev["current_tag"] != a["target"])
+                dbmod.set_failover_state(c, a["group"], a["target"],
+                                         switched and a["action"] == "switch")
+
     @app.post("/api/failover/elect")
     def failover_elect():
         from core.failover import watch_once
-        cfg = dbmod.load_app_config(db())
+        cfg, api_base, secret = _failover_ctx()
         health = dbmod.list_health(db())
         d = request.get_json(force=True, silent=True) or {}
-        api_base = d.get("api_base", f"http://127.0.0.1:{cfg.clash_api_port}")
-        secret = d.get("secret", "")
-        return jsonify(watch_once(cfg.groups, health, api_base, secret))
+        api_base = d.get("api_base", api_base)
+        secret = d.get("secret", secret)
+        actions = watch_once(cfg.groups, health, api_base, secret)
+        _failover_record(db(), actions)
+        return jsonify(actions)
+
+    @app.get("/api/failover/status")
+    def failover_status():
+        cfg = dbmod.load_app_config(db())
+        health = {h["tag"]: h["ok"] for h in dbmod.list_health(db())}
+        out = []
+        for g in cfg.groups:
+            if g.type != "failover":
+                continue
+            members = list(g.members)
+            st = dbmod.get_failover_state(db(), g.name)
+            current = (st["current_tag"] if st and st["current_tag"] else
+                       (members[0] if members else None))
+            out.append({
+                "group": g.name,
+                "primary": members[0] if members else None,
+                "members": [{"tag": m, "health": health.get(m)} for m in members],
+                "current": current,
+                "updated_at": st["updated_at"] if st else None,
+                "last_switch_at": st["last_switch_at"] if st else None,
+            })
+        return jsonify(out)
+
+    @app.post("/api/failover/refresh")
+    def failover_refresh():
+        """Reload mapping and re-run election for all failover groups."""
+        from core.failover import watch_once
+        cfg, api_base, secret = _failover_ctx()
+        actions = watch_once(cfg.groups, dbmod.list_health(db()), api_base, secret)
+        _failover_record(db(), actions)
+        return jsonify(actions)
+
+    @app.post("/api/failover/recheck")
+    def failover_recheck():
+        """Force re-probe of one group's members, then re-elect."""
+        from core.failover import watch_once
+        from core.health import check_nodes
+        d = request.get_json(force=True, silent=True) or {}
+        name = d.get("group", "")
+        cfg, api_base, secret = _failover_ctx()
+        groups = [g for g in cfg.groups if g.type == "failover" and g.name == name]
+        if not groups:
+            return jsonify({"error": "failover group not found"}), 404
+        members = set(groups[0].members)
+        nodes = [n for n in cfg.nodes if n.tag in members]
+        if nodes:
+            results = check_nodes(nodes, timeout=float(d.get("timeout", 5.0)))
+            dbmod.save_health(db(), results)
+        actions = watch_once(groups, dbmod.list_health(db()), api_base, secret)
+        _failover_record(db(), actions)
+        return jsonify(actions)
 
     # ---- subscription sharing ----
     @app.post("/api/share")

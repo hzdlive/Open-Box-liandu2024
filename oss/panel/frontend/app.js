@@ -148,7 +148,34 @@ async function vProxy() {
       <label>动态关键词（逗号分隔，标签含关键词自动收编）</label>
       <input type="text" name="dynamic_keywords" placeholder="香港, HK">
       <div><button>创建</button></div>
-    </form>`;
+    </form>
+    <h3>故障转移状态</h3>
+    <div id="failover-cards"><p class="muted">加载中…</p></div>
+    <div><button id="btn-failover-refresh" class="ghost">立即重选全部</button></div>`;
+  const loadFailover = async () => {
+    try {
+      const st = await get('/failover/status');
+      $('#failover-cards').innerHTML = st.length ? st.map(g => `
+        <div class="card">
+          <div><b>${esc(g.group)}</b>
+            <span class="pill ${g.current ? 'ok' : ''}">${g.current ? '当前: ' + esc(g.current) : '未运行'}</span></div>
+          <div class="muted">主用: ${esc(g.primary || '—')} ·
+            最近切换: ${esc(g.last_switch_at || '无')}</div>
+          <div class="muted">成员: ${g.members.map(m =>
+            `${esc(m.tag)}${m.health === true ? '✓' : m.health === false ? '✗' : '?'}`).join(' ')}</div>
+          <div><button class="small ghost" data-recheck="${esc(g.group)}">强制重测该组</button></div>
+        </div>`).join('') : '<p class="muted">暂无故障转移组（新建组时类型选 failover）</p>';
+      $('#failover-cards').querySelectorAll('[data-recheck]').forEach(b => b.onclick = async () => {
+        try { await post('/failover/recheck', { group: b.dataset.recheck }); toast('已重测'); loadFailover(); }
+        catch (e) { toast(e.message, false); }
+      });
+    } catch (e) { $('#failover-cards').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  $('#btn-failover-refresh').onclick = async () => {
+    try { await post('/failover/refresh', {}); toast('已重选'); loadFailover(); }
+    catch (e) { toast(e.message, false); }
+  };
+  loadFailover();
   $('#btn-share').onclick = async () => {
     const tags = [...$('#view').querySelectorAll('[data-share-tag]:checked')]
       .map(el => el.dataset.shareTag);
@@ -673,6 +700,35 @@ async function vKernel() {
   $('#k-start').onclick = () => act('start');
   $('#k-restart').onclick = () => act('restart');
   $('#k-stop').onclick = () => { if (confirm('停止内核？')) act('stop'); };
+  // deploy state + dangerous actions
+  try {
+    const ds = await get('/deploy/state');
+    const el = document.createElement('div');
+    el.className = 'panel';
+    el.innerHTML = `
+      <h3>部署状态</h3>
+      ${ds.ok ? `<p class="muted">最近部署：${esc(ds.at || '—')} · 模式 ${esc(ds.mode || '—')} ·
+        出站 ${ds.outbounds ?? '—'} · 路由规则 ${ds.route_rules ?? '—'}</p>
+        ${ds.hot_fallback ? `<p class="warn">热应用回退到重启：${esc(ds.hot_fallback)}</p>` : ''}`
+      : `<p class="muted">${esc(ds.message || '尚未部署过')}</p>`}
+      <div>
+        <button id="k-rollback" class="danger">回滚到直连</button>
+        <button id="k-factory" class="danger">恢复出厂设置</button>
+      </div>
+      <p class="muted">回滚：写入直连配置并重启内核，同时尝试关闭开机自启。恢复出厂：停止内核并清空全部数据（保留面板密码）。两项操作均不可撤销。</p>`;
+    $('#view').appendChild(el);
+    el.querySelector('#k-rollback').onclick = async () => {
+      if (!confirm('回滚到直连配置？当前代理配置将被替换。')) return;
+      try { await post('/deploy/rollback', {}); toast('已回滚到直连'); vKernel(); }
+      catch (e) { toast(e.message, false); }
+    };
+    el.querySelector('#k-factory').onclick = async () => {
+      if (!confirm('恢复出厂设置？将清空全部数据并停止内核！')) return;
+      if (!confirm('再次确认：真的要清空吗？')) return;
+      try { await post('/factory-reset', {}); toast('已恢复出厂'); location.hash = '#/'; }
+      catch (e) { toast(e.message, false); }
+    };
+  } catch (e) { /* deploy state optional */ }
 }
 
 /* ---------- 日志 ---------- */

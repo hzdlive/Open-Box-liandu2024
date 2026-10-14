@@ -102,6 +102,12 @@ CREATE TABLE IF NOT EXISTS traffic_daily(
   down BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (day, client, proxy, host)
 );
+CREATE TABLE IF NOT EXISTS failover_state(
+  group_name TEXT PRIMARY KEY,
+  current_tag TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT '',
+  last_switch_at TEXT
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -721,3 +727,55 @@ def traffic_summary(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
                 "SELECT day, client, proxy, host, SUM(up), SUM(down) FROM traffic_daily"
                 " WHERE day >= date('now', ? || ' days') GROUP BY day, client, proxy, host"
                 " ORDER BY day DESC, down DESC LIMIT 500", (-days,))]
+
+
+# ---- failover runtime state ----
+def get_failover_state(conn: sqlite3.Connection, group_name: str) -> dict | None:
+    r = conn.execute(
+        "SELECT group_name, current_tag, updated_at, last_switch_at"
+        " FROM failover_state WHERE group_name=?", (group_name,)).fetchone()
+    return ({"group_name": r[0], "current_tag": r[1], "updated_at": r[2],
+             "last_switch_at": r[3]} if r else None)
+
+
+def set_failover_state(conn: sqlite3.Connection, group_name: str,
+                       current_tag: str, switched: bool) -> None:
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    prev = get_failover_state(conn, group_name)
+    last_switch = now if switched else (prev["last_switch_at"] if prev else None)
+    conn.execute(
+        "INSERT INTO failover_state(group_name, current_tag, updated_at, last_switch_at)"
+        " VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(group_name) DO UPDATE SET current_tag=excluded.current_tag,"
+        " updated_at=excluded.updated_at, last_switch_at=excluded.last_switch_at",
+        (group_name, current_tag, now, last_switch))
+    conn.commit()
+
+
+# ---- factory reset ----
+_DATA_TABLES = ("subscriptions", "nodes", "site_sets", "rule_sets", "chains",
+                "groups", "node_health", "pair_codes", "devices", "dns_rewrite",
+                "terminal_policies", "traffic_daily", "failover_state")
+
+
+def factory_reset(conn: sqlite3.Connection) -> None:
+    """Clear all user data and re-seed defaults. Auth-adjacent tables
+    (pair_codes, devices) are cleared too; the panel password is kept so the
+    operator is not locked out of the box (change it afterwards)."""
+    for t in _DATA_TABLES:
+        try:
+            conn.execute(f"DELETE FROM {t}")
+        except sqlite3.Error:
+            pass
+    conn.execute("DELETE FROM settings")
+    for k, v in DEFAULT_SETTINGS.items():
+        conn.execute("INSERT INTO settings(key, value) VALUES (?, ?)", (k, v))
+    conn.execute(
+        "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
+        " VALUES ('auto', 'urltest', '[\"*nodes*\"]', '[]', 0)")
+    conn.execute(
+        "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
+        " VALUES ('manual', 'selector', '[\"*all*\"]', '[]', 1)")
+    conn.execute("INSERT OR REPLACE INTO settings(key, value)"
+                 " VALUES ('applied_rev', '')")
+    conn.commit()
