@@ -230,6 +230,35 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
     return route_rules, dns_rules, group_names
 
 
+def _dns_server(tag: str, addr: str, detour: str) -> dict:
+    """Build one sing-box >= 1.12 DNS server entry.
+
+    Legacy plain-"address" servers were deprecated in 1.12 and removed in
+    1.14, so every server needs an explicit "type". Accepts the address forms
+    our panel stores: bare IP/host (udp), tcp://, tls://, https://, quic://,
+    dhcp://.
+    """
+    a = (addr or "").strip()
+    low = a.lower()
+    if low.startswith("https://"):
+        return {"type": "https", "tag": tag, "server": a, "detour": detour}
+    for scheme, typ in (("tls://", "tls"), ("tcp://", "tcp"),
+                        ("quic://", "quic"), ("dhcp://", "dhcp")):
+        if low.startswith(scheme):
+            return {"type": typ, "tag": tag, "server": a[len(scheme):], "detour": detour}
+    return {"type": "udp", "tag": tag, "server": a, "detour": detour}
+
+
+def _dns_servers(tag: str, addrs: str, detour: str) -> list:
+    """One entry per comma-separated upstream; the first keeps the canonical
+    tag so dns rules / final keep working."""
+    parts = [x.strip() for x in (addrs or "").split(",") if x.strip()]
+    if not parts:
+        parts = ["223.5.5.5"]
+    return [_dns_server(tag if i == 0 else f"{tag}-{i}", a, detour)
+            for i, a in enumerate(parts)]
+
+
 def build_config(cfg: AppConfig) -> dict:
     """Build the full sing-box config dict."""
     outbounds = build_outbounds(cfg)
@@ -238,10 +267,8 @@ def build_config(cfg: AppConfig) -> dict:
     return {
         "log": {"level": "warn"},
         "dns": {
-            "servers": [
-                {"tag": "direct-dns", "address": cfg.dns.direct_dns, "detour": "direct"},
-                {"tag": "proxy-dns", "address": cfg.dns.proxy_dns, "detour": "auto"},
-            ],
+            "servers": (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct")
+                        + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto")),
             "rules": dns_rules,
             "final": "direct-dns",
         },
