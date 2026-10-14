@@ -37,7 +37,17 @@ CREATE TABLE IF NOT EXISTS subscriptions(
   enabled INTEGER NOT NULL DEFAULT 1,
   auto_update_hours INTEGER NOT NULL DEFAULT 0,
   updated_at TEXT,
-  userinfo TEXT NOT NULL DEFAULT '{}'
+  userinfo TEXT NOT NULL DEFAULT '{}',
+  urls TEXT NOT NULL DEFAULT '[]',
+  rename_enabled INTEGER NOT NULL DEFAULT 0,
+  rename_prefix INTEGER NOT NULL DEFAULT 1,
+  rename_order TEXT NOT NULL DEFAULT '["region","feature","seq"]',
+  rename_seq_digits INTEGER NOT NULL DEFAULT 2,
+  rename_regions TEXT NOT NULL DEFAULT '[]',
+  rename_fallback TEXT NOT NULL DEFAULT '其他',
+  rename_features TEXT NOT NULL DEFAULT '',
+  rename_filter TEXT NOT NULL DEFAULT '',
+  dns_resolve TEXT NOT NULL DEFAULT 'auto'
 );
 CREATE TABLE IF NOT EXISTS nodes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,7 +56,10 @@ CREATE TABLE IF NOT EXISTS nodes(
   protocol TEXT NOT NULL,
   server TEXT NOT NULL,
   port INTEGER NOT NULL,
-  params TEXT NOT NULL DEFAULT '{}'
+  params TEXT NOT NULL DEFAULT '{}',
+  orig_tag TEXT NOT NULL DEFAULT '',
+  custom_tag TEXT NOT NULL DEFAULT '',
+  disabled INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS site_sets(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,7 +243,17 @@ def init_db(conn: sqlite3.Connection) -> None:
     for col, ddl in (("enabled", "INTEGER NOT NULL DEFAULT 1"),
                      ("auto_update_hours", "INTEGER NOT NULL DEFAULT 0"),
                      ("updated_at", "TEXT"),
-                     ("userinfo", "TEXT NOT NULL DEFAULT '{}'")):
+                     ("userinfo", "TEXT NOT NULL DEFAULT '{}'"),
+                     ("urls", "TEXT NOT NULL DEFAULT '[]'"),
+                     ("rename_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                     ("rename_prefix", "INTEGER NOT NULL DEFAULT 1"),
+                     ("rename_order", "TEXT NOT NULL DEFAULT '[\"region\",\"feature\",\"seq\"]'"),
+                     ("rename_seq_digits", "INTEGER NOT NULL DEFAULT 2"),
+                     ("rename_regions", "TEXT NOT NULL DEFAULT '[]'"),
+                     ("rename_fallback", "TEXT NOT NULL DEFAULT '其他'"),
+                     ("rename_features", "TEXT NOT NULL DEFAULT ''"),
+                     ("rename_filter", "TEXT NOT NULL DEFAULT ''"),
+                     ("dns_resolve", "TEXT NOT NULL DEFAULT 'auto'")):
         if col not in scols:
             conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} {ddl}")
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
@@ -239,6 +262,12 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
+    ncols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
+    for col, ddl in (("orig_tag", "TEXT NOT NULL DEFAULT ''"),
+                     ("custom_tag", "TEXT NOT NULL DEFAULT ''"),
+                     ("disabled", "INTEGER NOT NULL DEFAULT 0")):
+        if col not in ncols:
+            conn.execute(f"ALTER TABLE nodes ADD COLUMN {col} {ddl}")
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
     # default outbound groups: auto = urltest over nodes, manual = selector over all
@@ -274,10 +303,10 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
             i += 1
         existing.add(tag)
         conn.execute(
-            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params, orig_tag)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (sid, tag, n.protocol, n.server, n.server_port,
-             json.dumps(n.params, ensure_ascii=False)),
+             json.dumps(n.params, ensure_ascii=False), n.tag),
         )
         count += 1
     conn.commit()
@@ -287,18 +316,47 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
 
 def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
     out = []
-    for sid, name, source, url, created, enabled, auh, updated, userinfo in conn.execute(
+    for r in conn.execute(
             "SELECT id, name, source, url, created_at, enabled, auto_update_hours,"
-            " updated_at, userinfo FROM subscriptions ORDER BY id"):
-        n = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?", (sid,)).fetchone()[0]
+            " updated_at, userinfo, urls, rename_enabled, rename_prefix, rename_order,"
+            " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
+            " rename_filter, dns_resolve FROM subscriptions ORDER BY id"):
+        (sid, name, source, url, created, enabled, auh, updated, userinfo,
+         urls, rn_en, rn_prefix, rn_order, rn_digits, rn_regions,
+         rn_fallback, rn_features, rn_filter, dns_resolve) = r
+        n = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=? AND disabled=0",
+                         (sid,)).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?",
+                             (sid,)).fetchone()[0]
         try:
             ui = json.loads(userinfo or "{}")
         except ValueError:
             ui = {}
+        try:
+            url_list = json.loads(urls or "[]")
+        except ValueError:
+            url_list = []
+        if url and url not in url_list:
+            url_list.insert(0, url)
+        try:
+            regions = json.loads(rn_regions or "[]")
+        except ValueError:
+            regions = []
+        try:
+            order = json.loads(rn_order or "[]")
+        except ValueError:
+            order = ["region", "feature", "seq"]
         out.append({"id": sid, "name": name, "source": source, "url": url,
-                    "created_at": created, "node_count": n, "enabled": bool(enabled),
+                    "urls": url_list,
+                    "created_at": created, "node_count": n, "node_total": total,
+                    "enabled": bool(enabled),
                     "auto_update_hours": auh or 0, "updated_at": updated,
-                    "userinfo": ui})
+                    "userinfo": ui, "dns_resolve": dns_resolve or "auto",
+                    "rename": {"enabled": bool(rn_en), "prefix": bool(rn_prefix),
+                               "order": order, "seq_digits": rn_digits or 2,
+                               "regions": regions, "fallback": rn_fallback or "其他",
+                               "features": rn_features or "",
+                               "filter": rn_filter or ""}})
     return out
 
 
@@ -313,9 +371,12 @@ def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
 def list_nodes(conn: sqlite3.Connection) -> list[dict]:
     return [
         {"id": r[0], "tag": r[1], "protocol": r[2], "server": r[3],
-         "port": r[4], "params": json.loads(r[5]), "sub_id": r[6]}
+         "port": r[4], "params": json.loads(r[5]), "sub_id": r[6],
+         "orig_tag": r[7] or r[1], "custom_tag": r[8] or "",
+         "disabled": bool(r[9])}
         for r in conn.execute(
-            "SELECT id, tag, protocol, server, port, params, sub_id FROM nodes ORDER BY id")
+            "SELECT id, tag, protocol, server, port, params, sub_id,"
+            " orig_tag, custom_tag, disabled FROM nodes ORDER BY id")
     ]
 
 
@@ -584,7 +645,7 @@ def load_app_config(conn: sqlite3.Connection):
         for r in conn.execute(
             "SELECT n.tag, n.protocol, n.server, n.port, n.params FROM nodes n"
             " JOIN subscriptions s ON s.id = n.sub_id"
-            " WHERE s.enabled = 1 ORDER BY n.id")
+            " WHERE s.enabled = 1 AND n.disabled = 0 ORDER BY n.id")
     ]
     # subscription URL hostnames (for sub_node_direct)
     sub_domains = []
@@ -1308,52 +1369,96 @@ def terminal_candidates(conn: sqlite3.Connection) -> list[dict]:
 
 def refresh_subscription(conn: sqlite3.Connection, sid: int,
                          timeout: float = 30.0) -> dict:
-    """Re-fetch a subscription URL and replace its nodes. Returns stats."""
+    """Re-fetch subscription URL(s) and replace its nodes. Returns stats.
+
+    Multiple URLs are merged. Rename rules (region/feature/seq, filter
+    keywords) are applied on import. Per-node custom names and disabled
+    flags survive refreshes (matched by original tag).
+    """
     import urllib.request
-    row = conn.execute("SELECT name, url FROM subscriptions WHERE id=?",
-                       (sid,)).fetchone()
+    row = conn.execute(
+        "SELECT name, url, urls, rename_enabled, rename_prefix, rename_order,"
+        " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
+        " rename_filter FROM subscriptions WHERE id=?", (sid,)).fetchone()
     if not row:
         raise KeyError("not found")
-    name, url = row
-    if not url:
+    (name, url, urls_json, rn_en, rn_prefix, rn_order, rn_digits,
+     rn_regions, rn_fallback, rn_features, rn_filter) = row
+    try:
+        urls = json.loads(urls_json or "[]")
+    except ValueError:
+        urls = []
+    urls = [u.strip() for u in urls if u and u.strip()]
+    if url and url.strip() and url.strip() not in urls:
+        urls.insert(0, url.strip())
+    if not urls:
         raise ValueError("subscription has no URL to refresh")
-    req = urllib.request.Request(url, headers={"User-Agent": "openbox-oss/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        content = r.read().decode("utf-8", "replace")
-        userinfo_raw = r.headers.get("subscription-userinfo", "")
-    # subscription-userinfo: upload=1; download=2; total=1073741824; expire=1735689600
-    userinfo: dict = {}
-    for part in userinfo_raw.split(";"):
-        if "=" in part:
-            k, v = part.split("=", 1)
-            k, v = k.strip(), v.strip()
-            if k in ("upload", "download", "total", "expire"):
-                try:
-                    userinfo[k] = int(v)
-                except ValueError:
-                    pass
+    # remember per-node customizations before wiping
+    kept = {r[0]: (r[1], r[2]) for r in conn.execute(
+        "SELECT orig_tag, custom_tag, disabled FROM nodes WHERE sub_id=?", (sid,))}
     from core.subscription import parse_subscription
     from core.clash import parse_clash_yaml, looks_like_clash
-    nodes = (parse_clash_yaml(content) if looks_like_clash(content)
-             else parse_subscription(content))
+    from core import rename as _rn
+    nodes = []
+    userinfo: dict = {}
+    for u in urls:
+        req = urllib.request.Request(u, headers={"User-Agent": "openbox-oss/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            content = r.read().decode("utf-8", "replace")
+            if not userinfo:
+                for part in r.headers.get("subscription-userinfo", "").split(";"):
+                    if "=" in part:
+                        k, v = part.split("=", 1)
+                        k, v = k.strip(), v.strip()
+                        if k in ("upload", "download", "total", "expire"):
+                            try:
+                                userinfo[k] = int(v)
+                            except ValueError:
+                                pass
+        nodes.extend(parse_clash_yaml(content) if looks_like_clash(content)
+                     else parse_subscription(content))
+    # rename rules
+    rename_cfg = {
+        "enabled": bool(rn_en), "prefix": bool(rn_prefix), "sub_name": name,
+        "order": json.loads(rn_order or "[]") or ["region", "feature", "seq"],
+        "seq_digits": rn_digits or 2,
+        "regions": json.loads(rn_regions or "[]") or _rn.DEFAULT_REGIONS,
+        "fallback": rn_fallback or "其他",
+        "features": rn_features if rn_features != "" else _rn.DEFAULT_FEATURES,
+        "filter": rn_filter if rn_filter != "" else _rn.DEFAULT_FILTER,
+    }
+    renamed = _rn.rename_nodes([n.tag for n in nodes], rename_cfg) \
+        if rename_cfg["enabled"] else \
+        [{"orig": n.tag, "new": n.tag, "filtered": False} for n in nodes]
     conn.execute("DELETE FROM nodes WHERE sub_id=?", (sid,))
     existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}
-    count = 0
-    for n in nodes:
-        tag, i = n.tag, 2
+    count, filtered_count = 0, 0
+    for n, rn in zip(nodes, renamed):
+        if rn["filtered"]:
+            filtered_count += 1
+            continue
+        tag = rn["new"] if rename_cfg["enabled"] else n.tag
+        tag, i = tag, 2
         while tag in existing:
-            tag = f"{n.tag} #{i}"
+            tag = f"{tag} #{i}"
             i += 1
         existing.add(tag)
+        custom_tag, disabled = kept.get(rn["orig"], ("", 0))
+        if custom_tag:
+            tag = custom_tag  # user-edited name wins
+            existing.add(tag)
         conn.execute(
-            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO nodes(sub_id, tag, protocol, server, port, params,"
+            " orig_tag, custom_tag, disabled)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (sid, tag, n.protocol, n.server, n.server_port,
-             json.dumps(n.params, ensure_ascii=False)))
+             json.dumps(n.params, ensure_ascii=False),
+             rn["orig"], custom_tag or "", disabled or 0))
         count += 1
     conn.execute("UPDATE subscriptions SET updated_at=?, userinfo=? WHERE id=?",
                  (time.strftime("%Y-%m-%dT%H:%M:%S"),
                   json.dumps(userinfo, ensure_ascii=False), sid))
     conn.commit()
     bump_rev(conn)
-    return {"id": sid, "name": name, "node_count": count, "userinfo": userinfo}
+    return {"id": sid, "name": name, "node_count": count,
+            "filtered_count": filtered_count, "userinfo": userinfo}

@@ -238,9 +238,28 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # ---- subscriptions ----
     @app.post("/api/subscriptions")
     def sub_create():
+        import json as _json
         d = request.get_json(force=True, silent=True) or {}
-        if not d.get("name") or not d.get("content"):
-            return jsonify({"error": "name and content are required"}), 400
+        urls = [str(u).strip() for u in (d.get("urls") or []) if str(u).strip()]
+        if not d.get("name") or (not d.get("content") and not urls):
+            return jsonify({"error": "name and (content or urls) are required"}), 400
+        # URL mode: create empty subscription then refresh from URLs
+        if urls and not d.get("content"):
+            c = db()
+            cur = c.execute(
+                "INSERT INTO subscriptions(name, source, urls, url, created_at)"
+                " VALUES (?, 'manual', ?, ?, ?)",
+                (d["name"], _json.dumps(urls, ensure_ascii=False), urls[0],
+                 time.strftime("%Y-%m-%dT%H:%M:%S")))
+            sid = cur.lastrowid
+            c.commit()
+            try:
+                r = dbmod.refresh_subscription(c, sid)
+            except Exception as e:
+                return jsonify({"error": f"fetch failed: {e}"}), 400
+            return jsonify({"id": sid, "name": d["name"],
+                            "node_count": r["node_count"],
+                            "filtered_count": r.get("filtered_count", 0)}), 201
         try:
             sid, n = dbmod.add_subscription(db(), d["name"], d["content"],
                                             d.get("source", "manual"),
@@ -248,6 +267,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
                                             url=d.get("url"))
         except Exception as e:
             return jsonify({"error": f"parse failed: {e}"}), 400
+        if urls:
+            c = db()
+            c.execute("UPDATE subscriptions SET urls=?, url=? WHERE id=?",
+                      (_json.dumps(urls, ensure_ascii=False), urls[0], sid))
+            c.commit()
         return jsonify({"id": sid, "name": d["name"], "node_count": n}), 201
 
     @app.get("/api/subscriptions")
@@ -256,6 +280,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.put("/api/subscriptions/<int:sid>")
     def sub_update(sid: int):
+        import json as _json
         d = request.get_json(force=True, silent=True) or {}
         c = db()
         row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
@@ -273,10 +298,103 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if "name" in d and str(d["name"]).strip():
             c.execute("UPDATE subscriptions SET name=? WHERE id=?",
                       (str(d["name"]).strip(), sid))
+        if "urls" in d and isinstance(d["urls"], list):
+            urls = [str(u).strip() for u in d["urls"] if str(u).strip()]
+            c.execute("UPDATE subscriptions SET urls=?, url=? WHERE id=?",
+                      (_json.dumps(urls, ensure_ascii=False),
+                       urls[0] if urls else None, sid))
+        if "dns_resolve" in d and d["dns_resolve"] in ("auto", "direct", "proxy"):
+            c.execute("UPDATE subscriptions SET dns_resolve=? WHERE id=?",
+                      (d["dns_resolve"], sid))
+        rn = d.get("rename")
+        if isinstance(rn, dict):
+            from core import rename as _rn
+            if "enabled" in rn:
+                c.execute("UPDATE subscriptions SET rename_enabled=? WHERE id=?",
+                          (1 if rn["enabled"] else 0, sid))
+            if "prefix" in rn:
+                c.execute("UPDATE subscriptions SET rename_prefix=? WHERE id=?",
+                          (1 if rn["prefix"] else 0, sid))
+            if "order" in rn and isinstance(rn["order"], list):
+                c.execute("UPDATE subscriptions SET rename_order=? WHERE id=?",
+                          (_json.dumps([x for x in rn["order"]
+                                        if x in ("region", "feature", "seq")]), sid))
+            if "seq_digits" in rn:
+                try:
+                    c.execute("UPDATE subscriptions SET rename_seq_digits=? WHERE id=?",
+                              (max(1, min(4, int(rn["seq_digits"]))), sid))
+                except (TypeError, ValueError):
+                    pass
+            if "regions" in rn and isinstance(rn["regions"], list):
+                clean = [{"name": str(r.get("name", ""))[:16],
+                          "flag": str(r.get("flag", ""))[:8],
+                          "keywords": str(r.get("keywords", ""))[:500]}
+                         for r in rn["regions"] if r.get("name")]
+                c.execute("UPDATE subscriptions SET rename_regions=? WHERE id=?",
+                          (_json.dumps(clean, ensure_ascii=False), sid))
+            if "fallback" in rn:
+                c.execute("UPDATE subscriptions SET rename_fallback=? WHERE id=?",
+                          (str(rn["fallback"])[:16] or "其他", sid))
+            for key, col in (("features", "rename_features"), ("filter", "rename_filter")):
+                if key in rn:
+                    c.execute(f"UPDATE subscriptions SET {col}=? WHERE id=?",
+                              (str(rn[key])[:500], sid))
         c.commit()
         dbmod.bump_rev(c)
         updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
         return jsonify(updated)
+
+    @app.post("/api/subscriptions/<int:sid>/preview-rename")
+    def sub_preview_rename(sid: int):
+        """Preview rename results for current nodes without saving."""
+        import json as _json
+        from core import rename as _rn
+        c = db()
+        subs = [s for s in dbmod.list_subscriptions(c) if s["id"] == sid]
+        if not subs:
+            return jsonify({"error": "not found"}), 404
+        s = subs[0]
+        d = request.get_json(force=True, silent=True) or {}
+        rn = d.get("rename", s["rename"])
+        cfg = {
+            "enabled": True, "prefix": rn.get("prefix", True),
+            "sub_name": d.get("name", s["name"]),
+            "order": rn.get("order") or ["region", "feature", "seq"],
+            "seq_digits": rn.get("seq_digits", 2) or 2,
+            "regions": rn.get("regions") or _rn.DEFAULT_REGIONS,
+            "fallback": rn.get("fallback") or "其他",
+            "features": rn.get("features", _rn.DEFAULT_FEATURES),
+            "filter": rn.get("filter", _rn.DEFAULT_FILTER),
+        }
+        nodes = dbmod.list_nodes(c)
+        origs = [n["orig_tag"] or n["tag"] for n in nodes if n["sub_id"] == sid]
+        return jsonify({"items": _rn.rename_nodes(origs, cfg)})
+
+    @app.put("/api/nodes/<int:nid>")
+    def node_update(nid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        row = c.execute("SELECT id, tag FROM nodes WHERE id=?", (nid,)).fetchone()
+        if not row:
+            return jsonify({"error": "not found"}), 404
+        if "disabled" in d:
+            c.execute("UPDATE nodes SET disabled=? WHERE id=?",
+                      (1 if d["disabled"] else 0, nid))
+        if "custom_tag" in d:
+            ct = str(d["custom_tag"] or "").strip()
+            if ct:
+                # keep tags unique
+                exists = c.execute("SELECT id FROM nodes WHERE tag=? AND id != ?",
+                                   (ct, nid)).fetchone()
+                if exists:
+                    return jsonify({"error": "tag already exists"}), 400
+                c.execute("UPDATE nodes SET tag=?, custom_tag=? WHERE id=?",
+                          (ct, ct, nid))
+            else:
+                c.execute("UPDATE nodes SET custom_tag='' WHERE id=?", (nid,))
+        c.commit()
+        dbmod.bump_rev(c)
+        return jsonify({"ok": True})
 
     @app.delete("/api/subscriptions/<int:sid>")
     def sub_delete(sid: int):
@@ -641,7 +759,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         from core.health import check_nodes
         d = request.get_json(force=True, silent=True) or {}
         cfg = dbmod.load_app_config(db())
-        results = check_nodes(cfg.nodes, timeout=float(d.get("timeout", 5.0)),
+        nodes = cfg.nodes
+        if d.get("sub_id"):
+            tags = {n["tag"] for n in dbmod.list_nodes(db())
+                    if n["sub_id"] == d["sub_id"]}
+            nodes = [n for n in nodes if n.tag in tags]
+        elif d.get("tag"):
+            nodes = [n for n in nodes if n.tag == d["tag"]]
+        results = check_nodes(nodes, timeout=float(d.get("timeout", 5.0)),
                               max_workers=int(d.get("max_workers", 20)))
         dbmod.save_health(db(), results)
         return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
