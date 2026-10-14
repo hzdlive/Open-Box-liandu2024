@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 import uuid
 
 from flask import Flask, g, jsonify, request, send_from_directory
@@ -480,11 +481,32 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def _tconfig():
         from core.transparent import TransparentConfig
         d = request.args
+        c = db()
+        cfg = dbmod.load_app_config(c)
+        rewrites = [(r.domain, r.target) for r in cfg.dns_rewrites]
+        bypass_terms = [t.ident for t in cfg.terminals if t.policy == "bypass"]
+        site_domains = []
+        for s in cfg.site_sets:
+            # dnsmasq server=/domain/ matches the domain and its subdomains
+            doms = [x for x in list(s.domains) + list(s.domain_suffix) if x]
+            if doms:
+                site_domains.append((s.action, doms))
+        def _strip_scheme(u: str) -> str:
+            u = u.strip()
+            if "://" in u:
+                u = u.split("://", 1)[1]
+            return u.split("/")[0].split("#")[0]
         return TransparentConfig(
             tproxy_port=int(d.get("tproxy_port", 7893)),
             dns_port=int(d.get("dns_port", 1053)),
             lan_iface=d.get("lan_iface", "br-lan"),
             enable_ipv6=d.get("ipv6", "1") == "1",
+            quic_block=cfg.quic_block,
+            terminal_bypass=bypass_terms,
+            dns_rewrites=rewrites,
+            dns_direct_ip=_strip_scheme(cfg.dns.direct_dns),
+            dns_proxy_ip=_strip_scheme(cfg.dns.proxy_dns),
+            site_domains=site_domains,
         )
 
     @app.get("/api/transparent/nft")
@@ -665,6 +687,268 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "action must be pause|direct"}), 400
         dbmod.set_setting(db(), "wifi_policy", json.dumps(policy))
         return jsonify(policy)
+
+    # ---- DNS management ----
+    @app.get("/api/dns")
+    def dns_get():
+        c = db()
+        return jsonify({
+            "mode": dbmod.get_setting(c, "dns_mode", "dnsmasq"),
+            "region": dbmod.get_setting(c, "dns_region", "auto"),
+            "region_detected": dbmod.get_setting(c, "dns_region_detected", ""),
+            "direct_dns": dbmod.get_setting(c, "dns_direct", dbmod.DEFAULT_SETTINGS["dns_direct"]),
+            "proxy_dns": dbmod.get_setting(c, "dns_proxy", dbmod.DEFAULT_SETTINGS["dns_proxy"]),
+            "rewrites": dbmod.list_dns_rewrites(c),
+        })
+
+    @app.put("/api/dns")
+    def dns_put():
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        if "mode" in d:
+            if d["mode"] not in ("dnsmasq", "firewall", "off"):
+                return jsonify({"error": "mode must be dnsmasq|firewall|off"}), 400
+            dbmod.set_setting(c, "dns_mode", d["mode"])
+        if "region" in d:
+            if d["region"] not in ("auto", "cn", "outside"):
+                return jsonify({"error": "region must be auto|cn|outside"}), 400
+            dbmod.set_setting(c, "dns_region", d["region"])
+        for k in ("direct_dns", "proxy_dns"):
+            skey = "dns_direct" if k == "direct_dns" else "dns_proxy"
+            if k in d and str(d[k]).strip():
+                dbmod.set_setting(c, skey, str(d[k]).strip())
+        return dns_get()
+
+    @app.post("/api/dns/detect-region")
+    def dns_detect_region():
+        # Auto-detect mainland vs outside from the exit IP's country.
+        import urllib.request as _url
+        country = ""
+        try:
+            with _url.urlopen("https://ip-api.com/json/?fields=countryCode",
+                              timeout=8) as r:
+                country = (json.loads(r.read().decode()) or {}).get("countryCode", "")
+        except Exception as e:
+            return jsonify({"error": f"detection failed: {e}"}), 502
+        region = "cn" if country.upper() == "CN" else "outside"
+        dbmod.set_setting(db(), "dns_region_detected", region)
+        return jsonify({"country": country.upper(), "region": region})
+
+    @app.post("/api/dns/rewrite")
+    def dns_rewrite_add():
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(dbmod.add_dns_rewrite(db(), d.get("domain", ""), d.get("target", ""))), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.delete("/api/dns/rewrite/<int:rid>")
+    def dns_rewrite_del(rid: int):
+        if not dbmod.delete_dns_rewrite(db(), rid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    # ---- live connections (via kernel clash API) ----
+    @app.get("/api/connections")
+    def connections_list():
+        from core import clashapi
+        ok, conns = clashapi.list_connections()
+        if not ok:
+            return jsonify({"error": "kernel clash API unreachable", "connections": []}), 502
+        out = []
+        for cn in conns:
+            m = cn.get("metadata", {}) or {}
+            out.append({
+                "id": str(cn.get("id", "")),
+                "start": cn.get("start", ""),
+                "upload": cn.get("upload", 0), "download": cn.get("download", 0),
+                "chains": cn.get("chains", []),
+                "rule": cn.get("rule", ""), "rule_payload": cn.get("rulePayload", ""),
+                "src": f"{m.get('sourceIP', '')}:{m.get('sourcePort', '')}",
+                "dst": m.get("host", "") or m.get("destinationIP", ""),
+                "dport": m.get("destinationPort", ""),
+                "network": m.get("network", ""), "type": m.get("type", ""),
+            })
+        return jsonify({"connections": out})
+
+    @app.delete("/api/connections/<cid>")
+    def connection_close(cid: str):
+        from core import clashapi
+        ok, data = clashapi.close_connection(cid)
+        if not ok:
+            return jsonify({"error": "close failed", "detail": data}), 502
+        return jsonify({"ok": True})
+
+    @app.get("/api/traffic/now")
+    def traffic_now():
+        from core import clashapi
+        ok, conns = clashapi.list_connections()
+        up = down = 0
+        if ok:
+            for cn in conns:
+                up += int(cn.get("upload", 0)); down += int(cn.get("download", 0))
+        return jsonify({"up": up, "download": down, "connections": len(conns) if ok else 0,
+                        "kernel": ok})
+
+    @app.get("/api/traffic/daily")
+    def traffic_daily():
+        days = min(max(int(request.args.get("days", 7)), 1), 90)
+        return jsonify({"rows": dbmod.traffic_summary(db(), days)})
+
+    # ---- domain penetration: full chain site set -> group -> node ----
+    @app.post("/api/route/penetrate")
+    def route_penetrate():
+        from core import clashapi
+        from core.routing import preview_route
+        d = request.get_json(force=True, silent=True) or {}
+        target = str(d.get("target", "")).strip()
+        if not target:
+            return jsonify({"error": "target is required"}), 400
+        c = db()
+        cfg = dbmod.load_app_config(c)
+        pv = preview_route(cfg.site_sets, target)
+        chain = [{"level": "site_set", "name": pv["site_set"], "action": pv["action"],
+                  "flip": pv.get("flip")}]
+        node_detail = None
+        kernel = False
+        if pv["outbound"]:
+            ob = pv["outbound"]
+            chain.append({"level": "outbound", "name": ob})
+            # resolve selector -> current node via clash API
+            ok, proxies = clashapi.get_proxies()
+            kernel = ok
+            if ok:
+                entry = (proxies.get("proxies", {}) or {}).get(ob, {})
+                now = entry.get("now")
+                if now:
+                    chain.append({"level": "node", "name": now})
+                    nodes = {n.tag: n for n in cfg.nodes}
+                    if now in nodes:
+                        n = nodes[now]
+                        node_detail = {"tag": n.tag, "protocol": n.protocol,
+                                       "server": n.server, "port": n.server_port}
+        return jsonify({"target": target, "chain": chain, "node": node_detail,
+                        "kernel": kernel})
+
+    @app.post("/api/route/test")
+    def route_test():
+        """Actually fetch a URL through the local mixed inbound and report
+        what happened (status, time, matched rule)."""
+        from core.routing import preview_route
+        import urllib.request as _url
+        d = request.get_json(force=True, silent=True) or {}
+        url = str(d.get("url", "")).strip()
+        if not url.startswith(("http://", "https://")):
+            return jsonify({"error": "url must start with http:// or https://"}), 400
+        c = db()
+        cfg = dbmod.load_app_config(c)
+        host = url.split("://", 1)[1].split("/", 1)[0].split("@")[-1].split(":")[0]
+        pv = preview_route(cfg.site_sets, host)
+        t0 = time.time()
+        try:
+            proxy = _url.ProxyHandler({"http": "http://127.0.0.1:2080",
+                                       "https": "http://127.0.0.1:2080"})
+            opener = _url.build_opener(proxy)
+            req = _url.Request(url, headers={"User-Agent": "openbox-oss/route-test"})
+            with opener.open(req, timeout=15) as r:
+                status, final = r.status, r.geturl()
+        except Exception as e:
+            return jsonify({"url": url, "preview": pv, "error": str(e),
+                            "elapsed_ms": int((time.time() - t0) * 1000)}), 502
+        return jsonify({"url": url, "preview": pv, "status": status,
+                        "final_url": final,
+                        "elapsed_ms": int((time.time() - t0) * 1000)})
+
+    # ---- terminal policies ----
+    @app.get("/api/terminals")
+    def terminals_list():
+        return jsonify({"terminals": dbmod.list_terminals(db())})
+
+    @app.post("/api/terminals")
+    def terminal_upsert():
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(dbmod.upsert_terminal(
+                db(), d.get("ident", ""), d.get("name", ""), d.get("policy", "proxy"))), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.delete("/api/terminals/<int:tid>")
+    def terminal_del(tid: int):
+        if not dbmod.delete_terminal(db(), tid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    # ---- hot-switch a site set between direct and proxy (no restart) ----
+    @app.post("/api/sitesets/<int:sid>/flip")
+    def siteset_flip(sid: int):
+        from core import clashapi
+        d = request.get_json(force=True, silent=True) or {}
+        to = d.get("to", "")
+        if to not in ("direct", "proxy"):
+            return jsonify({"error": "to must be direct|proxy"}), 400
+        c = db()
+        rows = [s for s in dbmod.list_site_sets(c) if s["id"] == sid]
+        if not rows:
+            return jsonify({"error": "not found"}), 404
+        if rows[0]["action"] == "reject":
+            return jsonify({"error": "reject site sets cannot be flipped"}), 400
+        tag = f"flip-{sid}"
+        # try the live switch first; persist regardless so apply() picks it up
+        target = "direct" if to == "direct" else rows[0]["group"]
+        ok, detail = clashapi.switch_selector(tag, target)
+        dbmod.set_site_set_flip(c, sid, to)
+        return jsonify({"ok": True, "hot": ok, "detail": detail})
+
+    # ---- component upgrade ----
+    @app.get("/api/upgrade/status")
+    def upgrade_status():
+        from core.service import manager_from_env
+        import glob as _glob
+        m = manager_from_env()
+        geos = sorted(_glob.glob(os.path.expanduser("~/.openbox-oss/geoip*.dat")) +
+                      _glob.glob(os.path.expanduser("~/.openbox-oss/geosite*.dat")))
+        return jsonify({
+            "panel": VERSION,
+            "singbox": m.version(),
+            "singbox_running": m.status().running if hasattr(m.status(), "running") else False,
+            "geo_files": [os.path.basename(g) for g in geos],
+        })
+
+    @app.get("/api/upgrade/check")
+    def upgrade_check():
+        import urllib.request as _url
+        try:
+            req = _url.Request("https://api.github.com/repos/SagerNet/sing-box/releases/latest",
+                               headers={"User-Agent": "openbox-oss", "Accept": "application/vnd.github+json"})
+            with _url.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read().decode())
+            return jsonify({"latest": data.get("tag_name", ""), "name": data.get("name", ""),
+                            "published_at": data.get("published_at", "")})
+        except Exception as e:
+            return jsonify({"error": f"check failed: {e}"}), 502
+
+    @app.post("/api/upgrade/run")
+    def upgrade_run():
+        import subprocess as _sp
+        script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "scripts", "upgrade.sh")
+        logf = "/tmp/openbox-oss-upgrade.log"
+        if not os.path.isfile(script):
+            return jsonify({"error": "upgrade script not found"}), 404
+        with open(logf, "ab") as lf:
+            _sp.Popen(["bash", script], stdout=lf, stderr=_sp.STDOUT,
+                      start_new_session=True)
+        return jsonify({"ok": True, "log": logf})
+
+    @app.get("/api/upgrade/log")
+    def upgrade_log():
+        try:
+            with open("/tmp/openbox-oss-upgrade.log", "rb") as f:
+                f.seek(max(0, os.path.getsize("/tmp/openbox-oss-upgrade.log") - 20000))
+                return jsonify({"log": f.read().decode("utf-8", "replace")})
+        except FileNotFoundError:
+            return jsonify({"log": ""})
 
     # ---- frontend (SPA, no build step) ----
     @app.get("/", defaults={"path": ""})

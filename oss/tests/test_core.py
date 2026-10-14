@@ -29,9 +29,12 @@ def main() -> int:
 
     assert conf["route"]["final"] == "auto"
     assert len(conf["route"]["rules"]) == 4  # 3 site sets + dns rule
-    assert conf["route"]["rules"][0]["outbound"] == "auto"
-    assert conf["route"]["rules"][1]["outbound"] == "direct"
+    # proxy/direct site sets route through their hot-switch selector
+    assert conf["route"]["rules"][0]["outbound"].startswith("flip-")
+    assert conf["route"]["rules"][1]["outbound"].startswith("flip-")
     assert conf["route"]["rules"][2]["outbound"] == "block"
+    flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
+    assert len(flips) == 2, [o["tag"] for o in flips]
     assert {o["tag"] for o in conf["outbounds"]} >= {"auto", "manual", "direct", "block", "dns-out"}
     assert conf["dns"]["servers"][0]["tag"] == "direct-dns"
     json.dumps(conf)  # must be serializable

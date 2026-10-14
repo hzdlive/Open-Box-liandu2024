@@ -130,6 +130,33 @@ def resolve_group_members(group: Group, node_tags: list[str],
     return tags
 
 
+def flip_tag(site_set) -> str:
+    """Outbound tag of the hot-switch selector for a site set."""
+    import re
+    key = site_set.sid or re.sub(r"\W+", "-", site_set.name).strip("-") or "x"
+    return f"flip-{key}"
+
+
+def flip_outbound(site_set, group_names: set[str]) -> dict | None:
+    """A selector holding [primary, secondary] so the panel can flip a site
+    set between direct and proxy at runtime via the clash API (no restart).
+
+    primary = the action's target; secondary = the other side.
+    default = persisted flip state, else the action.
+    Only for proxy/direct actions; reject stays a static block."""
+    if site_set.action == "reject":
+        return None
+    grp = site_set.group if site_set.group in group_names else "auto"
+    if site_set.action == "direct":
+        primary, secondary = "direct", grp
+    else:
+        primary, secondary = grp, "direct"
+    members = [primary] + ([secondary] if secondary != primary else [])
+    default = site_set.flip if site_set.flip in members else primary
+    return {"type": "selector", "tag": flip_tag(site_set),
+            "outbounds": members, "default": default}
+
+
 def build_outbounds(cfg: AppConfig) -> list[dict]:
     """Build the outbound list (nodes + chains + groups + builtins)."""
     node_tags = [n.tag for n in cfg.nodes]
@@ -160,6 +187,12 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         {"type": "block", "tag": "block"},
         {"type": "dns", "tag": "dns-out"},
     ]
+    # Hot-switch selectors, one per proxy/direct site set (see flip_outbound).
+    group_names = {g.name for g in groups}
+    for s in cfg.site_sets:
+        fo = flip_outbound(s, group_names)
+        if fo:
+            outbounds.append(fo)
     return outbounds
 
 
@@ -168,15 +201,14 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
     groups = cfg.groups or default_groups()
     group_names = {g.name for g in groups}
 
-    def target_of(action: str, group: str) -> str:
-        if action == "direct":
-            return "direct"
-        if action == "reject":
-            return "block"
-        return group if group in group_names else "auto"
-
     dns_rules = []
     route_rules = []
+    # Terminal policies: "direct" terminals bypass the proxy at the route
+    # level (evaluated before any site set). "bypass" terminals never reach
+    # the kernel at all (handled in nftables, see core/transparent.py).
+    direct_terms = [t.ident for t in cfg.terminals if t.policy == "direct"]
+    if direct_terms:
+        route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
     for s in cfg.site_sets:
         rule: dict = {}
         if s.domains:
@@ -189,7 +221,10 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
             rule["ip_cidr"] = s.ip_cidr
         if not rule:
             continue
-        target = target_of(s.action, s.group)
+        if s.action == "reject":
+            target = "block"
+        else:
+            target = flip_tag(s)  # hot-switch selector; default = action/flip state
         route_rules.append({**rule, "outbound": target})
         dns_rules.append({**rule, "server": "proxy-dns" if s.action == "proxy" else "direct-dns"})
     return route_rules, dns_rules, group_names
@@ -212,6 +247,7 @@ def build_config(cfg: AppConfig) -> dict:
         },
         "inbounds": [
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,
+             "mtu": cfg.tun_mtu,
              "auto_route": True, "strict_route": False, "sniff": True},
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080, "sniff": True},
         ],

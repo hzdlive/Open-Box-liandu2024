@@ -35,24 +35,26 @@ def main() -> int:
 
     # route preview: domain -> first match wins, top-down
     r = c.post("/api/route/preview", json={"target": "www.youtube.com"})
-    assert r.get_json() == {"site_set": "国外", "action": "proxy", "outbound": "auto"}, r.get_json()
+    assert r.get_json() == {"site_set": "国外", "action": "proxy", "outbound": "auto", "flip": None}, r.get_json()
     r = c.post("/api/route/preview", json={"target": "www.baidu.com"})
     assert r.get_json()["outbound"] == "direct", r.get_json()
     r = c.post("/api/route/preview", json={"target": "ads.example.com"})
     assert r.get_json()["outbound"] == "block", r.get_json()
     # IP targets only match ip_cidr
     r = c.post("/api/route/preview", json={"target": "114.114.114.114"})
-    assert r.get_json() == {"site_set": "国内", "action": "direct", "outbound": "direct"}, r.get_json()
+    assert r.get_json() == {"site_set": "国内", "action": "direct", "outbound": "direct", "flip": None}, r.get_json()
     r = c.post("/api/route/preview", json={"target": "8.8.8.8"})
     assert r.get_json() == {"site_set": None, "action": "final", "outbound": "auto"}, r.get_json()
     # domain must not match ip_cidr and vice versa
     r = c.post("/api/route/preview", json={"target": "114.114.114.114.example.com"})
     assert r.get_json()["site_set"] is None, r.get_json()
 
-    # generated config reflects DB state
+    # generated config reflects DB state (10 base + 2 flip selectors for the 2 site sets)
     r = c.get("/api/config")
     conf = r.get_json()
-    assert len(conf["outbounds"]) == 10, len(conf["outbounds"])
+    assert len(conf["outbounds"]) == 12, len(conf["outbounds"])
+    flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
+    assert len(flips) == 2 and all(o["type"] == "selector" for o in flips), flips
     assert conf["route"]["final"] == "auto"
 
     # settings round-trip

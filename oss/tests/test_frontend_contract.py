@@ -24,7 +24,8 @@ def main() -> int:
     # reads used by every view
     for p in ("/api/status", "/api/health", "/api/nodes", "/api/groups",
               "/api/subscriptions", "/api/sitesets", "/api/rulesets",
-              "/api/chains", "/api/settings", "/api/config"):
+              "/api/chains", "/api/settings", "/api/config",
+              "/api/dns", "/api/terminals", "/api/traffic/daily"):
         r = c.get(p)
         assert r.status_code == 200, (p, r.status_code)
 
@@ -37,14 +38,23 @@ def main() -> int:
     assert c.put(f"/api/sitesets/{ss['id']}",
                  json={"action": "direct"}).status_code == 200
     assert c.post("/api/route/preview", json={"target": "a.example.com"}).status_code == 200
+    assert c.post("/api/route/penetrate", json={"target": "a.example.com"}).status_code == 200
     assert c.put("/api/settings", json={"dns_direct": "1.2.3.4"}).status_code == 200
+    # site-set hot-switch flip (no kernel -> persisted, hot=false)
+    r = c.post(f"/api/sitesets/{ss['id']}/flip", json={"to": "direct"})
+    assert r.status_code == 200 and r.get_json()["ok"], r.get_data(as_text=True)
+    # terminals + dns rewrite round-trip
+    tid = c.post("/api/terminals", json={"ident": "192.168.1.9", "policy": "direct"}).get_json()["id"]
+    rwid = c.post("/api/dns/rewrite", json={"domain": "x.test", "target": "1.1.1.1"}).get_json()["id"]
+    assert c.get("/api/upgrade/status").status_code == 200
     gid = c.post("/api/groups", json={"name": "g1", "type": "selector"}).get_json()["id"]
     cid = c.post("/api/chains", json={"name": "c1", "server": "1.2.3.4",
                                       "port": 1080, "front": "auto"}).get_json()["id"]
     rid = c.post("/api/rulesets", json={"name": "r1", "url": ""}).get_json()["id"]
     assert c.post("/api/health/check", json={"timeout": 1}).status_code == 200
     for p in (f"/api/subscriptions/{sid}", f"/api/sitesets/{ss['id']}",
-              f"/api/groups/{gid}", f"/api/chains/{cid}", f"/api/rulesets/{rid}"):
+              f"/api/groups/{gid}", f"/api/chains/{cid}", f"/api/rulesets/{rid}",
+              f"/api/terminals/{tid}", f"/api/dns/rewrite/{rwid}"):
         assert c.delete(p).status_code == 200, p
 
     print("OK: frontend API contract — all endpoints the SPA calls exist and work")

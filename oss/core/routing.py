@@ -44,6 +44,9 @@ def preview_route(site_sets: list[SiteSet], target: str) -> dict:
             elif any(kw.lower() in t for kw in s.domain_keyword):
                 hit = True
         if hit:
-            outbound = {"proxy": s.group, "direct": "direct", "reject": "block"}.get(s.action, s.group)
-            return {"site_set": s.name, "action": s.action, "outbound": outbound}
+            # Resolve through the hot-switch state: flip overrides action.
+            eff = s.flip if s.flip in ("direct", "proxy") else s.action
+            outbound = {"proxy": s.group, "direct": "direct", "reject": "block"}.get(eff, s.group)
+            return {"site_set": s.name, "action": s.action, "outbound": outbound,
+                    "flip": s.flip or None}
     return {"site_set": None, "action": "final", "outbound": None}

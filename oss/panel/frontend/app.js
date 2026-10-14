@@ -33,6 +33,7 @@ function toast(msg, ok = true) {
 const NAV = [
   ['', '概览'], ['proxy', '代理'], ['subs', '订阅'], ['sites', '站点集'],
   ['rulesets', '规则集'], ['chains', '链式代理'], ['debug', '规则调试'],
+  ['dns', 'DNS'], ['conns', '连接'], ['terminals', '终端'],
   ['settings', '设置'], ['config', '配置'],
 ];
 
@@ -247,11 +248,18 @@ async function vSites() {
   const groupOpts = groups.map(g => `<option>${esc(g.name)}</option>`).join('');
   $('#view').innerHTML = `
     <h2>站点集 <span class="muted">自上而下匹配，先命中先生效</span></h2>
-    <table><tr><th>名称</th><th>动作</th><th>出口组</th><th>规则</th><th></th></tr>
-    ${sets.map(s => `<tr><td>${esc(s.name)}</td><td>${actionPill(s.action)}</td>
+    <table><tr><th>名称</th><th>动作</th><th>当前出口</th><th>出口组</th><th>规则</th><th></th></tr>
+    ${sets.map(s => {
+      const eff = s.flip || s.action;
+      const flipBtn = s.action === 'reject' ? '<span class="muted">—</span>'
+        : `<button class="small ghost" data-flip="${s.id}" data-to="${eff === 'direct' ? 'proxy' : 'direct'}"
+            title="不重启内核切换">切${eff === 'direct' ? '代理' : '直连'}</button>`;
+      return `<tr><td>${esc(s.name)}</td><td>${actionPill(s.action)}</td>
+      <td>${actionPill(eff)}${s.flip ? ' <span class="muted" title="热切换状态">(热切)</span>' : ''}</td>
       <td>${esc(s.group)}</td><td class="muted">${rulesSummary(s.rules)}</td>
-      <td><button class="small ghost" data-edit="${s.id}">编辑</button>
-          <button class="small danger" data-del="${s.id}">删除</button></td></tr>`).join('')}
+      <td>${flipBtn} <button class="small ghost" data-edit="${s.id}">编辑</button>
+          <button class="small danger" data-del="${s.id}">删除</button></td></tr>`;
+    }).join('')}
     </table>
     <form class="panel" id="f-site"><h3 id="f-site-title">新建站点集</h3>
       <input type="hidden" name="id">
@@ -311,6 +319,12 @@ async function vSites() {
     if (!confirm('删除该站点集？')) return;
     try { await delReq('/sitesets/' + b.dataset.del); toast('已删除'); vSites(); }
     catch (e) { toast(e.message, false); }
+  });
+  $('#view').querySelectorAll('[data-flip]').forEach(b => b.onclick = async () => {
+    try {
+      const r = await post('/sitesets/' + b.dataset.flip + '/flip', { to: b.dataset.to });
+      toast(r.hot ? '已热切换（内核未重启）' : '已保存，下次应用配置生效'); vSites();
+    } catch (e) { toast(e.message, false); }
   });
 }
 
@@ -413,21 +427,211 @@ async function vDebug() {
     <form class="panel" id="f-debug">
       <label>目标</label>
       <input type="text" name="target" placeholder="www.youtube.com 或 8.8.8.8" required>
-      <div><button>预览路由</button></div>
+      <div><button>预览路由</button>
+        <button type="button" id="btn-penetrate" class="ghost">域名穿透</button></div>
     </form>
-    <div id="dbg-result"></div>`;
+    <div id="dbg-result"></div>
+    <h3>实际请求测试 <span class="muted">经本机混合入站真实发起请求，看状态、耗时与命中规则</span></h3>
+    <form class="panel" id="f-rtest">
+      <label>URL</label>
+      <input type="text" name="url" placeholder="https://www.youtube.com/generate_204" required>
+      <div><button>发起测试</button></div>
+    </form>
+    <div id="rtest-result"></div>`;
+  const showPreview = r => `<div class="result">
+      <p>命中站点集：<b>${r.site_set ? esc(r.site_set) : '（无，按兜底）'}</b></p>
+      <p>动作：${actionPill(r.action)}　出口：<span class="pill proxy">${esc(r.outbound)}</span>
+      ${r.flip ? `<span class="muted">（热切换：${esc(r.flip)}）</span>` : ''}</p>
+    </div>`;
   $('#f-debug').onsubmit = async e => {
     e.preventDefault();
     const target = new FormData(e.target).get('target').trim();
     try {
       const r = await post('/route/preview', { target });
+      $('#dbg-result').innerHTML = showPreview(r);
+    } catch (err) { toast(err.message, false); }
+  };
+  $('#btn-penetrate').onclick = async () => {
+    const target = new FormData($('#f-debug')).get('target').trim();
+    if (!target) return toast('先输入目标', false);
+    try {
+      const r = await post('/route/penetrate', { target });
       $('#dbg-result').innerHTML = `<div class="result">
         <div class="big">${esc(target)}</div>
-        <p>命中站点集：<b>${r.site_set ? esc(r.site_set) : '（无，按兜底）'}</b></p>
-        <p>动作：${actionPill(r.action)}　出口：<span class="pill proxy">${esc(r.outbound)}</span></p>
+        <p>${r.chain.map(c => {
+          const lbl = { site_set: '站点集', outbound: '出口', node: '节点' }[c.level] || c.level;
+          return `<span class="pill">${lbl}</span> <b>${esc(c.name || '—')}</b>`;
+        }).join(' <span class="muted">→</span> ')}</p>
+        ${r.node ? `<p class="muted">${esc(r.node.protocol)}://${esc(r.node.server)}:${r.node.port}</p>` : ''}
+        ${r.kernel ? '' : '<p class="muted">内核未运行，节点级解析不可用</p>'}
       </div>`;
     } catch (err) { toast(err.message, false); }
   };
+  $('#f-rtest').onsubmit = async e => {
+    e.preventDefault();
+    const url = new FormData(e.target).get('url').trim();
+    $('#rtest-result').innerHTML = '<p class="muted">请求中…</p>';
+    try {
+      const r = await post('/route/test', { url });
+      $('#rtest-result').innerHTML = `<div class="result">
+        <p>状态：<b>${r.status}</b>　耗时：<b>${r.elapsed_ms} ms</b></p>
+        <p class="muted">最终 URL：${esc(r.final_url || '')}</p>
+        ${showPreview(r.preview)}
+      </div>`;
+    } catch (err) {
+      const d = err.data || {};
+      $('#rtest-result').innerHTML = `<div class="result">
+        <p>请求失败：${esc(err.message)}${d.elapsed_ms ? `（${d.elapsed_ms} ms）` : ''}</p>
+        ${d.preview ? showPreview(d.preview) : ''}</div>`;
+    }
+  };
+}
+
+/* ---------- DNS ---------- */
+async function vDns() {
+  const d = await get('/dns');
+  const modeName = { dnsmasq: '接管 dnsmasq 转发', firewall: '防火墙劫持', off: '禁用' };
+  $('#view').innerHTML = `
+    <h2>DNS</h2>
+    <form class="panel" id="f-dns">
+      <div class="row">
+        <div><label>接管模式</label><select name="mode">
+          ${['dnsmasq', 'firewall', 'off'].map(v =>
+            `<option value="${v}"${d.mode === v ? ' selected' : ''}>${modeName[v]}</option>`).join('')}
+        </select></div>
+        <div><label>区域</label><select name="region">
+          ${[['auto', '自动'], ['cn', '中国大陆'], ['outside', '中国大陆之外']].map(([v, l]) =>
+            `<option value="${v}"${d.region === v ? ' selected' : ''}>${l}</option>`).join('')}
+        </select>
+        <div class="muted">当前判定：${esc(d.region_detected || '未检测')}
+          <button type="button" id="btn-detect" class="small ghost">按出口 IP 检测</button></div></div>
+      </div>
+      <div class="row">
+        <div><label>直连 DNS</label><input type="text" name="direct_dns" value="${esc(d.direct_dns)}"></div>
+        <div><label>代理 DNS</label><input type="text" name="proxy_dns" value="${esc(d.proxy_dns)}">
+          <div class="muted">中国大陆默认 TCP 1.1.1.1；大陆之外默认上游 DNS</div></div>
+      </div>
+      <div><button>保存</button> <span class="muted">保存后需「应用配置」重启内核生效</span></div>
+    </form>
+    <h3>DNS 重写 <span class="muted">域名 → 固定 IP 或另一个域名（dnsmasq address=）</span></h3>
+    <table><tr><th>域名</th><th>目标</th><th></th></tr>
+    ${d.rewrites.map(r => `<tr><td>${esc(r.domain)}</td><td>${esc(r.target)}</td>
+      <td><button class="small danger" data-del-rw="${r.id}">删除</button></td></tr>`).join('')}
+    </table>
+    <form class="panel" id="f-rw"><h3>新增重写</h3>
+      <div class="row">
+        <div><label>域名</label><input type="text" name="domain" required></div>
+        <div><label>目标</label><input type="text" name="target" placeholder="1.2.3.4 或 other.example.com" required></div>
+      </div>
+      <div><button>添加</button></div>
+    </form>`;
+  $('#f-dns').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await put('/dns', { mode: f.get('mode'), region: f.get('region'),
+        direct_dns: f.get('direct_dns').trim(), proxy_dns: f.get('proxy_dns').trim() });
+      toast('已保存'); vDns();
+    } catch (err) { toast(err.message, false); }
+  };
+  $('#btn-detect').onclick = async () => {
+    try { const r = await post('/dns/detect-region', {}); toast(`检测到：${r.country} → ${r.region}`); vDns(); }
+    catch (e) { toast(e.message, false); }
+  };
+  $('#f-rw').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try { await post('/dns/rewrite', { domain: f.get('domain'), target: f.get('target') }); toast('已添加'); vDns(); }
+    catch (err) { toast(err.message, false); }
+  };
+  $('#view').querySelectorAll('[data-del-rw]').forEach(b => b.onclick = async () => {
+    try { await delReq('/dns/rewrite/' + b.dataset.delRw); toast('已删除'); vDns(); }
+    catch (e) { toast(e.message, false); }
+  });
+}
+
+/* ---------- 连接 ---------- */
+let connsTimer = null;
+async function vConns() {
+  clearInterval(connsTimer);
+  const fmt = n => n > 1e9 ? (n / 1e9).toFixed(2) + ' GB' : n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.round(n / 1e3) + ' KB';
+  const load = async () => {
+    try {
+      const [t, c] = await Promise.all([get('/traffic/now'), get('/connections').catch(() => null)]);
+      $('#traf-now').innerHTML =
+        `<div class="card"><div class="num">${fmt(t.download)}</div><div class="lbl">下载</div></div>
+         <div class="card"><div class="num">${fmt(t.up)}</div><div class="lbl">上传</div></div>
+         <div class="card"><div class="num">${t.connections}</div><div class="lbl">活动连接</div></div>
+         ${t.kernel ? '' : '<div class="card"><div class="lbl">内核未运行</div></div>'}`;
+      if (!c) { $('#conns-tbl').innerHTML = '<p class="muted">内核未运行，无实时连接</p>'; return; }
+      $('#conns-tbl').innerHTML = `<table><tr><th>源</th><th>目标</th><th>出口链</th><th>规则</th><th>上/下行</th><th></th></tr>
+        ${c.connections.map(x => `<tr><td class="muted">${esc(x.src)}</td>
+          <td>${esc(x.dst)}${x.dport ? ':' + x.dport : ''}</td>
+          <td class="muted">${esc((x.chains || []).join(' → '))}</td>
+          <td class="muted">${esc(x.rule || '')}</td>
+          <td class="muted">${fmt(x.upload)} / ${fmt(x.download)}</td>
+          <td><button class="small danger" data-close="${esc(x.id)}">关闭</button></td></tr>`).join('')}
+        </table>`;
+      $('#conns-tbl').querySelectorAll('[data-close]').forEach(b => b.onclick = async () => {
+        try { await delReq('/connections/' + encodeURIComponent(b.dataset.close)); load(); }
+        catch (e) { toast(e.message, false); }
+      });
+    } catch (e) { /* keep old content on transient errors */ }
+  };
+  $('#view').innerHTML = `
+    <h2>连接 <span class="muted">实时（5 秒刷新）</span></h2>
+    <div class="grid2" id="traf-now"></div>
+    <div id="conns-tbl"><p class="muted">加载中…</p></div>
+    <h3>每日流量 <span class="muted">按终端 / 出口 / 目标聚合</span></h3>
+    <div id="traf-daily"><p class="muted">加载中…</p></div>`;
+  load();
+  connsTimer = setInterval(load, 5000);
+  try {
+    const r = await get('/traffic/daily?days=7');
+    $('#traf-daily').innerHTML = r.rows.length ? `<table>
+      <tr><th>日期</th><th>终端</th><th>出口</th><th>目标</th><th>上传</th><th>下载</th></tr>
+      ${r.rows.map(x => `<tr><td>${esc(x.day)}</td><td class="muted">${esc(x.client || '—')}</td>
+        <td>${esc(x.proxy || '—')}</td><td class="muted">${esc(x.host || '—')}</td>
+        <td>${fmt(x.up)}</td><td>${fmt(x.down)}</td></tr>`).join('')}</table>`
+      : '<p class="muted">暂无记录（需要内核运行且流量采集开启）</p>';
+  } catch (e) { $('#traf-daily').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+/* ---------- 终端 ---------- */
+async function vTerminals() {
+  const { terminals } = await get('/terminals');
+  const polName = { direct: '直连', proxy: '代理', bypass: '不进内核' };
+  $('#view').innerHTML = `
+    <h2>终端分流 <span class="muted">按设备 IP / 网段指定策略</span></h2>
+    <table><tr><th>标识（IP/网段）</th><th>名称</th><th>策略</th><th></th></tr>
+    ${terminals.map(t => `<tr><td>${esc(t.ident)}</td><td>${esc(t.name || '—')}</td>
+      <td><span class="pill">${polName[t.policy] || esc(t.policy)}</span></td>
+      <td><button class="small danger" data-del-term="${t.id}">删除</button></td></tr>`).join('')}
+    </table>
+    <form class="panel" id="f-term"><h3>新增 / 修改终端策略</h3>
+      <div class="row">
+        <div><label>标识（IP 或 CIDR）</label><input type="text" name="ident" placeholder="192.168.1.50 或 192.168.1.0/24" required></div>
+        <div><label>名称</label><input type="text" name="name" placeholder="客厅电视"></div>
+        <div><label>策略</label><select name="policy">
+          <option value="proxy">代理（默认）</option>
+          <option value="direct">直连</option>
+          <option value="bypass">不进内核</option>
+        </select></div>
+      </div>
+      <div><button>保存</button> <span class="muted">保存后需「应用配置」生效；「不进内核」还需应用 nftables</span></div>
+    </form>`;
+  $('#f-term').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await post('/terminals', { ident: f.get('ident'), name: f.get('name'), policy: f.get('policy') });
+      toast('已保存'); vTerminals();
+    } catch (err) { toast(err.message, false); }
+  };
+  $('#view').querySelectorAll('[data-del-term]').forEach(b => b.onclick = async () => {
+    try { await delReq('/terminals/' + b.dataset.delTerm); toast('已删除'); vTerminals(); }
+    catch (e) { toast(e.message, false); }
+  });
 }
 
 /* ---------- 设置 ---------- */
@@ -447,8 +651,17 @@ async function vSettings() {
             `<option value="${v}"${s.tun_stack === v ? ' selected' : ''}>${v}</option>`).join('')}
         </select></div>
       </div>
-      <div><button>保存</button></div>
+      <div class="row">
+        <div><label>TUN MTU</label><input type="number" name="tun_mtu" value="${esc(s.tun_mtu)}"></div>
+        <div><label>屏蔽 QUIC（UDP 443 走代理时拒绝，浏览器自动退回 TCP）</label><select name="quic_block">
+          <option value="1"${s.quic_block === '1' ? ' selected' : ''}>开（默认）</option>
+          <option value="0"${s.quic_block !== '1' ? ' selected' : ''}>关</option>
+        </select></div>
+      </div>
+      <div><button>保存</button> <span class="muted">DNS 详细设置已移至「DNS」页</span></div>
     </form>
+    <h3>组件升级</h3>
+    <div class="panel" id="upgrade-box"><p class="muted">加载中…</p></div>
     <h3>透明代理（生成预览 · 需 root 手动应用）</h3>
     <form class="panel" id="f-tproxy">
       <div class="row">
@@ -465,10 +678,50 @@ async function vSettings() {
       await put('/settings', {
         dns_direct: f.get('dns_direct').trim(), dns_proxy: f.get('dns_proxy').trim(),
         final_outbound: f.get('final_outbound').trim(), tun_stack: f.get('tun_stack'),
+        tun_mtu: f.get('tun_mtu').trim(), quic_block: f.get('quic_block'),
       });
       toast('已保存');
     } catch (err) { toast(err.message, false); }
   };
+
+  // component upgrade
+  const ubox = $('#upgrade-box');
+  const renderUpgrade = async () => {
+    try {
+      const st = await get('/upgrade/status');
+      ubox.innerHTML = `
+        <div class="row">
+          <div><label>面板</label><div><b>${esc(st.panel)}</b></div></div>
+          <div><label>sing-box</label><div><b>${esc(st.singbox || '未安装')}</b>
+            ${st.singbox_running ? '<span class="pill ok">运行中</span>' : ''}</div></div>
+          <div><label>Geo 数据</label><div class="muted">${st.geo_files.length ? esc(st.geo_files.join(', ')) : '无'}</div></div>
+        </div>
+        <div><button id="btn-ucheck">检查更新</button>
+          <button id="btn-urun" class="danger">执行升级</button>
+          <span class="muted">调用 scripts/upgrade.sh，日志见下</span></div>
+        <div id="ucheck-result"></div>
+        <pre class="cfg" id="ulog" style="max-height:200px;overflow:auto"></pre>`;
+      $('#btn-ucheck').onclick = async () => {
+        $('#ucheck-result').innerHTML = '<span class="muted">检查中…</span>';
+        try {
+          const r = await get('/upgrade/check');
+          $('#ucheck-result').innerHTML =
+            `<p>sing-box 最新版：<b>${esc(r.latest)}</b> <span class="muted">${esc(r.published_at || '')}</span></p>`;
+        } catch (e) { $('#ucheck-result').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+      };
+      $('#btn-urun').onclick = async () => {
+        if (!confirm('执行升级脚本？请确保了解其内容（oss/scripts/upgrade.sh）。')) return;
+        try { await post('/upgrade/run', {}); toast('升级已启动，稍后刷新看日志'); pollUlog(); }
+        catch (e) { toast(e.message, false); }
+      };
+      const pollUlog = async () => {
+        try { $('#ulog').textContent = (await get('/upgrade/log')).log || '（暂无日志）'; }
+        catch (e) { /* ignore */ }
+      };
+      pollUlog();
+    } catch (e) { ubox.innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  renderUpgrade();
   $('#f-tproxy').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -625,10 +878,12 @@ async function updateAuthArea() {
 const ROUTES = {
   '': vOverview, 'proxy': vProxy, 'subs': vSubs, 'sites': vSites,
   'rulesets': vRulesets, 'chains': vChains, 'debug': vDebug,
+  'dns': vDns, 'conns': vConns, 'terminals': vTerminals,
   'settings': vSettings, 'config': vConfig,
 };
 async function navigate() {
   const h = location.hash.replace(/^#\/?/, '').split('?')[0] || '';
+  if (typeof connsTimer !== 'undefined' && connsTimer) { clearInterval(connsTimer); connsTimer = null; }
   renderNav(h);
   $('#view').innerHTML = '<p class="muted">加载中…</p>';
   try {

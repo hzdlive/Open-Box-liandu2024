@@ -31,6 +31,8 @@ class SiteSet:
     ip_cidr: list = field(default_factory=list)
     rule_sets: list = field(default_factory=list)      # referenced rule set names
     group: str = "auto"  # outbound group tag used when action == "proxy"
+    flip: str = ""  # hot-switch state: "" (= follow action) | "direct" | "proxy"
+    sid: int = 0  # database id (used for the hot-switch selector tag)
 
     @classmethod
     def from_dict(cls, d: dict) -> "SiteSet":
@@ -93,6 +95,24 @@ class DnsConfig:
     direct_dns: str = "223.5.5.5"          # for direct domains
     proxy_dns: str = "tcp://1.1.1.1"       # for proxied domains
     enable_fakeip: bool = False
+    mode: str = "dnsmasq"                  # dnsmasq | firewall | off (hijack mode)
+    region: str = "auto"                   # auto | cn | outside
+    region_detected: str = ""              # last auto-detected region ("cn"/"outside")
+
+
+@dataclass
+class DnsRewrite:
+    domain: str
+    target: str                            # fixed IP or another domain
+    id: int = 0
+
+
+@dataclass
+class TerminalPolicy:
+    ident: str                             # IP or CIDR of the terminal
+    name: str = ""
+    policy: str = "proxy"                  # direct | proxy | bypass (bypass = never enters kernel)
+    id: int = 0
 
 
 @dataclass
@@ -102,6 +122,10 @@ class AppConfig:
     groups: list = field(default_factory=list)     # list[Group]
     chains: list = field(default_factory=list)     # list[Chain]
     dns: DnsConfig = field(default_factory=DnsConfig)
+    dns_rewrites: list = field(default_factory=list)  # list[DnsRewrite]
+    terminals: list = field(default_factory=list)     # list[TerminalPolicy]
     final_outbound: str = "auto"  # fallback route
     tun_stack: str = "mixed"     # mixed | gvisor | system
+    tun_mtu: int = 9000
+    quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)
     clash_api_port: int = 9090

@@ -36,7 +36,7 @@ async function waitFor(fn, label, timeout = 20000) {
 const viewText = () => document.querySelector('#view').textContent;
 
 // 1. overview: nav + stat cards + service card
-await waitFor(() => document.querySelectorAll('#nav a').length === 9, 'nav 9 links');
+await waitFor(() => document.querySelectorAll('#nav a').length === 12, 'nav 12 links');
 await waitFor(() => /节点/.test(viewText()) && /站点集/.test(viewText()), 'overview cards');
 await waitFor(() => /内核服务/.test(viewText()), 'service card');
 
@@ -45,17 +45,20 @@ window.location.hash = '#/proxy';
 await waitFor(() => /vmess-demo/.test(viewText()), 'proxy nodes');
 if (!/auto/.test(viewText())) throw new Error('proxy view missing group cards');
 
-// 3. site sets: table renders
+// 3. site sets: table renders + flip toggle present
 window.location.hash = '#/sites';
 await waitFor(() => /自上而下/.test(viewText()), 'sites view');
+await waitFor(() => document.querySelector('[data-flip]'), 'flip toggle');
 
-// 4. debug: fill target, submit, result card appears
+// 4. debug: fill target, submit, result card appears; penetrate chain
 window.location.hash = '#/debug';
 await waitFor(() => document.querySelector('#f-debug input[name=target]'), 'debug form');
 document.querySelector('#f-debug input[name=target]').value = 'www.youtube.com';
 document.querySelector('#f-debug')
   .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
 await waitFor(() => /命中站点集/.test(viewText()), 'debug result card');
+document.querySelector('#btn-penetrate').click();
+await waitFor(() => /站点集/.test(viewText()) && /→/.test(viewText()), 'penetrate chain');
 
 // 5. config: generated JSON preview
 window.location.hash = '#/config';
@@ -63,5 +66,23 @@ await waitFor(
   () => /"outbounds"/.test(document.querySelector('#cfg-pre')?.textContent || ''),
   'config json preview');
 
+// 6. dns page: mode/region/rewrites render
+window.location.hash = '#/dns';
+await waitFor(() => document.querySelector('#f-dns select[name=mode]'), 'dns form');
+await waitFor(() => /DNS 重写/.test(viewText()), 'dns rewrites');
+
+// 7. terminals page renders
+window.location.hash = '#/terminals';
+await waitFor(() => /终端分流/.test(viewText()), 'terminals view');
+
+// 8. connections page renders (no kernel -> graceful message)
+window.location.hash = '#/conns';
+await waitFor(() => /活动连接|内核未运行/.test(viewText()), 'conns view');
+
+// leave the page so its refresh timer is cleared, then release jsdom
+window.location.hash = '#/';
+await new Promise(r => setTimeout(r, 300));
+window.close();
+
 if (errors.length) throw new Error('page errors:\n' + errors.join('\n'));
-console.log('OK: jsdom render smoke — 5 views rendered, form submit works, no JS errors');
+console.log('OK: jsdom render smoke — 8 views rendered, forms work, no JS errors');

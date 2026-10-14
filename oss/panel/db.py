@@ -81,13 +81,38 @@ CREATE TABLE IF NOT EXISTS devices(
   token_hash TEXT NOT NULL UNIQUE,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS dns_rewrite(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL UNIQUE,
+  target TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS terminal_policies(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ident TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL DEFAULT '',
+  policy TEXT NOT NULL DEFAULT 'proxy'
+);
+CREATE TABLE IF NOT EXISTS traffic_daily(
+  day TEXT NOT NULL,
+  client TEXT NOT NULL DEFAULT '',
+  proxy TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '',
+  up BIGINT NOT NULL DEFAULT 0,
+  down BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, client, proxy, host)
+);
 """
 
 DEFAULT_SETTINGS = {
     "dns_direct": "223.5.5.5",
     "dns_proxy": "tcp://1.1.1.1",
+    "dns_mode": "dnsmasq",          # dnsmasq | firewall | off
+    "dns_region": "auto",           # auto | cn | outside
+    "dns_region_detected": "",
     "final_outbound": "auto",
     "tun_stack": "mixed",
+    "tun_mtu": "9000",
+    "quic_block": "1",              # reject UDP/443 on proxy lines (default on)
     "client_mode": "rule",
     "state_rev": "0",
     "wifi_policy": '{"enabled": false, "pause_ssids": [], "action": "pause"}',
@@ -96,6 +121,10 @@ DEFAULT_SETTINGS = {
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    # migrations for DBs created before the column/table existed
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(site_sets)")}
+    if "flip" not in cols:
+        conn.execute("ALTER TABLE site_sets ADD COLUMN flip TEXT NOT NULL DEFAULT ''")
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
     # default outbound groups: auto = urltest over nodes, manual = selector over all
@@ -186,12 +215,13 @@ def _rules_blob(d: dict) -> str:
 
 def _site_set_row(r) -> dict:
     return {"id": r[0], "name": r[1], "action": r[2], "group": r[3],
-            "position": r[4], "rules": json.loads(r[5])}
+            "position": r[4], "rules": json.loads(r[5]),
+            "flip": r[6] if len(r) > 6 else ""}
 
 
 def list_site_sets(conn: sqlite3.Connection) -> list[dict]:
     return [_site_set_row(r) for r in conn.execute(
-        "SELECT id, name, action, grp, position, rules FROM site_sets"
+        "SELECT id, name, action, grp, position, rules, flip FROM site_sets"
         " ORDER BY position, id")]
 
 
@@ -206,7 +236,7 @@ def create_site_set(conn: sqlite3.Connection, d: dict) -> dict:
     conn.commit()
     bump_rev(conn)
     return _site_set_row(conn.execute(
-        "SELECT id, name, action, grp, position, rules FROM site_sets WHERE id=?",
+        "SELECT id, name, action, grp, position, rules, flip FROM site_sets WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -230,7 +260,7 @@ def update_site_set(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
         conn.commit()
     bump_rev(conn)
     return _site_set_row(conn.execute(
-        "SELECT id, name, action, grp, position, rules FROM site_sets WHERE id=?",
+        "SELECT id, name, action, grp, position, rules, flip FROM site_sets WHERE id=?",
         (sid,)).fetchone())
 
 
@@ -307,7 +337,8 @@ def delete_device(conn: sqlite3.Connection, did: int) -> bool:
 
 
 def load_app_config(conn: sqlite3.Connection):
-    from core.models import AppConfig, Chain, DnsConfig, Group, Node, SiteSet
+    from core.models import (AppConfig, Chain, DnsConfig, DnsRewrite, Group, Node,
+                             SiteSet, TerminalPolicy)
     from core.ruleset import parse_ruleset_text
     nodes = [
         Node(tag=r[0], protocol=r[1], server=r[2], server_port=r[3],
@@ -324,8 +355,8 @@ def load_app_config(conn: sqlite3.Connection):
                 pass
     site_sets = []
     for r in conn.execute(
-            "SELECT name, action, grp, rules FROM site_sets ORDER BY position, id"):
-        rules = json.loads(r[3])
+            "SELECT id, name, action, grp, rules, flip FROM site_sets ORDER BY position, id"):
+        rules = json.loads(r[4])
         domains = list(rules.get("domains", []))
         suffix = list(rules.get("domain_suffix", []))
         keyword = list(rules.get("domain_keyword", []))
@@ -339,7 +370,7 @@ def load_app_config(conn: sqlite3.Connection):
                 keyword += parsed["domain_keyword"]
                 cidrs += parsed["ip_cidr"]
         site_sets.append(SiteSet(
-            name=r[0], action=r[1], group=r[2],
+            sid=r[0], name=r[1], action=r[2], group=r[3], flip=r[5] or "",
             domains=list(dict.fromkeys(domains)),
             domain_suffix=list(dict.fromkeys(suffix)),
             domain_keyword=list(dict.fromkeys(keyword)),
@@ -359,12 +390,31 @@ def load_app_config(conn: sqlite3.Connection):
         for r in conn.execute(
             "SELECT name, exit_protocol, server, port, params, front FROM chains ORDER BY id")
     ]
-    dns = DnsConfig(direct_dns=get_setting(conn, "dns_direct", DEFAULT_SETTINGS["dns_direct"]),
-                    proxy_dns=get_setting(conn, "dns_proxy", DEFAULT_SETTINGS["dns_proxy"]))
+    dns = DnsConfig(
+        direct_dns=get_setting(conn, "dns_direct", DEFAULT_SETTINGS["dns_direct"]),
+        proxy_dns=get_setting(conn, "dns_proxy", DEFAULT_SETTINGS["dns_proxy"]),
+        mode=get_setting(conn, "dns_mode", "dnsmasq"),
+        region=get_setting(conn, "dns_region", "auto"),
+        region_detected=get_setting(conn, "dns_region_detected", ""))
+    # region-aware proxy DNS default (documented behavior): outside mainland
+    # defaults to the upstream DNS instead of TCP 1.1.1.1, unless customized.
+    eff_region = dns.region if dns.region != "auto" else (dns.region_detected or "cn")
+    if (get_setting(conn, "dns_proxy", DEFAULT_SETTINGS["dns_proxy"])
+            == DEFAULT_SETTINGS["dns_proxy"] and eff_region == "outside"):
+        dns.proxy_dns = "8.8.8.8"
+    rewrites = [
+        DnsRewrite(id=r[0], domain=r[1], target=r[2])
+        for r in conn.execute("SELECT id, domain, target FROM dns_rewrite ORDER BY domain")]
+    terminals = [
+        TerminalPolicy(id=r[0], ident=r[1], name=r[2], policy=r[3])
+        for r in conn.execute("SELECT id, ident, name, policy FROM terminal_policies ORDER BY ident")]
     return AppConfig(
         nodes=nodes, site_sets=site_sets, groups=groups, chains=chains, dns=dns,
+        dns_rewrites=rewrites, terminals=terminals,
         final_outbound=get_setting(conn, "final_outbound", "auto"),
         tun_stack=get_setting(conn, "tun_stack", "mixed"),
+        tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
+        quic_block=get_setting(conn, "quic_block", "1") == "1",
     )
 
 
@@ -569,3 +619,100 @@ def list_health(conn: sqlite3.Connection) -> list[dict]:
              "latency_ms": r[2], "error": r[3], "checked_at": r[4]}
             for r in conn.execute(
                 "SELECT tag, ok, latency_ms, error, checked_at FROM node_health ORDER BY tag")]
+
+
+def set_site_set_flip(conn: sqlite3.Connection, sid: int, flip: str) -> bool:
+    """Set the hot-switch state of a site set ('' | 'direct' | 'proxy')."""
+    if flip not in ("", "direct", "proxy"):
+        raise ValueError("flip must be ''|direct|proxy")
+    cur = conn.execute("UPDATE site_sets SET flip=? WHERE id=?", (flip, sid))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
+
+
+# ---- DNS rewrites ----
+def list_dns_rewrites(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "domain": r[1], "target": r[2]}
+            for r in conn.execute("SELECT id, domain, target FROM dns_rewrite ORDER BY domain")]
+
+
+def add_dns_rewrite(conn: sqlite3.Connection, domain: str, target: str) -> dict:
+    domain = domain.strip().lower()
+    if not domain or not target.strip():
+        raise ValueError("domain and target are required")
+    cur = conn.execute(
+        "INSERT INTO dns_rewrite(domain, target) VALUES (?, ?)"
+        " ON CONFLICT(domain) DO UPDATE SET target=excluded.target",
+        (domain, target.strip()))
+    conn.commit()
+    bump_rev(conn)
+    r = conn.execute("SELECT id, domain, target FROM dns_rewrite WHERE id=?",
+                     (cur.lastrowid,)).fetchone()
+    if not r:  # was an upsert on existing row; fetch by domain
+        r = conn.execute("SELECT id, domain, target FROM dns_rewrite WHERE domain=?",
+                         (domain,)).fetchone()
+    return {"id": r[0], "domain": r[1], "target": r[2]}
+
+
+def delete_dns_rewrite(conn: sqlite3.Connection, rid: int) -> bool:
+    cur = conn.execute("DELETE FROM dns_rewrite WHERE id=?", (rid,))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
+
+
+# ---- terminal policies ----
+def list_terminals(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "ident": r[1], "name": r[2], "policy": r[3]}
+            for r in conn.execute(
+                "SELECT id, ident, name, policy FROM terminal_policies ORDER BY ident")]
+
+
+def upsert_terminal(conn: sqlite3.Connection, ident: str, name: str,
+                    policy: str) -> dict:
+    ident = ident.strip()
+    if not ident:
+        raise ValueError("ident is required")
+    if policy not in ("direct", "proxy", "bypass"):
+        raise ValueError("policy must be direct|proxy|bypass")
+    conn.execute(
+        "INSERT INTO terminal_policies(ident, name, policy) VALUES (?, ?, ?)"
+        " ON CONFLICT(ident) DO UPDATE SET name=excluded.name, policy=excluded.policy",
+        (ident, name.strip(), policy))
+    conn.commit()
+    bump_rev(conn)
+    r = conn.execute("SELECT id, ident, name, policy FROM terminal_policies WHERE ident=?",
+                     (ident,)).fetchone()
+    return {"id": r[0], "ident": r[1], "name": r[2], "policy": r[3]}
+
+
+def delete_terminal(conn: sqlite3.Connection, tid: int) -> bool:
+    cur = conn.execute("DELETE FROM terminal_policies WHERE id=?", (tid,))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
+
+
+# ---- traffic accounting ----
+def record_traffic(conn: sqlite3.Connection, day: str, client: str,
+                   proxy: str, host: str, up: int, down: int) -> None:
+    conn.execute(
+        "INSERT INTO traffic_daily(day, client, proxy, host, up, down)"
+        " VALUES (?, ?, ?, ?, ?, ?)"
+        " ON CONFLICT(day, client, proxy, host) DO UPDATE SET"
+        " up=up+excluded.up, down=down+excluded.down",
+        (day, client or "", proxy or "", host or "", up, down))
+    conn.commit()
+
+
+def traffic_summary(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
+    return [{"day": r[0], "client": r[1], "proxy": r[2], "host": r[3],
+             "up": r[4], "down": r[5]}
+            for r in conn.execute(
+                "SELECT day, client, proxy, host, SUM(up), SUM(down) FROM traffic_daily"
+                " WHERE day >= date('now', ? || ' days') GROUP BY day, client, proxy, host"
+                " ORDER BY day DESC, down DESC LIMIT 500", (-days,))]

@@ -11,4 +11,13 @@ if __name__ == "__main__":
     db_path = os.environ.get("OBX_DB", os.path.expanduser("~/.openbox-oss/panel.db"))
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     app = create_app(db_path)
+    # Traffic accounting collector (only for file DBs; needs the kernel up).
+    # Disabled by default; enable with OBX_TRAFFIC_COLLECT=1.
+    if db_path != ":memory:" and os.environ.get("OBX_TRAFFIC_COLLECT") == "1":
+        import threading
+        from core import traffic as _traffic
+        _stop = threading.Event()
+        _t = threading.Thread(target=_traffic.watch_loop,
+                              args=(db_path,), kwargs={"stop": _stop}, daemon=True)
+        _t.start()
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8080")))
