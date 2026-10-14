@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import json
 import os
+import platform as _platform
 import signal
 import subprocess
 import time
 from dataclasses import dataclass, field
+
+PANEL_VERSION = "0.1.0-oss"
 
 
 @dataclass
@@ -200,7 +203,49 @@ class KernelManager:
             "uptime_s": round(st.uptime_s, 1) if st.uptime_s is not None else None,
             "config_path": st.config_path,
             "bin_path": self.bin_path,
+            "platform": detect_platform(),
+            "arch": _platform.machine(),
+            "os_version": os_pretty_name(),
+            "autostart": detect_autostart(),
+            "panel_version": PANEL_VERSION,
         }
+
+
+def detect_platform() -> str:
+    """openwrt | systemd | other — best effort, never raises."""
+    try:
+        if os.path.isfile("/etc/openwrt_release"):
+            return "openwrt"
+        if os.path.isdir("/run/systemd/system"):
+            return "systemd"
+    except OSError:
+        pass
+    return "other"
+
+
+def os_pretty_name() -> str:
+    try:
+        with open("/etc/os-release", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("PRETTY_NAME="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    except OSError:
+        pass
+    return f"{_platform.system()} {_platform.release()}".strip()
+
+
+def detect_autostart() -> str:
+    """enabled | disabled | unknown — checks our own init artifacts only."""
+    try:
+        if os.path.isfile("/etc/init.d/openbox-oss"):
+            return "enabled"
+        for p in ("/etc/systemd/system/openbox-oss.service",
+                  os.path.expanduser("~/.config/systemd/user/openbox-oss.service")):
+            if os.path.isfile(p):
+                return "enabled"
+    except OSError:
+        pass
+    return "unknown"
 
 
 def default_workdir() -> str:

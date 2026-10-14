@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS subscriptions(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
+  url TEXT,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS nodes(
@@ -125,6 +126,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(site_sets)")}
     if "flip" not in cols:
         conn.execute("ALTER TABLE site_sets ADD COLUMN flip TEXT NOT NULL DEFAULT ''")
+    scols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}
+    if "url" not in scols:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN url TEXT")
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
     # default outbound groups: auto = urltest over nodes, manual = selector over all
@@ -138,7 +142,8 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 
 def add_subscription(conn: sqlite3.Connection, name: str, content: str,
-                     source: str = "manual", format: str = "auto") -> tuple[int, int]:
+                     source: str = "manual", format: str = "auto",
+                     url: str | None = None) -> tuple[int, int]:
     from core.subscription import parse_subscription
     from core.clash import parse_clash_yaml, looks_like_clash
     if format == "clash" or (format == "auto" and looks_like_clash(content)):
@@ -146,8 +151,8 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
     else:
         nodes = parse_subscription(content)
     cur = conn.execute(
-        "INSERT INTO subscriptions(name, source, created_at) VALUES (?, ?, ?)",
-        (name, source, time.strftime("%Y-%m-%dT%H:%M:%S")),
+        "INSERT INTO subscriptions(name, source, url, created_at) VALUES (?, ?, ?, ?)",
+        (name, source, url, time.strftime("%Y-%m-%dT%H:%M:%S")),
     )
     sid = cur.lastrowid
     existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}

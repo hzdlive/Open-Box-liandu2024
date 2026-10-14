@@ -36,7 +36,7 @@ async function waitFor(fn, label, timeout = 20000) {
 const viewText = () => document.querySelector('#view').textContent;
 
 // 1. overview: nav + stat cards + service card
-await waitFor(() => document.querySelectorAll('#nav a').length === 12, 'nav 12 links');
+await waitFor(() => document.querySelectorAll('#nav a').length === 15, 'nav 15 links');
 await waitFor(() => /节点/.test(viewText()) && /站点集/.test(viewText()), 'overview cards');
 await waitFor(() => /内核服务/.test(viewText()), 'service card');
 
@@ -79,10 +79,22 @@ await waitFor(() => /终端分流/.test(viewText()), 'terminals view');
 window.location.hash = '#/conns';
 await waitFor(() => /活动连接|内核未运行/.test(viewText()), 'conns view');
 
+// 9. kernel page renders
+window.location.hash = '#/kernel';
+await waitFor(() => /sing-box 服务管理/.test(viewText()), 'kernel view');
+
+// 10. logs page renders
+window.location.hash = '#/logs';
+await waitFor(() => document.querySelector('#log-view'), 'logs view');
+
+// 11. diagnostics page renders
+window.location.hash = '#/diag';
+await waitFor(() => /脱敏/.test(viewText()), 'diag view');
+
 // leave the page so its refresh timer is cleared, then release jsdom
 window.location.hash = '#/';
 await new Promise(r => setTimeout(r, 300));
 window.close();
 
 if (errors.length) throw new Error('page errors:\n' + errors.join('\n'));
-console.log('OK: jsdom render smoke — 8 views rendered, forms work, no JS errors');
+console.log('OK: jsdom render smoke — 11 views rendered, forms work, no JS errors');

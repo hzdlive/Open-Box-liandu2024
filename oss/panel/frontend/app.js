@@ -34,6 +34,7 @@ const NAV = [
   ['', '概览'], ['proxy', '代理'], ['subs', '订阅'], ['sites', '站点集'],
   ['rulesets', '规则集'], ['chains', '链式代理'], ['debug', '规则调试'],
   ['dns', 'DNS'], ['conns', '连接'], ['terminals', '终端'],
+  ['kernel', '内核'], ['logs', '日志'], ['diag', '诊断'],
   ['settings', '设置'], ['config', '配置'],
 ];
 
@@ -634,6 +635,138 @@ async function vTerminals() {
   });
 }
 
+/* ---------- 内核 ---------- */
+async function vKernel() {
+  const s = await get('/service');
+  const up = s.uptime_s != null ? `${Math.round(s.uptime_s / 60)} 分钟` : '—';
+  $('#view').innerHTML = `
+    <h2>内核 <span class="muted">sing-box 服务管理</span></h2>
+    ${s.config_stale ? '<p class="warn">配置已更改，尚未应用到内核。<a href="#/config">去应用 →</a></p>' : ''}
+    <div class="grid2">
+      <div class="card"><div class="num">${s.installed ? '已安装' : '未安装'}</div>
+        <div class="lbl">内核 ${esc(s.version || '')}</div></div>
+      <div class="card"><div class="num">${s.running ? '运行中' : '已停止'}</div>
+        <div class="lbl">PID ${s.pid ?? '—'} · 运行 ${up}</div></div>
+      <div class="card"><div class="num">${esc(s.platform || '—')}</div>
+        <div class="lbl">${esc(s.os_version || '')} · ${esc(s.arch || '')}</div></div>
+      <div class="card"><div class="num">${s.autostart === 'enabled' ? '已启用' : s.autostart === 'disabled' ? '已禁用' : '未知'}</div>
+        <div class="lbl">开机自启</div></div>
+    </div>
+    <div class="panel">
+      <div><button id="k-start">启动</button>
+        <button id="k-restart" class="ghost">重启</button>
+        <button id="k-stop" class="danger">停止</button>
+        <span class="muted">二进制：${esc(s.bin_path || '')}</span></div>
+      <p class="muted">面板版本 ${esc(s.panel_version || '')} · 配置版本 rev ${esc(s.state_rev ?? '—')}</p>
+    </div>
+    <h3>服务器信息</h3>
+    <table><tr><th>项</th><th>值</th></tr>
+      ${[['内核版本', s.version || '未安装'], ['面板版本', s.panel_version || '—'],
+         ['平台', s.platform || '—'], ['系统', s.os_version || '—'], ['架构', s.arch || '—'],
+         ['配置文件', s.config_path || '—'], ['二进制', s.bin_path || '—']]
+        .map(([k, v]) => `<tr><td>${k}</td><td class="muted">${esc(v)}</td></tr>`).join('')}
+    </table>`;
+  const act = async (op) => {
+    try { await post('/service/' + op, {}); toast('已' + { start: '启动', restart: '重启', stop: '停止' }[op]); vKernel(); }
+    catch (e) { toast(e.message, false); }
+  };
+  $('#k-start').onclick = () => act('start');
+  $('#k-restart').onclick = () => act('restart');
+  $('#k-stop').onclick = () => { if (confirm('停止内核？')) act('stop'); };
+}
+
+/* ---------- 日志 ---------- */
+let logsTimer = null;
+async function vLogs() {
+  clearInterval(logsTimer);
+  const load = async () => {
+    const src = document.querySelector('#log-src')?.value || 'kernel';
+    const n = document.querySelector('#log-n')?.value || 200;
+    try {
+      const r = await get(`/service/log?source=${src}&n=${n}`);
+      const el = $('#log-view');
+      if (el) {
+        el.textContent = r.log.length ? r.log.join('\n') : '（空）' + (r.note ? '\n' + r.note : '');
+        el.scrollTop = el.scrollHeight;
+      }
+    } catch (e) { /* keep old */ }
+  };
+  $('#view').innerHTML = `
+    <h2>日志</h2>
+    <div class="panel">
+      <div class="row">
+        <div><label>来源</label><select id="log-src">
+          <option value="kernel">内核（sing-box）</option>
+          <option value="panel">面板</option>
+        </select></div>
+        <div><label>行数</label><select id="log-n">
+          <option>200</option><option>500</option><option>1000</option>
+        </select></div>
+        <div><label>自动刷新</label><select id="log-auto">
+          <option value="0">关</option><option value="1">开（5s）</option>
+        </select></div>
+      </div>
+      <div><button id="log-reload" class="ghost">刷新</button>
+        <button id="log-dl" class="ghost">下载</button></div>
+    </div>
+    <pre class="cfg" id="log-view" style="max-height:60vh;overflow:auto">加载中…</pre>`;
+  $('#log-src').onchange = load;
+  $('#log-n').onchange = load;
+  $('#log-reload').onclick = load;
+  $('#log-auto').onchange = e => {
+    clearInterval(logsTimer); logsTimer = null;
+    if (e.target.value === '1') logsTimer = setInterval(load, 5000);
+  };
+  $('#log-dl').onclick = async () => {
+    const src = $('#log-src').value;
+    const r = await get(`/service/log?source=${src}&n=2000`);
+    const blob = new Blob([r.log.join('\n')], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${src}.log`;
+    a.click();
+  };
+  load();
+}
+
+/* ---------- 诊断 ---------- */
+async function vDiag() {
+  $('#view').innerHTML = `
+    <h2>诊断 <span class="muted">一键导出脱敏诊断包（不含密码、令牌与节点地址）</span></h2>
+    <div class="panel"><div>
+      <button id="diag-export">导出诊断 JSON</button>
+      <button id="diag-reload" class="ghost">刷新预览</button>
+    </div></div>
+    <div id="diag-view"><p class="muted">加载中…</p></div>`;
+  const render = async () => {
+    try {
+      const d = await get('/diagnostics');
+      const mem = d.system.memory || {};
+      const fmtMem = v => v ? (v / 1048576).toFixed(0) + ' MB' : '—';
+      $('#diag-view').innerHTML = `
+        <table><tr><th>项</th><th>值</th></tr>
+        ${[['生成时间', d.generated_at], ['面板版本', d.panel.version + ' / Python ' + d.panel.python],
+            ['平台', `${d.system.platform} · ${d.system.os} · ${d.system.arch}`],
+            ['内存', `可用 ${fmtMem(mem.MemAvailable)} / 共 ${fmtMem(mem.MemTotal)}`],
+            ['内核', `${d.kernel.installed ? '已安装 ' + (d.kernel.version || '') : '未安装'} · ${d.kernel.running ? '运行中' : '未运行'}`],
+            ['配置', `订阅 ${d.config_summary.subscriptions} · 节点 ${d.config_summary.nodes} · 站点集 ${d.config_summary.site_sets} · 组 ${d.config_summary.groups}`],
+            ['部署', d.deploy.config_stale ? '<b>配置已更改未应用</b>' : `已同步（rev ${d.deploy.state_rev}）`],
+            ['内核日志', `${d.logs.sing_box.length} 行`]]
+          .map(([k, v]) => `<tr><td>${k}</td><td class="muted">${v}</td></tr>`).join('')}
+        </table>`;
+      $('#diag-export').onclick = () => {
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'openbox-diagnostics.json';
+        a.click();
+      };
+    } catch (e) { $('#diag-view').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+  };
+  $('#diag-reload').onclick = render;
+  render();
+}
+
 /* ---------- 设置 ---------- */
 async function vSettings() {
   const s = await get('/settings');
@@ -879,11 +1012,13 @@ const ROUTES = {
   '': vOverview, 'proxy': vProxy, 'subs': vSubs, 'sites': vSites,
   'rulesets': vRulesets, 'chains': vChains, 'debug': vDebug,
   'dns': vDns, 'conns': vConns, 'terminals': vTerminals,
+  'kernel': vKernel, 'logs': vLogs, 'diag': vDiag,
   'settings': vSettings, 'config': vConfig,
 };
 async function navigate() {
   const h = location.hash.replace(/^#\/?/, '').split('?')[0] || '';
   if (typeof connsTimer !== 'undefined' && connsTimer) { clearInterval(connsTimer); connsTimer = null; }
+  if (typeof logsTimer !== 'undefined' && logsTimer) { clearInterval(logsTimer); logsTimer = null; }
   renderNav(h);
   $('#view').innerHTML = '<p class="muted">加载中…</p>';
   try {

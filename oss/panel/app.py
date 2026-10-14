@@ -438,7 +438,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/service")
     def service_status():
-        return jsonify(_manager().to_dict())
+        d = _manager().to_dict()
+        try:
+            c = db()
+            from panel.db import get_setting
+            rev, applied = get_setting(c, "state_rev", "0"), get_setting(c, "applied_rev", "")
+            d["state_rev"] = rev
+            d["applied_rev"] = applied or None
+            d["config_stale"] = bool(applied) and applied != rev
+        except Exception:
+            pass
+        return jsonify(d)
 
     @app.post("/api/service/start")
     def service_start():
@@ -467,15 +477,41 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.get("/api/service/log")
     def service_log():
         n = min(int(request.args.get("n", 200)), 2000)
-        return jsonify({"log": _manager().log_tail(n)})
+        source = request.args.get("source", "kernel")
+        if source == "panel":
+            path = os.environ.get("OBX_PANEL_LOG", "")
+            lines: list[str] = []
+            if path and os.path.isfile(path):
+                try:
+                    with open(path, "rb") as f:
+                        data = f.read().splitlines()[-n:]
+                    lines = [l.decode("utf-8", "replace") for l in data]
+                except OSError:
+                    pass
+            return jsonify({"log": lines, "source": "panel",
+                            "note": "" if lines else "面板日志未启用（设置 OBX_PANEL_LOG 环境变量指向日志文件）"})
+        return jsonify({"log": _manager().log_tail(n).splitlines(), "source": "kernel"})
+
+    @app.get("/api/diagnostics")
+    def diagnostics_export():
+        from core.diagnostics import collect
+        return jsonify(collect(db(), _manager()))
 
     @app.post("/api/config/apply")
     def config_apply():
         from core.apply import apply_config
         try:
-            return jsonify(apply_config(db(), _manager()))
+            result = apply_config(db(), _manager())
         except RuntimeError as e:
             return jsonify({"error": str(e)}), 422
+        # remember which rev is live, so the kernel page can flag stale config
+        try:
+            from panel.db import get_setting, set_setting
+            c = db()
+            set_setting(c, "applied_rev", get_setting(c, "state_rev", "0"))
+        except Exception:
+            pass
+        return jsonify(result)
 
     # ---- transparent proxy artifacts (generate-only) ----
     def _tconfig():
