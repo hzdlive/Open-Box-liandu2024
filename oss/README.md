@@ -31,18 +31,34 @@ OpenWrt 一体化透明代理方案的**开源重构**（clean-room reimplementa
 - [ ] Phase 3：系统集成（nftables/TUN 部署、DNS 接管、安装/升级脚本）
 - [ ] Phase 4：客户端（长期可选）
 
-## 快速试用
+## 快速试用（本机）
 
 ```bash
-cd oss
-../.venv/bin/pip install -r requirements.txt   # 只需 Flask
-# 配置生成（纯标准库）
-python3 -m core.cli build --sub tests/sample-sub.txt --sites tests/sample-sites.json -o /tmp/config.json
-# 面板后端（开发模式）
-../.venv/bin/python panel/run.py   # http://127.0.0.1:8080/api/status
-# 自检
-python3 -m tests.test_core && ../.venv/bin/python -m tests.test_panel
+git clone -b oss https://github.com/hzdlive/Open-Box-liandu2024.git openbox-oss
+cd openbox-oss/oss
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+# 面板后端（开发模式），浏览器打开 http://127.0.0.1:8080
+.venv/bin/python panel/run.py
 ```
+
+可选环境变量：
+
+- `OPENBOX_PANEL_PASSWORD=xxx` —— 给面板设置登录密码（不设则为开放开发模式）
+- `OPENBOX_SINGBOX_BIN=/path/to/sing-box` —— 指定 sing-box 内核二进制（默认 `/usr/local/bin/sing-box`）
+- `OBX_DB=/path/to/panel.db` —— 数据库位置（默认 `~/.openbox-oss/panel.db`）
+- `OBX_TRAFFIC_COLLECT=1` —— 开启每日流量采集（需要内核运行）
+- `PORT=8080` —— 监听端口
+
+说明：
+
+- 不装 sing-box 也能跑面板：订阅/站点集/规则/路由预览/配置生成都可用；
+  内核相关功能（启动服务、应用配置、连接页、流量统计、热切换）会提示内核未运行。
+- sing-box 可用官方 Release（SagerNet/sing-box），或从 GPL 源码包自行构建；
+  本分支生成的配置面向标准 sing-box。
+- 路由器部署（OpenWrt）见 `scripts/install.sh --kernel-url <tarball>`。
+
+路线图见 [docs/roadmap.md](docs/roadmap.md)。
 
 路线图见 [docs/roadmap.md](docs/roadmap.md)。
 
