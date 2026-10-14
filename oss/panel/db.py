@@ -424,8 +424,8 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
 
 
 def create_group(conn: sqlite3.Connection, d: dict) -> dict:
-    if d.get("type", "urltest") not in ("urltest", "selector"):
-        raise ValueError("type must be urltest|selector")
+    if d.get("type", "urltest") not in ("urltest", "selector", "failover"):
+        raise ValueError("type must be urltest|selector|failover")
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM groups").fetchone()[0]
     cur = conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
@@ -447,7 +447,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
     for col, key in (("name", "name"), ("type", "type"), ("position", "position")):
         if key in d:
             if key == "type" and d[key] not in ("urltest", "selector"):
-                raise ValueError("type must be urltest|selector")
+                raise ValueError("type must be urltest|selector|failover")
             fields.append(f"{col}=?")
             vals.append(d[key])
     for key in ("members", "dynamic_keywords"):

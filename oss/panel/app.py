@@ -3,6 +3,7 @@ documented management capabilities; no proprietary code involved."""
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 
@@ -280,6 +281,130 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
                          "error": r.error, "checked_at": r.checked_at}
                         for r in results])
+
+    # ---- kernel service ----
+    def _manager():
+        from core.service import manager_from_env
+        return manager_from_env()
+
+    @app.get("/api/service")
+    def service_status():
+        return jsonify(_manager().to_dict())
+
+    @app.post("/api/service/start")
+    def service_start():
+        m = _manager()
+        try:
+            m.start()
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 409
+        return jsonify(m.to_dict())
+
+    @app.post("/api/service/stop")
+    def service_stop():
+        m = _manager()
+        m.stop()
+        return jsonify(m.to_dict())
+
+    @app.post("/api/service/restart")
+    def service_restart():
+        m = _manager()
+        try:
+            m.restart()
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 409
+        return jsonify(m.to_dict())
+
+    @app.get("/api/service/log")
+    def service_log():
+        n = min(int(request.args.get("n", 200)), 2000)
+        return jsonify({"log": _manager().log_tail(n)})
+
+    @app.post("/api/config/apply")
+    def config_apply():
+        from core.apply import apply_config
+        try:
+            return jsonify(apply_config(db(), _manager()))
+        except RuntimeError as e:
+            return jsonify({"error": str(e)}), 422
+
+    # ---- transparent proxy artifacts (generate-only) ----
+    def _tconfig():
+        from core.transparent import TransparentConfig
+        d = request.args
+        return TransparentConfig(
+            tproxy_port=int(d.get("tproxy_port", 7893)),
+            dns_port=int(d.get("dns_port", 1053)),
+            lan_iface=d.get("lan_iface", "br-lan"),
+            enable_ipv6=d.get("ipv6", "1") == "1",
+        )
+
+    @app.get("/api/transparent/nft")
+    def transparent_nft():
+        from core.transparent import nft_script
+        return jsonify({"script": nft_script(_tconfig())})
+
+    @app.get("/api/transparent/iprules")
+    def transparent_iprules():
+        from core.transparent import ip_rules
+        return jsonify({"script": ip_rules(_tconfig())})
+
+    @app.get("/api/transparent/dnsmasq")
+    def transparent_dnsmasq():
+        from core.transparent import dnsmasq_snippet
+        return jsonify({"script": dnsmasq_snippet(_tconfig())})
+
+    # ---- failover ----
+    @app.post("/api/failover/elect")
+    def failover_elect():
+        from core.failover import watch_once
+        cfg = dbmod.load_app_config(db())
+        health = dbmod.list_health(db())
+        d = request.get_json(force=True, silent=True) or {}
+        api_base = d.get("api_base", f"http://127.0.0.1:{cfg.clash_api_port}")
+        secret = d.get("secret", "")
+        return jsonify(watch_once(cfg.groups, health, api_base, secret))
+
+    # ---- subscription sharing ----
+    @app.post("/api/share")
+    def share_links():
+        from core.share import encode_nodes
+        d = request.get_json(force=True, silent=True) or {}
+        tags = d.get("node_tags") or []
+        nodes = [n for n in dbmod.list_nodes(db()) if n["tag"] in tags]
+        return jsonify(encode_nodes(nodes))
+
+    @app.get("/api/share/qr")
+    def share_qr():
+        import io
+        import qrcode
+        text = request.args.get("text", "")
+        if not text:
+            return jsonify({"error": "text required"}), 400
+        img = qrcode.make(text)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return app.response_class(buf.getvalue(), mimetype="image/png")
+
+    # ---- backup / restore ----
+    @app.get("/api/backup")
+    def backup_export():
+        from core.backup import backup_to_json
+        return app.response_class(
+            backup_to_json(db()), mimetype="application/json",
+            headers={"Content-Disposition": "attachment; filename=openbox-oss-backup.json"})
+
+    @app.post("/api/backup")
+    def backup_import():
+        from core.backup import backup_from_json
+        try:
+            if request.is_json:
+                result = backup_from_json(db(), json.dumps(request.get_json()))
+            else:
+                result = backup_from_json(db(), request.get_data(as_text=True))
+        except (ValueError, json.JSONDecodeError) as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify(result)
 
     # ---- frontend (SPA, no build step) ----
     @app.get("/", defaults={"path": ""})

@@ -53,9 +53,13 @@ function actionPill(a) {
 
 /* ---------- 概览 ---------- */
 async function vOverview() {
-  const [st, health] = await Promise.all([get('/status'), get('/health')]);
+  const [st, health, svc] = await Promise.all(
+    [get('/status'), get('/health'), get('/service')]);
   const okCount = health.filter(h => h.ok === true).length;
   const card = (n, l) => `<div class="card"><div class="num">${n}</div><div class="lbl">${l}</div></div>`;
+  const svcPill = svc.running ? '<span class="pill ok">运行中</span>'
+    : svc.installed ? '<span class="pill skip">已安装·未运行</span>'
+    : '<span class="pill bad">未安装</span>';
   $('#view').innerHTML = `
     <h2>概览</h2>
     <div class="cards">
@@ -63,11 +67,47 @@ async function vOverview() {
       ${card(st.site_sets, '站点集')}${card(st.groups, '节点组')}
       ${card(okCount + ' / ' + health.length, '健康检查通过')}
     </div>
+    <h3>内核服务 ${svcPill}</h3>
+    <div class="card">
+      <div class="muted">版本 ${esc(svc.version || '—')} · PID ${svc.pid || '—'} ·
+        运行 ${svc.uptime_s != null ? Math.round(svc.uptime_s) + 's' : '—'} ·
+        二进制 ${esc(svc.bin_path)}</div>
+      <div>
+        <button class="small" id="svc-start">启动</button>
+        <button class="small ghost" id="svc-stop">停止</button>
+        <button class="small ghost" id="svc-restart">重启</button>
+        <button class="small" id="svc-apply">应用配置</button>
+        <button class="small ghost" id="svc-log">查看日志</button>
+      </div>
+      <pre class="cfg" id="svc-log-pre" hidden style="max-height:30vh"></pre>
+    </div>
     <h3>节点健康</h3>
     ${health.length ? `<table><tr><th>节点</th><th>状态</th><th>检查时间</th></tr>
       ${health.map(h => `<tr><td>${esc(h.tag)}</td><td>${healthPill(h)}</td><td class="muted">${esc(h.checked_at)}</td></tr>`).join('')}
       </table>` : '<p class="muted">暂无数据，去「代理」页执行健康检查。</p>'}
     <p class="muted">版本 ${esc(st.version)} · sing-box 内核：${esc(st.singbox)}</p>`;
+  const svcAct = async (path, label) => {
+    try { await post(path, {}); toast(label + '已执行'); vOverview(); }
+    catch (e) { toast(e.message, false); }
+  };
+  $('#svc-start').onclick = () => svcAct('/service/start', '启动');
+  $('#svc-stop').onclick = () => svcAct('/service/stop', '停止');
+  $('#svc-restart').onclick = () => svcAct('/service/restart', '重启');
+  $('#svc-apply').onclick = async () => {
+    try {
+      const r = await post('/config/apply', {});
+      toast(`已应用：${r.outbounds} 出站 / ${r.route_rules} 路由规则`);
+      vOverview();
+    } catch (e) { toast(e.message, false); }
+  };
+  $('#svc-log').onclick = async () => {
+    const pre = $('#svc-log-pre');
+    try {
+      const r = await get('/service/log?n=100');
+      pre.textContent = r.log || '(空)';
+      pre.hidden = !pre.hidden;
+    } catch (e) { toast(e.message, false); }
+  };
 }
 
 /* ---------- 代理 ---------- */
@@ -80,11 +120,15 @@ async function vProxy() {
     <div><button id="btn-health">检查健康</button>
       <span class="muted">TCP 连通 + TLS 握手延迟；UDP 协议会标记为跳过</span></div>
     <h3>节点（${nodes.length}）</h3>
-    <table><tr><th>标签</th><th>协议</th><th>服务器</th><th>健康</th></tr>
-    ${nodes.map(n => `<tr><td>${esc(n.tag)}</td><td>${esc(n.protocol)}</td>
+    <table><tr><th></th><th>标签</th><th>协议</th><th>服务器</th><th>健康</th></tr>
+    ${nodes.map(n => `<tr><td><input type="checkbox" data-share-tag="${esc(n.tag)}"></td>
+      <td>${esc(n.tag)}</td><td>${esc(n.protocol)}</td>
       <td class="muted">${esc(n.server)}:${n.port}</td>
       <td>${hm[n.tag] ? healthPill(hm[n.tag]) : '<span class="muted">—</span>'}</td></tr>`).join('')}
     </table>
+    <div><button id="btn-share">生成分享链接</button>
+      <span class="muted">勾选节点后生成 vmess/vless/trojan/ss 链接 + 二维码</span></div>
+    <div id="share-result"></div>
     <h3>节点组</h3>
     <div class="grid2">${groups.map(g => `<div class="card">
       <div><b>${esc(g.name)}</b> <span class="muted">${esc(g.type)}</span></div>
@@ -95,7 +139,7 @@ async function vProxy() {
     <form class="panel" id="f-group"><h3>新建节点组</h3>
       <div class="row">
         <div><label>名称</label><input type="text" name="name" required></div>
-        <div><label>类型</label><select name="type"><option value="urltest">自动择优 (urltest)</option><option value="selector">手动选择 (selector)</option></select></div>
+        <div><label>类型</label><select name="type"><option value="urltest">自动择优 (urltest)</option><option value="selector">手动选择 (selector)</option><option value="failover">故障转移 (failover)</option></select></div>
       </div>
       <label>成员标签（逗号分隔；*nodes* = 全部节点，*all* = 节点+链式代理）</label>
       <input type="text" name="members" placeholder="*nodes*">
@@ -103,6 +147,30 @@ async function vProxy() {
       <input type="text" name="dynamic_keywords" placeholder="香港, HK">
       <div><button>创建</button></div>
     </form>`;
+  $('#btn-share').onclick = async () => {
+    const tags = [...$('#view').querySelectorAll('[data-share-tag]:checked')]
+      .map(el => el.dataset.shareTag);
+    if (!tags.length) { toast('请先勾选节点', false); return; }
+    try {
+      const items = await post('/share', { node_tags: tags });
+      $('#share-result').innerHTML = items.map(it => it.link ? `
+        <div class="result">
+          <div><b>${esc(it.tag)}</b></div>
+          <div class="grid2">
+            <div><textarea rows="4" readonly>${esc(it.link)}</textarea>
+              <div><button class="small" data-copy="${esc(it.link)}">复制链接</button></div></div>
+            <div><img src="/api/share/qr?text=${encodeURIComponent(it.link)}"
+                 alt="QR" style="width:160px;height:160px;background:#fff;padding:8px;border-radius:8px"></div>
+          </div>
+        </div>` : `
+        <div class="result"><b>${esc(it.tag)}</b>
+          <span class="pill bad">${esc(it.error)}</span></div>`).join('');
+      $('#share-result').querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+        try { await navigator.clipboard.writeText(b.dataset.copy); toast('已复制'); }
+        catch (e) { toast('复制失败', false); }
+      });
+    } catch (e) { toast(e.message, false); }
+  };
   $('#btn-health').onclick = async () => {
     toast('检查中…');
     try { await post('/health/check', {}); toast('检查完成'); vProxy(); }
@@ -380,7 +448,16 @@ async function vSettings() {
         </select></div>
       </div>
       <div><button>保存</button></div>
-    </form>`;
+    </form>
+    <h3>透明代理（生成预览 · 需 root 手动应用）</h3>
+    <form class="panel" id="f-tproxy">
+      <div class="row">
+        <div><label>TPROXY 端口</label><input type="number" name="tproxy_port" value="7893"></div>
+        <div><label>下行网卡</label><input type="text" name="lan_iface" value="br-lan"></div>
+      </div>
+      <div><button>生成预览</button></div>
+    </form>
+    <div id="tproxy-result"></div>`;
   $('#f-settings').onsubmit = async e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -392,6 +469,22 @@ async function vSettings() {
       toast('已保存');
     } catch (err) { toast(err.message, false); }
   };
+  $('#f-tproxy').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    const qs = new URLSearchParams({
+      tproxy_port: f.get('tproxy_port'), lan_iface: f.get('lan_iface') }).toString();
+    try {
+      const [nft, rules, dns] = await Promise.all([
+        get('/transparent/nft?' + qs), get('/transparent/iprules?' + qs),
+        get('/transparent/dnsmasq?' + qs)]);
+      const pre = t => { const el = document.createElement('pre'); el.className = 'cfg'; el.textContent = t; return el; };
+      const box = $('#tproxy-result');
+      box.innerHTML = '<h3>nftables</h3><h3>ip rule/route</h3><h3>dnsmasq</h3>';
+      const [h1, h2, h3] = box.querySelectorAll('h3');
+      h1.after(pre(nft.script)); h2.after(pre(rules.script)); h3.after(pre(dns.script));
+    } catch (err) { toast(err.message, false); }
+  };
 }
 
 /* ---------- 配置 ---------- */
@@ -400,7 +493,10 @@ async function vConfig() {
   const text = JSON.stringify(conf, null, 2);
   $('#view').innerHTML = `
     <h2>生成的 sing-box 配置</h2>
-    <div><button id="btn-copy">复制</button><button id="btn-dl" class="ghost">下载 config.json</button></div>
+    <div><button id="btn-copy">复制</button><button id="btn-dl" class="ghost">下载 config.json</button>
+      <button id="btn-backup" class="ghost">下载整包备份</button>
+      <button id="btn-restore" class="ghost">恢复备份…</button>
+      <input type="file" id="restore-file" accept=".json" hidden></div>
     <pre class="cfg" id="cfg-pre"></pre>`;
   $('#cfg-pre').textContent = text;
   $('#btn-copy').onclick = async () => {
@@ -412,6 +508,27 @@ async function vConfig() {
     a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     a.download = 'config.json';
     a.click();
+  };
+  $('#btn-backup').onclick = () => {
+    const a = document.createElement('a');
+    a.href = '/api/backup';
+    a.download = 'openbox-oss-backup.json';
+    a.click();
+  };
+  $('#btn-restore').onclick = () => $('#restore-file').click();
+  $('#restore-file').onchange = async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    if (!confirm('恢复备份将覆盖当前全部配置，继续？')) return;
+    try {
+      const r = await fetch('/api/backup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: await f.text(),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+      toast('已恢复：' + Object.entries(data.counts).map(([k, v]) => `${k}×${v}`).join(' '));
+    } catch (err) { toast(err.message, false); }
   };
 }
 

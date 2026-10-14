@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# OpenWrt procd init script for openbox-oss (sing-box kernel).
+# The panel writes $PREFIX/etc/config.json; this script just runs the kernel.
+START=99
+STOP=10
+USE_PROCD=1
+PREFIX="${OBX_PREFIX:-/opt/openbox-oss}"
+
+start_service() {
+  procd_open_instance openbox-oss
+  procd_set_param command "$PREFIX/bin/sing-box" run -c "$PREFIX/etc/config.json"
+  procd_set_param stdout 1
+  procd_set_param stderr 1
+  procd_set_param respawn 3600 5 0
+  procd_close_instance
+}

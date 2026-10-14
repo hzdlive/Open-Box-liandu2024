@@ -145,6 +145,12 @@ def build_config(cfg: AppConfig) -> dict:
             outbounds.append({"type": "selector", "tag": g.name,
                               "outbounds": tags or ["direct"],
                               "default": tags[0] if tags else "direct"})
+        elif g.type == "failover":
+            # Priority-ordered members; the runtime election (core/failover.py)
+            # switches this selector's active proxy via the clash API.
+            outbounds.append({"type": "selector", "tag": g.name,
+                              "outbounds": tags or ["direct"],
+                              "default": tags[0] if tags else "direct"})
         else:  # urltest
             outbounds.append({"type": "urltest", "tag": g.name,
                               "outbounds": tags or ["direct"],
