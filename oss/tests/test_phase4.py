@@ -17,8 +17,15 @@ from panel.app import create_app  # noqa: E402
 ROOT = Path(__file__).resolve().parent
 
 
-def seed(conn):
-    dbmod.add_subscription(conn, "t", (ROOT / "sample-sub.txt").read_text())
+def seed(conn):    dbmod.add_subscription(conn, "t", (ROOT / "sample-sub.txt").read_text())
+
+
+def _dbconn(app):
+    """Open a direct connection to the app's DB (for test setup only)."""
+    c = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"],
+                        timeout=30)
+    c.execute("PRAGMA foreign_keys=ON")
+    return c
 
 
 def test_auth_flow():
@@ -75,17 +82,20 @@ def test_pairing():
 
     # expired code
     code2 = c.post("/api/pair/code").get_json()["token"]
-    conn = app.config["DB"]
+    conn = _dbconn(app)
     conn.execute("UPDATE pair_codes SET expires_at=? WHERE token=?",
                  (time.time() - 1, code2))
     conn.commit()
+    conn.close()
     assert c.post("/api/pair/confirm", json={"token": code2}).status_code == 401
     print("OK: pairing one-time code + device management")
 
 
 def _paired_client():
     app = create_app(":memory:")
-    seed(app.config["DB"])
+    _sc = _dbconn(app)
+    seed(_sc)
+    _sc.close()
     c = app.test_client()
     tok = c.post("/api/pair/confirm", json={
         "token": c.post("/api/pair/code").get_json()["token"],
@@ -156,7 +166,9 @@ def test_client_api():
 
 def test_client_api_needs_token_when_locked():
     app = create_app(":memory:")
-    seed(app.config["DB"])
+    _sc = _dbconn(app)
+    seed(_sc)
+    _sc.close()
     c = app.test_client()
     c.post("/api/auth/password", json={"new": "pw1234"})
     # no bearer, no session -> 401 on client API

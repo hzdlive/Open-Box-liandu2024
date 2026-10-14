@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import uuid
 
 from flask import Flask, g, jsonify, request, send_from_directory
 
@@ -30,20 +31,29 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # execute() on one handle fails with "bad parameter or other API
     # misuse"). Every request therefore opens its own connection, closed at
     # teardown. The ":memory:" test DB uses a shared-cache URI plus a keeper
-    # connection so all requests still see the same database.
+    # connection so all requests still see the same database; the URI is
+    # unique per app instance so separate create_app(":memory:") calls stay
+    # isolated from each other (a fixed URI would leak state between tests).
     if db_path == ":memory:":
-        _dsn, _uri = "file:openbox_memdb?mode=memory&cache=shared", True
+        _dsn = ("file:openbox_memdb_%s?mode=memory&cache=shared"
+                % uuid.uuid4().hex)
         _keeper = sqlite3.connect(_dsn, uri=True, check_same_thread=False,
                                   timeout=30)
         _keeper.execute("PRAGMA foreign_keys=ON")
         dbmod.init_db(_keeper)
         app.config["MEM_KEEPER"] = _keeper  # keep the shared cache alive
+        _uri = True
     else:
         _dsn, _uri = db_path, False
         _boot = sqlite3.connect(_dsn, timeout=30)
         _boot.execute("PRAGMA foreign_keys=ON")
         dbmod.init_db(_boot)
         _boot.close()
+
+    # DSN of this app's database (tests use it to open their own connection;
+    # request handlers must go through db() instead).
+    app.config["DB_DSN"] = _dsn
+    app.config["DB_URI"] = _uri
 
     # Session secret: env override, else random per boot (sessions don't
     # survive restart in that case — fine for dev, set the env in prod).
