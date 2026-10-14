@@ -254,6 +254,30 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def sub_list():
         return jsonify(dbmod.list_subscriptions(db()))
 
+    @app.put("/api/subscriptions/<int:sid>")
+    def sub_update(sid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error": "not found"}), 404
+        if "enabled" in d:
+            c.execute("UPDATE subscriptions SET enabled=? WHERE id=?",
+                      (1 if d["enabled"] else 0, sid))
+        if "auto_update_hours" in d:
+            try:
+                auh = max(0, int(d["auto_update_hours"]))
+            except (TypeError, ValueError):
+                return jsonify({"error": "auto_update_hours must be an integer >= 0"}), 400
+            c.execute("UPDATE subscriptions SET auto_update_hours=? WHERE id=?", (auh, sid))
+        if "name" in d and str(d["name"]).strip():
+            c.execute("UPDATE subscriptions SET name=? WHERE id=?",
+                      (str(d["name"]).strip(), sid))
+        c.commit()
+        dbmod.bump_rev(c)
+        updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
+        return jsonify(updated)
+
     @app.delete("/api/subscriptions/<int:sid>")
     def sub_delete(sid: int):
         if not dbmod.delete_subscription(db(), sid):
@@ -412,6 +436,31 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.delete("/api/sitesets/<int:sid>")
     def siteset_delete(sid: int):
         if not dbmod.delete_site_set(db(), sid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
+    # ---- front custom routing (evaluated before all site sets) ----
+    @app.get("/api/front-rules")
+    def front_rules_list():
+        return jsonify(dbmod.list_front_rules(db()))
+
+    @app.post("/api/front-rules")
+    def front_rule_create():
+        try:
+            return jsonify(dbmod.create_front_rule(db(), request.get_json(force=True, silent=True) or {}))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.put("/api/front-rules/<int:rid>")
+    def front_rule_update(rid: int):
+        r = dbmod.update_front_rule(db(), rid, request.get_json(force=True, silent=True) or {})
+        if r is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.delete("/api/front-rules/<int:rid>")
+    def front_rule_delete(rid: int):
+        if not dbmod.delete_front_rule(db(), rid):
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
@@ -790,6 +839,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
             if "://" in u:
                 u = u.split("://", 1)[1]
             return u.split("/")[0].split("#")[0]
+        from panel.db import get_setting
+        direct_bypass = get_setting(c, "direct_bypass_kernel", "0") == "1"
+        direct_ipset_domains = []
+        if direct_bypass:
+            for s in cfg.site_sets:
+                if s.action == "direct":
+                    direct_ipset_domains.extend(
+                        x for x in list(s.domains) + list(s.domain_suffix) if x)
+            direct_ipset_domains = sorted(set(direct_ipset_domains))
         return TransparentConfig(
             tproxy_port=int(d.get("tproxy_port", 7893)),
             dns_port=int(d.get("dns_port", 1053)),
@@ -802,6 +860,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
             dns_proxy_ip=_strip_scheme(cfg.dns.proxy_dns),
             site_domains=site_domains,
             dns_filter_conf=_dns_filter_conf_path(c),
+            direct_ipset_domains=direct_ipset_domains,
+            bypass_ports=get_setting(c, "bypass_ports", ""),
+            bypass_ports_mode=get_setting(c, "bypass_ports_mode", "black"),
         )
 
     def _dns_filter_conf_path(c) -> str:
@@ -1004,9 +1065,44 @@ def create_app(db_path: str = ":memory:") -> Flask:
         mode = request.args.get("mode") or dbmod.get_setting(db(), "client_mode", "rule")
         ruleset = request.args.get("ruleset", "follow")
         try:
-            return jsonify(build_client_config(cfg, mode=mode, ruleset=ruleset))
+            out = build_client_config(cfg, mode=mode, ruleset=ruleset)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
+        c = db()
+        out["openbox"] = {
+            "router": {
+                "name": dbmod.get_setting(c, "router_name", "OpenBox"),
+                "icon": dbmod.get_setting(c, "router_icon", "router"),
+                "region": dbmod.get_setting(c, "router_region", "cn"),
+            },
+            "region_rules": [r for r in dbmod.list_region_rules(c) if r["enabled"]],
+        }
+        return jsonify(out)
+
+    # ---- region routing (client apps) ----
+    @app.get("/api/region-rules")
+    def region_rules_list():
+        return jsonify(dbmod.list_region_rules(db()))
+
+    @app.post("/api/region-rules")
+    def region_rule_create():
+        try:
+            return jsonify(dbmod.create_region_rule(db(), request.get_json(force=True, silent=True) or {}))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.put("/api/region-rules/<int:rid>")
+    def region_rule_update(rid: int):
+        r = dbmod.update_region_rule(db(), rid, request.get_json(force=True, silent=True) or {})
+        if r is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.delete("/api/region-rules/<int:rid>")
+    def region_rule_delete(rid: int):
+        if not dbmod.delete_region_rule(db(), rid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
 
     @app.get("/api/client/mode")
     def client_mode_get():
@@ -1068,6 +1164,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "region_detected": dbmod.get_setting(c, "dns_region_detected", ""),
             "direct_dns": dbmod.get_setting(c, "dns_direct", dbmod.DEFAULT_SETTINGS["dns_direct"]),
             "proxy_dns": dbmod.get_setting(c, "dns_proxy", dbmod.DEFAULT_SETTINGS["dns_proxy"]),
+            "fakeip": dbmod.get_setting(c, "dns_fakeip", "0") == "1",
+            "upstream_latency": dbmod._safe_json_loads(
+                dbmod.get_setting(c, "dns_upstream_latency", "{}")),
             "rewrites": dbmod.list_dns_rewrites(c),
         })
 
@@ -1087,6 +1186,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
             skey = "dns_direct" if k == "direct_dns" else "dns_proxy"
             if k in d and str(d[k]).strip():
                 dbmod.set_setting(c, skey, str(d[k]).strip())
+        if "fakeip" in d:
+            dbmod.set_setting(c, "dns_fakeip", "1" if d["fakeip"] else "0")
+        c.commit()
         return dns_get()
 
     @app.post("/api/dns/detect-region")
@@ -1163,6 +1265,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "lists": _dns_filter_lists(c),
             "compiled_domains": len(m),
             "applied_at": get_setting(c, "dns_filter_applied_at", ""),
+            "auto_update": get_setting(c, "dns_filter_auto_update", "0") == "1",
+            "update_time": get_setting(c, "dns_filter_update_time", "04:00"),
             "blocklist_path": _df.blocklist_path(_df_workdir()),
         })
 
@@ -1180,6 +1284,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
         set_setting(c, "dns_filter_enabled",
                     "1" if d.get("enabled") else "0")
         set_setting(c, "dns_filter_lists", _json.dumps(clean, ensure_ascii=False))
+        if "auto_update" in d:
+            set_setting(c, "dns_filter_auto_update",
+                        "1" if d.get("auto_update") else "0")
+        ut = str(d.get("update_time", "")).strip()
+        if ut:
+            import re as _re
+            if _re.match(r"^\d{1,2}:\d{2}$", ut):
+                set_setting(c, "dns_filter_update_time", ut)
+        c.commit()
         return jsonify({"ok": True, "lists": clean})
 
     @app.post("/api/dns/filter/apply")
@@ -1238,13 +1351,28 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/dns/upstream-test")
     def dns_upstream_test():
         from core import dnstest as _dt
+        from panel.db import get_setting, set_setting
+        import json as _json
         d = request.get_json(force=True, silent=True) or {}
         upstream = (d.get("upstream") or "").strip()
         if not upstream:
             return jsonify({"error": "upstream required"}), 400
-        return jsonify(_dt.test_upstream(
+        result = _dt.test_upstream(
             upstream, d.get("domain") or "www.google.com",
-            timeout=float(d.get("timeout", 5.0))))
+            timeout=float(d.get("timeout", 5.0)))
+        # persist latency for primary/backup ordering in generated config
+        c = db()
+        try:
+            lat = _json.loads(get_setting(c, "dns_upstream_latency", "{}") or "{}")
+        except ValueError:
+            lat = {}
+        if result.get("ok") and result.get("latency_ms") is not None:
+            lat[upstream] = result["latency_ms"]
+        elif upstream in lat:
+            del lat[upstream]
+        set_setting(c, "dns_upstream_latency", _json.dumps(lat))
+        c.commit()
+        return jsonify(result)
 
     @app.get("/api/dns/wan")
     def dns_wan():
@@ -1651,7 +1779,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except FileNotFoundError:
             return jsonify({"log": ""})
 
-    # ---- frontend (SPA, no build step) ----
+    # ---- frontend (Vue build output) ----
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")
     def frontend(path: str):
@@ -1661,5 +1789,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if path and os.path.isfile(full):
             return send_from_directory(FRONTEND_DIR, path)
         return send_from_directory(FRONTEND_DIR, "index.html")
+
+    # background jobs: subscription auto-update, DNS filter auto-update
+    if db_path != ":memory:":
+        from core.scheduler import start_scheduler
+        start_scheduler(_dsn, _uri)
 
     return app

@@ -17,6 +17,18 @@
       </div>
       <label><input type="checkbox" v-model="quic" style="width:auto"> 屏蔽 QUIC（代理线路上拦截 UDP/443，默认开启）</label>
       <label><input type="checkbox" v-model="tunOnly" style="width:auto"> 纯 TUN 模式（关闭透明代理 iptables/nftables 接管）</label>
+      <label><input type="checkbox" v-model="subNodeDirect" style="width:auto"> 订阅和节点站点直连（订阅更新与节点拨号不走代理）</label>
+      <label><input type="checkbox" v-model="directBypass" style="width:auto"> 直连不进内核（直连域名的解析 IP 在入口放行，不经过内核）</label>
+      <div class="form-row" style="margin-top:8px">
+        <div><label>进入内核前放行的端口 <span class="muted">如 21114-21119, 2233</span></label>
+          <input v-model="st.bypass_ports" placeholder="留空=不放行"></div>
+        <div><label>放行模式</label><select v-model="st.bypass_ports_mode">
+          <option value="black">黑名单：这些端口不进内核</option>
+          <option value="white">白名单：只有这些端口进内核</option>
+        </select></div>
+      </div>
+      <div style="margin-top:8px"><label>测速地址 <span class="muted">urltest 组用</span></label>
+        <input v-model="st.speedtest_url" placeholder="http://www.gstatic.com/generate_204"></div>
       <div style="margin-top:8px"><button>保存</button></div>
     </form>
   </div>
@@ -50,7 +62,45 @@
   </div>
 
   <div v-if="tab === 'pair'" class="card">
-    <h3>客户端配对</h3>
+    <h3>路由器标识 <span class="muted">客户端 App 上显示</span></h3>
+    <form @submit.prevent="saveRouter">
+      <div class="form-row">
+        <div><label>名称</label><input v-model="router.name"></div>
+        <div><label>图标</label><input v-model="router.icon" placeholder="router"></div>
+        <div><label>地区</label><input v-model="router.region" placeholder="cn"></div>
+      </div>
+      <div><button class="small">保存标识</button></div>
+    </form>
+    <h3 style="margin-top:16px">地区分流 <span class="muted">客户端按所在地区选择命中规则</span></h3>
+    <table v-if="regionRules.length">
+      <tr><th>地区</th><th>名称</th><th>规则数</th><th>启用</th><th></th></tr>
+      <tr v-for="r in regionRules" :key="r.id">
+        <td><code>{{ r.region }}</code></td>
+        <td>{{ r.name || '—' }}</td>
+        <td class="muted">{{ Object.keys(r.rules || {}).length }}</td>
+        <td><input type="checkbox" :checked="r.enabled" @change="toggleRegion(r)" style="width:auto"></td>
+        <td>
+          <button class="small ghost" @click="editRegion(r)">编辑</button>
+          <button class="small danger" @click="delRegion(r)">删除</button>
+        </td>
+      </tr>
+    </table>
+    <p v-else class="muted">暂无地区规则</p>
+    <form @submit.prevent="saveRegion" style="margin-top:10px">
+      <h3>{{ editingRegion ? '编辑地区规则' : '新建地区规则' }}</h3>
+      <div class="form-row">
+        <div><label>地区代码 <span class="muted">如 cn / us / auto</span></label>
+          <input v-model="rg.region" required></div>
+        <div><label>名称</label><input v-model="rg.name" placeholder="中国大陆"></div>
+      </div>
+      <label>规则 <span class="muted">JSON：{"domain_suffix": ["example.com"], "action": "proxy"}</span></label>
+      <textarea v-model="rg.rulesText" rows="4" placeholder='{"domain_suffix": ["example.com"], "action": "direct"}'></textarea>
+      <div style="margin-top:8px">
+        <button class="small">{{ editingRegion ? '保存' : '创建' }}</button>
+        <button v-if="editingRegion" type="button" class="small ghost" @click="resetRegion">取消</button>
+      </div>
+    </form>
+    <h3 style="margin-top:16px">客户端配对</h3>
     <div style="margin-bottom:8px"><button class="small" @click="newCode">生成配对码（10 分钟有效）</button></div>
     <div v-if="code">
       <p class="num" style="font-size:28px;letter-spacing:4px">{{ code }}</p>
@@ -107,10 +157,15 @@ const tabs = [
 ]
 const tab = ref('tun')
 const st = ref({}), quic = ref(true), tunOnly = ref(false)
+const subNodeDirect = ref(false), directBypass = ref(false)
 const tp = ref('nft'), tpText = ref('')
 const tz = ref('')
 const pw = ref({ old: '', new: '' })
 const code = ref(''), qrUrl = ref(''), devices = ref([])
+const router = ref({ name: '', icon: '', region: '' })
+const regionRules = ref([])
+const editingRegion = ref(null)
+const rg = ref({ region: '', name: '', rulesText: '' })
 const fileInput = ref(null)
 const upStatus = ref({}), upLog = ref(''), upgrading = ref(false)
 
@@ -119,12 +174,19 @@ async function loadSettings() {
   st.value = s
   quic.value = s.quic_block === '1'
   tunOnly.value = s.tun_only === '1'
+  subNodeDirect.value = s.sub_node_direct === '1'
+  directBypass.value = s.direct_bypass_kernel === '1'
 }
 async function saveSettings() {
   try {
     await put('/api/settings', { tun_stack: st.value.tun_stack, tun_mtu: st.value.tun_mtu,
       final_outbound: st.value.final_outbound,
-      quic_block: quic.value ? '1' : '0', tun_only: tunOnly.value ? '1' : '0' })
+      quic_block: quic.value ? '1' : '0', tun_only: tunOnly.value ? '1' : '0',
+      sub_node_direct: subNodeDirect.value ? '1' : '0',
+      direct_bypass_kernel: directBypass.value ? '1' : '0',
+      bypass_ports: st.value.bypass_ports || '',
+      bypass_ports_mode: st.value.bypass_ports_mode || 'black',
+      speedtest_url: st.value.speedtest_url || '' })
     toast('已保存'); loadSettings()
   } catch (e) { toast(e.message) }
 }
@@ -160,6 +222,47 @@ async function loadDevices() {
 async function delDevice(id) {
   if (!confirm('吊销该设备？')) return
   try { await delReq('/api/pair/devices/' + id); toast('已吊销'); loadDevices() }
+  catch (e) { toast(e.message) }
+}
+async function loadRouter() {
+  const s = await get('/api/settings')
+  router.value = { name: s.router_name || '', icon: s.router_icon || '', region: s.router_region || '' }
+}
+async function saveRouter() {
+  try {
+    await put('/api/settings', { router_name: router.value.name, router_icon: router.value.icon, router_region: router.value.region })
+    toast('已保存')
+  } catch (e) { toast(e.message) }
+}
+async function loadRegionRules() {
+  regionRules.value = await get('/api/region-rules').catch(() => [])
+}
+function resetRegion() {
+  editingRegion.value = null
+  rg.value = { region: '', name: '', rulesText: '' }
+}
+function editRegion(r) {
+  editingRegion.value = r.id
+  rg.value = { region: r.region, name: r.name, rulesText: JSON.stringify(r.rules || {}, null, 2) }
+}
+async function saveRegion() {
+  let rules = {}
+  try { rules = rg.value.rulesText.trim() ? JSON.parse(rg.value.rulesText) : {} }
+  catch { toast('规则 JSON 格式错误'); return }
+  try {
+    if (editingRegion.value) await put('/api/region-rules/' + editingRegion.value,
+      { region: rg.value.region, name: rg.value.name, rules })
+    else await post('/api/region-rules', { region: rg.value.region, name: rg.value.name, rules })
+    toast('已保存'); resetRegion(); loadRegionRules()
+  } catch (e) { toast(e.message) }
+}
+async function delRegion(r) {
+  if (!confirm(`删除地区规则 ${r.region}？`)) return
+  try { await delReq('/api/region-rules/' + r.id); toast('已删除'); loadRegionRules() }
+  catch (e) { toast(e.message) }
+}
+async function toggleRegion(r) {
+  try { await put('/api/region-rules/' + r.id, { enabled: !r.enabled }); loadRegionRules() }
   catch (e) { toast(e.message) }
 }
 async function doBackup() {
@@ -198,7 +301,7 @@ async function loadUpLog() {
 }
 
 onMounted(async () => {
-  loadSettings(); loadTp('nft'); loadTz(); loadDevices()
+  loadSettings(); loadTp('nft'); loadTz(); loadDevices(); loadRouter(); loadRegionRules()
   upStatus.value = await get('/api/upgrade/status').catch(() => ({}))
 })
 </script>

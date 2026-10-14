@@ -7,7 +7,17 @@ unmatched traffic falls through to ``final_outbound``.
 
 from __future__ import annotations
 
+import ipaddress
+
 from .models import AppConfig, Chain, Group, Node
+
+
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
 
 
 def _tls_block(params: dict) -> dict | None:
@@ -166,6 +176,8 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
     outbounds = [node_to_outbound(n) for n in cfg.nodes]
     outbounds += [chain_to_outbound(c) for c in cfg.chains]
     for g in groups:
+        if not g.enabled:
+            continue
         tags = resolve_group_members(g, node_tags, chain_tags)
         if g.type == "selector":
             outbounds.append({"type": "selector", "tag": g.name,
@@ -180,8 +192,9 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         else:  # urltest
             outbounds.append({"type": "urltest", "tag": g.name,
                               "outbounds": tags or ["direct"],
-                              "url": "http://www.gstatic.com/generate_204",
-                              "interval": "5m", "tolerance": 50})
+                              "url": cfg.speedtest_url,
+                              "interval": f"{g.interval_s}s",
+                              "tolerance": g.tolerance_ms})
     outbounds += [
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},
@@ -208,6 +221,36 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
     direct_terms = [t.ident for t in cfg.terminals if t.policy == "direct"]
     if direct_terms:
         route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
+    # Front custom routing: user domain -> target mappings, evaluated before
+    # every site set. Target is a group name, node tag, "direct" or "reject".
+    for fr in cfg.front_rules or []:
+        dom = (fr.get("domain") or "").strip()
+        if not dom:
+            continue
+        target = (fr.get("target") or "auto").strip() or "auto"
+        rule = {"domain_suffix": [dom.lstrip(".")]}
+        dns_srv = "proxy-dns"
+        if target == "direct":
+            rule["outbound"] = "direct"; dns_srv = "direct-dns"
+        elif target == "reject":
+            rule["action"] = "reject"; dns_srv = "direct-dns"
+        else:
+            rule["outbound"] = target
+            if cfg.dns.enable_fakeip:
+                dns_srv = "fakeip"
+        route_rules.append(rule)
+        dns_rules.append({"domain_suffix": [dom.lstrip(".")], "server": dns_srv})
+    # Subscription & node server domains go direct (keeps subscription updates
+    # and node dialing off the proxy).
+    if cfg.sub_node_direct:
+        snd = set(cfg.sub_domains or [])
+        for n in cfg.nodes or []:
+            srv = (n.server or "").strip().lower()
+            if srv and not _is_ip_literal(srv):
+                snd.add(srv)
+        if snd:
+            route_rules.append({"domain_suffix": sorted(snd), "outbound": "direct"})
+            dns_rules.append({"domain_suffix": sorted(snd), "server": "direct-dns"})
     for s in cfg.site_sets:
         rule: dict = {}
         if s.domains:
@@ -225,7 +268,11 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
         else:
             target = flip_tag(s)  # hot-switch selector; default = action/flip state
         route_rules.append({**rule, "outbound": target})
-        dns_rules.append({**rule, "server": "proxy-dns" if s.action == "proxy" else "direct-dns"})
+        # FakeIP: proxied domains resolve to placeholder addresses locally;
+        # the real domain is handed to the node at connect time.
+        dns_server = ("fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
+                      else "proxy-dns" if s.action == "proxy" else "direct-dns")
+        dns_rules.append({**rule, "server": dns_server})
     return route_rules, dns_rules, group_names
 
 
@@ -248,12 +295,19 @@ def _dns_server(tag: str, addr: str, detour: str) -> dict:
     return {"type": "udp", "tag": tag, "server": a, "detour": detour}
 
 
-def _dns_servers(tag: str, addrs: str, detour: str) -> list:
+def _dns_servers(tag: str, addrs: str, detour: str,
+                 latency: dict | None = None) -> list:
     """One entry per comma-separated upstream; the first keeps the canonical
-    tag so dns rules / final keep working."""
+    tag so dns rules / final keep working.
+
+    Primary/backup: when latency measurements exist, the fastest upstream
+    goes first (primary), the rest are backups.
+    """
     parts = [x.strip() for x in (addrs or "").split(",") if x.strip()]
     if not parts:
         parts = ["223.5.5.5"]
+    if latency:
+        parts = sorted(parts, key=lambda a: (latency.get(a, float("inf")), parts.index(a)))
     return [_dns_server(tag if i == 0 else f"{tag}-{i}", a, detour)
             for i, a in enumerate(parts)]
 
@@ -266,8 +320,14 @@ def build_config(cfg: AppConfig) -> dict:
     return {
         "log": {"level": "warn"},
         "dns": {
-            "servers": (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct")
-                        + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto")),
+            "servers": (
+                [{"type": "fakeip", "tag": "fakeip",
+                  "inet4_range": "198.19.0.0/16", "inet6_range": "fc00::/18"}]
+                if cfg.dns.enable_fakeip else []
+            ) + (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct",
+                             cfg.dns.upstream_latency)
+                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto",
+                                cfg.dns.upstream_latency)),
             "rules": dns_rules,
             "final": "direct-dns",
         },

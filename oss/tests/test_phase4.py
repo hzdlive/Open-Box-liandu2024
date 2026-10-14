@@ -131,7 +131,8 @@ def test_client_api():
         assert conf["inbounds"][0]["auto_route"] is False
     assert c.get("/api/client/config?mode=bogus", headers=hdr).status_code == 400
     conf = c.get("/api/client/config?ruleset=local", headers=hdr).get_json()
-    assert conf["route"]["rules"] == [{"protocol": "dns", "outbound": "dns-out"}]
+    assert conf["route"]["rules"] == [
+        {"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}]
 
     assert c.get("/api/client/mode", headers=hdr).get_json() == {"mode": "rule"}
     assert c.post("/api/client/mode", headers=hdr,

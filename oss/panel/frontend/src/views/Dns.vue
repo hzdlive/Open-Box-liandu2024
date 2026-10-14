@@ -16,10 +16,12 @@
           <option value="auto">自动</option><option value="cn">中国</option><option value="outside">海外</option>
         </select></div>
       </div>
-      <label>直连 DNS（逗号分隔）</label>
-      <input v-model="dns.direct_dns">
-      <label style="margin-top:8px">代理 DNS（逗号分隔）</label>
-      <input v-model="dns.proxy_dns">
+      <label style="margin-top:8px"><input type="checkbox" v-model="dns.fakeip" style="width:auto">
+        FakeIP —— 走代理的域名不做本地解析，内核先返回占位地址 (198.19.0.0/16)，连接时把域名交给节点</label>
+      <label style="margin-top:12px">直连 DNS <span class="muted">同侧第一条是主上游，后面的是备用；按测速延迟自动排序</span></label>
+      <upstream-list v-model="directList" :latency="dns.upstream_latency" @test="testOne" />
+      <label style="margin-top:8px">代理 DNS <span class="muted">同侧第一条是主上游，后面的是备用；按测速延迟自动排序</span></label>
+      <upstream-list v-model="proxyList" :latency="dns.upstream_latency" @test="testOne" />
       <p class="muted">检测到地区：{{ dns.region_detected || '—' }}</p>
       <div style="margin-top:8px">
         <button>保存</button>
@@ -69,6 +71,11 @@
       <button @click="saveFilter">保存</button>
       <button class="ghost" @click="applyFilter">下载并应用到 dnsmasq</button>
       <span class="muted">{{ filterMsg }}</span>
+    </div>
+    <div class="form-row" style="margin-top:12px">
+      <div><label><input type="checkbox" v-model="filter.auto_update" style="width:auto">
+        自动更新名单</label></div>
+      <div><label>每天在此时更新</label><input v-model="filter.update_time" placeholder="04:00" style="max-width:120px"></div>
     </div>
     <form @submit.prevent="checkDomain" class="form-row" style="margin-top:12px">
       <div><input v-model="checkDom" placeholder="检查域名是否被拦截"></div>
@@ -133,6 +140,7 @@
 <script setup>
 import { ref, computed, onMounted, inject } from 'vue'
 import { get, post, put, delReq } from '../api.js'
+import UpstreamList from '../components/UpstreamList.vue'
 
 const toast = inject('toast')
 const tabs = [
@@ -141,10 +149,11 @@ const tabs = [
   { id: 'test', name: '上游实测' }, { id: 'trace', name: '链路追踪' },
 ]
 const tab = ref('mode')
-const dns = ref({ mode: 'dnsmasq', region: 'auto', direct_dns: '', proxy_dns: '', rewrites: [] })
+const dns = ref({ mode: 'dnsmasq', region: 'auto', direct_dns: '', proxy_dns: '',
+  fakeip: false, upstream_latency: {}, rewrites: [] })
 const rw = ref({ domain: '', answer: '' })
 const wanInfo = ref('')
-const filter = ref({ enabled: false, lists: [] })
+const filter = ref({ enabled: false, lists: [], auto_update: false, update_time: '04:00' })
 const filterInfo = ref({})
 const fl = ref({ name: '', url: '' })
 const filterMsg = ref('')
@@ -158,11 +167,32 @@ const filteredQueries = computed(() => {
   if (!f) return queries.value.slice(0, 200)
   return queries.value.filter(q => (q.domain + q.client + (q.hostname || '')).toLowerCase().includes(f)).slice(0, 200)
 })
+function splitUpstreams(s) {
+  return (s || '').split(',').map(x => x.trim()).filter(Boolean)
+}
+const directList = computed({
+  get: () => splitUpstreams(dns.value.direct_dns),
+  set: v => { dns.value.direct_dns = v.join(',') },
+})
+const proxyList = computed({
+  get: () => splitUpstreams(dns.value.proxy_dns),
+  set: v => { dns.value.proxy_dns = v.join(',') },
+})
+async function testOne(u) {
+  try {
+    const r = await post('/api/dns/upstream-test', { upstream: u })
+    if (r.ok) {
+      dns.value.upstream_latency = { ...dns.value.upstream_latency, [u]: r.latency_ms }
+      toast(`${u}: ${r.latency_ms} ms`)
+    } else toast(`${u} 失败：${r.error || ''}`)
+  } catch (e) { toast(e.message) }
+}
 
 async function load() {
   dns.value = await get('/api/dns')
   const flt = await get('/api/dns/filter')
-  filter.value = { enabled: !!flt.enabled, lists: flt.lists || [] }
+  filter.value = { enabled: !!flt.enabled, lists: flt.lists || [],
+    auto_update: !!flt.auto_update, update_time: flt.update_time || '04:00' }
   filterInfo.value = flt
 }
 async function saveDns() {

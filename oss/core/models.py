@@ -65,6 +65,9 @@ class Group:
     dynamic_keywords: list = field(default_factory=list)
     # node tags containing (case-insensitive) any keyword are auto-included
     position: int = 0
+    enabled: bool = True
+    interval_s: int = 300      # urltest check interval
+    tolerance_ms: int = 100    # urltest tolerance
 
 
 @dataclass
@@ -98,6 +101,7 @@ class DnsConfig:
     mode: str = "dnsmasq"                  # dnsmasq | firewall | off (hijack mode)
     region: str = "auto"                   # auto | cn | outside
     region_detected: str = ""              # last auto-detected region ("cn"/"outside")
+    upstream_latency: dict = field(default_factory=dict)  # {upstream: ms}
 
 
 @dataclass
@@ -131,3 +135,7 @@ class AppConfig:
     clash_api_port: int = 9090
     share_lan_enabled: bool = False  # expose mixed inbound on LAN (shared network)
     share_lan_port: int = 8088
+    front_rules: list = field(default_factory=list)  # list[dict], before site sets
+    speedtest_url: str = "http://www.gstatic.com/generate_204"
+    sub_node_direct: bool = False  # subscription/node server domains go direct
+    sub_domains: list = field(default_factory=list)  # subscription URL hostnames

@@ -74,9 +74,9 @@ def test_api():
     app = create_app(":memory:")
     c = app.test_client()
 
-    # default groups seeded
+    # default groups seeded (+ built-in direct/block)
     groups = c.get("/api/groups").get_json()
-    assert {g["name"] for g in groups} == {"auto", "manual"}, groups
+    assert {g["name"] for g in groups} == {"auto", "manual", "direct", "block"}, groups
 
     # clash subscription import via API (auto-detect)
     clash_text = (ROOT / "sample-clash.yaml").read_text()

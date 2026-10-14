@@ -9,13 +9,35 @@ import json
 import sqlite3
 import time
 
+
+def _safe_json_loads(s: str) -> dict:
+    try:
+        v = json.loads(s or "{}")
+        return v if isinstance(v, dict) else {}
+    except ValueError:
+        return {}
+
+
+def _is_ip(host: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS subscriptions(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
   url TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  auto_update_hours INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT,
+  userinfo TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS nodes(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,6 +68,23 @@ CREATE TABLE IF NOT EXISTS rule_sets(
   content TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT ''
 );
+-- Front custom routing: domain patterns evaluated BEFORE all site sets.
+CREATE TABLE IF NOT EXISTS front_rules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  domain TEXT NOT NULL,
+  target TEXT NOT NULL DEFAULT 'auto',
+  position INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
+-- Region-based routing for client apps: pick a rule group by client region.
+CREATE TABLE IF NOT EXISTS region_rules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  region TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  rules TEXT NOT NULL DEFAULT '{}',
+  position INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS chains(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
@@ -61,7 +100,10 @@ CREATE TABLE IF NOT EXISTS groups(
   type TEXT NOT NULL DEFAULT 'urltest',
   members TEXT NOT NULL DEFAULT '[]',
   dynamic_keywords TEXT NOT NULL DEFAULT '[]',
-  position INTEGER NOT NULL DEFAULT 0
+  position INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  interval_s INTEGER NOT NULL DEFAULT 300,
+  tolerance_ms INTEGER NOT NULL DEFAULT 100
 );
 CREATE TABLE IF NOT EXISTS node_health(
   tag TEXT PRIMARY KEY,
@@ -158,6 +200,19 @@ DEFAULT_SETTINGS = {
     "dns_filter_enabled": "0",
     "dns_filter_lists": "[]",   # JSON: [{name, url, enabled}]
     "dns_filter_applied_at": "",
+    "dns_filter_auto_update": "0",      # daily re-download of filter lists
+    "dns_filter_update_time": "04:00",  # HH:MM local time
+    "dns_filter_auto_updated_at": "",
+    "dns_fakeip": "0",                # fakeip for proxied domains (198.19.0.0/16)
+    "dns_upstream_latency": "{}",      # JSON {upstream: ms} for primary/backup ordering
+    "sub_node_direct": "0",           # subscription & node server domains go direct
+    "direct_bypass_kernel": "0",      # direct traffic bypasses kernel at ingress (ipset)
+    "bypass_ports": "",               # e.g. "21114-21119, 2233"
+    "bypass_ports_mode": "black",     # black = these ports bypass; white = only these enter
+    "speedtest_url": "http://www.gstatic.com/generate_204",
+    "router_name": "OpenBox",            # router identity shown in client apps
+    "router_icon": "router",             # icon key
+    "router_region": "cn",               # router region code
     "share_lan_enabled": "0",   # expose a mixed inbound on LAN for other devices
     "share_lan_port": "8088",
 }
@@ -172,6 +227,18 @@ def init_db(conn: sqlite3.Connection) -> None:
     scols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}
     if "url" not in scols:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN url TEXT")
+    for col, ddl in (("enabled", "INTEGER NOT NULL DEFAULT 1"),
+                     ("auto_update_hours", "INTEGER NOT NULL DEFAULT 0"),
+                     ("updated_at", "TEXT"),
+                     ("userinfo", "TEXT NOT NULL DEFAULT '{}'")):
+        if col not in scols:
+            conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} {ddl}")
+    gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
+    for col, ddl in (("enabled", "INTEGER NOT NULL DEFAULT 1"),
+                     ("interval_s", "INTEGER NOT NULL DEFAULT 300"),
+                     ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100")):
+        if col not in gcols:
+            conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
     for k, v in DEFAULT_SETTINGS.items():
         conn.execute("INSERT OR IGNORE INTO settings(key, value) VALUES (?, ?)", (k, v))
     # default outbound groups: auto = urltest over nodes, manual = selector over all
@@ -220,11 +287,18 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
 
 def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
     out = []
-    for sid, name, source, url, created in conn.execute(
-            "SELECT id, name, source, url, created_at FROM subscriptions ORDER BY id"):
+    for sid, name, source, url, created, enabled, auh, updated, userinfo in conn.execute(
+            "SELECT id, name, source, url, created_at, enabled, auto_update_hours,"
+            " updated_at, userinfo FROM subscriptions ORDER BY id"):
         n = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?", (sid,)).fetchone()[0]
+        try:
+            ui = json.loads(userinfo or "{}")
+        except ValueError:
+            ui = {}
         out.append({"id": sid, "name": name, "source": source, "url": url,
-                    "created_at": created, "node_count": n})
+                    "created_at": created, "node_count": n, "enabled": bool(enabled),
+                    "auto_update_hours": auh or 0, "updated_at": updated,
+                    "userinfo": ui})
     return out
 
 
@@ -239,9 +313,9 @@ def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
 def list_nodes(conn: sqlite3.Connection) -> list[dict]:
     return [
         {"id": r[0], "tag": r[1], "protocol": r[2], "server": r[3],
-         "port": r[4], "params": json.loads(r[5])}
+         "port": r[4], "params": json.loads(r[5]), "sub_id": r[6]}
         for r in conn.execute(
-            "SELECT id, tag, protocol, server, port, params FROM nodes ORDER BY id")
+            "SELECT id, tag, protocol, server, port, params, sub_id FROM nodes ORDER BY id")
     ]
 
 
@@ -319,6 +393,122 @@ def delete_site_set(conn: sqlite3.Connection, sid: int) -> bool:
     return cur.rowcount > 0
 
 
+# -- front custom routing ----------------------------------------------
+def list_front_rules(conn: sqlite3.Connection) -> list[dict]:
+    return [
+        {"id": r[0], "domain": r[1], "target": r[2], "position": r[3],
+         "enabled": bool(r[4])}
+        for r in conn.execute(
+            "SELECT id, domain, target, position, enabled FROM front_rules"
+            " ORDER BY position, id")
+    ]
+
+
+def create_front_rule(conn: sqlite3.Connection, d: dict) -> dict:
+    domain = str(d.get("domain", "")).strip()
+    if not domain:
+        raise ValueError("domain required")
+    pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM front_rules").fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO front_rules(domain, target, position, enabled) VALUES (?, ?, ?, ?)",
+        (domain, str(d.get("target", "auto")).strip() or "auto", pos,
+         0 if d.get("enabled") is False else 1))
+    conn.commit()
+    bump_rev(conn)
+    target = str(d.get("target", "auto")).strip() or "auto"
+    return {"id": cur.lastrowid, "domain": domain, "target": target,
+            "position": pos, "enabled": d.get("enabled", True) is not False}
+
+
+def update_front_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | None:
+    row = conn.execute("SELECT id FROM front_rules WHERE id=?", (rid,)).fetchone()
+    if not row:
+        return None
+    fields, vals = [], []
+    for col, key in (("domain", "domain"), ("target", "target"),
+                     ("position", "position"), ("enabled", "enabled")):
+        if key in d:
+            fields.append(f"{col}=?")
+            vals.append(0 if key == "enabled" and not d[key] else d[key])
+    if fields:
+        vals.append(rid)
+        conn.execute(f"UPDATE front_rules SET {', '.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    bump_rev(conn)
+    return next((r for r in list_front_rules(conn) if r["id"] == rid), None)
+
+
+def delete_front_rule(conn: sqlite3.Connection, rid: int) -> bool:
+    cur = conn.execute("DELETE FROM front_rules WHERE id=?", (rid,))
+    conn.commit()
+    bump_rev(conn)
+    return cur.rowcount > 0
+
+
+# -- region routing (client apps) --------------------------------------
+def list_region_rules(conn: sqlite3.Connection) -> list[dict]:
+    out = []
+    for r in conn.execute(
+            "SELECT id, region, name, rules, position, enabled FROM region_rules"
+            " ORDER BY position, id"):
+        try:
+            rules = json.loads(r[3] or "{}")
+        except ValueError:
+            rules = {}
+        out.append({"id": r[0], "region": r[1], "name": r[2], "rules": rules,
+                    "position": r[4], "enabled": bool(r[5])})
+    return out
+
+
+def create_region_rule(conn: sqlite3.Connection, d: dict) -> dict:
+    region = str(d.get("region", "")).strip()
+    if not region:
+        raise ValueError("region required")
+    rules = d.get("rules", {})
+    if not isinstance(rules, dict):
+        raise ValueError("rules must be an object")
+    pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM region_rules").fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO region_rules(region, name, rules, position, enabled)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (region, str(d.get("name", "")).strip()[:80],
+         json.dumps(rules, ensure_ascii=False), pos,
+         0 if d.get("enabled") is False else 1))
+    conn.commit()
+    bump_rev(conn)
+    return {"id": cur.lastrowid, "region": region,
+            "name": str(d.get("name", "")).strip()[:80], "rules": rules,
+            "position": pos, "enabled": d.get("enabled", True) is not False}
+
+
+def update_region_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | None:
+    row = conn.execute("SELECT id FROM region_rules WHERE id=?", (rid,)).fetchone()
+    if not row:
+        return None
+    fields, vals = [], []
+    for col, key in (("region", "region"), ("name", "name"),
+                     ("position", "position"), ("enabled", "enabled")):
+        if key in d:
+            fields.append(f"{col}=?")
+            vals.append(0 if key == "enabled" and not d[key] else d[key])
+    if "rules" in d and isinstance(d["rules"], dict):
+        fields.append("rules=?")
+        vals.append(json.dumps(d["rules"], ensure_ascii=False))
+    if fields:
+        vals.append(rid)
+        conn.execute(f"UPDATE region_rules SET {', '.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    bump_rev(conn)
+    return next((r for r in list_region_rules(conn) if r["id"] == rid), None)
+
+
+def delete_region_rule(conn: sqlite3.Connection, rid: int) -> bool:
+    cur = conn.execute("DELETE FROM region_rules WHERE id=?", (rid,))
+    conn.commit()
+    bump_rev(conn)
+    return cur.rowcount > 0
+
+
 def get_setting(conn: sqlite3.Connection, key: str, default: str = "") -> str:
     r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     return r[0] if r else default
@@ -391,9 +581,22 @@ def load_app_config(conn: sqlite3.Connection):
     nodes = [
         Node(tag=r[0], protocol=r[1], server=r[2], server_port=r[3],
              params=json.loads(r[4]))
-        for r in conn.execute("SELECT tag, protocol, server, port, params FROM nodes ORDER BY id")
+        for r in conn.execute(
+            "SELECT n.tag, n.protocol, n.server, n.port, n.params FROM nodes n"
+            " JOIN subscriptions s ON s.id = n.sub_id"
+            " WHERE s.enabled = 1 ORDER BY n.id")
     ]
-    # rule set contents, parsed once
+    # subscription URL hostnames (for sub_node_direct)
+    sub_domains = []
+    for (url,) in conn.execute(
+            "SELECT url FROM subscriptions WHERE enabled=1 AND url IS NOT NULL AND url != ''"):
+        try:
+            from urllib.parse import urlparse as _up
+            host = (_up(url).hostname or "").strip().lower()
+            if host and not _is_ip(host):
+                sub_domains.append(host)
+        except Exception:
+            pass
     rs_parsed = {}
     for name, fmt, content in conn.execute("SELECT name, format, content FROM rule_sets"):
         if content:
@@ -427,9 +630,12 @@ def load_app_config(conn: sqlite3.Connection):
         ))
     groups = [
         Group(name=r[0], type=r[1], members=json.loads(r[2]),
-              dynamic_keywords=json.loads(r[3]), position=r[4])
+              dynamic_keywords=json.loads(r[3]), position=r[4],
+              enabled=bool(r[5]), interval_s=r[6] or 300,
+              tolerance_ms=r[7] or 100)
         for r in conn.execute(
-            "SELECT name, type, members, dynamic_keywords, position FROM groups"
+            "SELECT name, type, members, dynamic_keywords, position, enabled,"
+            " interval_s, tolerance_ms FROM groups"
             " ORDER BY position, id")
     ]
     chains = [
@@ -441,9 +647,11 @@ def load_app_config(conn: sqlite3.Connection):
     dns = DnsConfig(
         direct_dns=get_setting(conn, "dns_direct", DEFAULT_SETTINGS["dns_direct"]),
         proxy_dns=get_setting(conn, "dns_proxy", DEFAULT_SETTINGS["dns_proxy"]),
+        enable_fakeip=get_setting(conn, "dns_fakeip", "0") == "1",
         mode=get_setting(conn, "dns_mode", "dnsmasq"),
         region=get_setting(conn, "dns_region", "auto"),
-        region_detected=get_setting(conn, "dns_region_detected", ""))
+        region_detected=get_setting(conn, "dns_region_detected", ""),
+        upstream_latency=_safe_json_loads(get_setting(conn, "dns_upstream_latency", "{}")))
     # region-aware proxy DNS default (documented behavior): outside mainland
     # defaults to the upstream DNS instead of TCP 1.1.1.1, unless customized.
     eff_region = dns.region if dns.region != "auto" else (dns.region_detected or "cn")
@@ -459,12 +667,18 @@ def load_app_config(conn: sqlite3.Connection):
     return AppConfig(
         nodes=nodes, site_sets=site_sets, groups=groups, chains=chains, dns=dns,
         dns_rewrites=rewrites, terminals=terminals,
+        front_rules=[r for r in list_front_rules(conn) if r["enabled"]],
         final_outbound=get_setting(conn, "final_outbound", "auto"),
         tun_stack=get_setting(conn, "tun_stack", "mixed"),
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
         share_lan_enabled=get_setting(conn, "share_lan_enabled", "0") == "1",
         share_lan_port=int(get_setting(conn, "share_lan_port", "8088") or 8088),
+        sub_node_direct=get_setting(conn, "sub_node_direct", "0") == "1",
+        sub_domains=list(dict.fromkeys(sub_domains)),
+        speedtest_url=get_setting(conn, "speedtest_url",
+                                  DEFAULT_SETTINGS["speedtest_url"]) or
+        DEFAULT_SETTINGS["speedtest_url"],
     )
 
 
@@ -594,13 +808,39 @@ def delete_chain(conn: sqlite3.Connection, cid: int) -> bool:
 # ---- groups ----
 def _group_row(r) -> dict:
     return {"id": r[0], "name": r[1], "type": r[2], "members": json.loads(r[3]),
-            "dynamic_keywords": json.loads(r[4]), "position": r[5]}
+            "dynamic_keywords": json.loads(r[4]), "position": r[5],
+            "enabled": bool(r[6]), "interval_s": r[7] or 300,
+            "tolerance_ms": r[8] or 100}
 
 
 def list_groups(conn: sqlite3.Connection) -> list[dict]:
-    return [_group_row(r) for r in conn.execute(
-        "SELECT id, name, type, members, dynamic_keywords, position FROM groups"
-        " ORDER BY position, id")]
+    from core.singbox import resolve_group_members
+    from core.models import Group as _Group
+    node_tags = [r[0] for r in conn.execute(
+        "SELECT n.tag FROM nodes n JOIN subscriptions s ON s.id = n.sub_id"
+        " WHERE s.enabled = 1 ORDER BY n.id")]
+    chain_tags = [r[0] for r in conn.execute("SELECT name FROM chains ORDER BY id")]
+    out = []
+    for r in conn.execute(
+            "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
+            " interval_s, tolerance_ms FROM groups ORDER BY position, id"):
+        g = _group_row(r)
+        gm = _Group(name=g["name"], type=g["type"], members=g["members"],
+                    dynamic_keywords=g["dynamic_keywords"])
+        g["member_count"] = len(resolve_group_members(gm, node_tags, chain_tags))
+        g["dynamic"] = bool(g["dynamic_keywords"]) or \
+            any(m in ("*nodes*", "*all*") for m in (g["members"] or []))
+        out.append(g)
+    # built-in groups
+    out.append({"id": 0, "name": "direct", "type": "builtin", "members": [],
+                "dynamic_keywords": [], "position": 9998, "enabled": True,
+                "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
+                "dynamic": False, "builtin": True, "desc": "直连（内置）"})
+    out.append({"id": -1, "name": "block", "type": "builtin", "members": [],
+                "dynamic_keywords": [], "position": 9999, "enabled": True,
+                "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
+                "dynamic": False, "builtin": True, "desc": "拒绝（内置）"})
+    return out
 
 
 def create_group(conn: sqlite3.Connection, d: dict) -> dict:
@@ -608,15 +848,20 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
         raise ValueError("type must be urltest|selector|failover")
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM groups").fetchone()[0]
     cur = conn.execute(
-        "INSERT INTO groups(name, type, members, dynamic_keywords, position)"
-        " VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO groups(name, type, members, dynamic_keywords, position,"
+        " enabled, interval_s, tolerance_ms)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         (d["name"], d.get("type", "urltest"),
          json.dumps(d.get("members", []), ensure_ascii=False),
-         json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos))
+         json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos,
+         0 if d.get("enabled") is False else 1,
+         int(d.get("interval_s", 300) or 300),
+         int(d.get("tolerance_ms", 100) or 100)))
     conn.commit()
     bump_rev(conn)
     return _group_row(conn.execute(
-        "SELECT id, name, type, members, dynamic_keywords, position FROM groups WHERE id=?",
+        "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
+        " interval_s, tolerance_ms FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -625,12 +870,14 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
     if not row:
         return None
     fields, vals = [], []
-    for col, key in (("name", "name"), ("type", "type"), ("position", "position")):
+    for col, key in (("name", "name"), ("type", "type"), ("position", "position"),
+                     ("enabled", "enabled"), ("interval_s", "interval_s"),
+                     ("tolerance_ms", "tolerance_ms")):
         if key in d:
-            if key == "type" and d[key] not in ("urltest", "selector"):
+            if key == "type" and d[key] not in ("urltest", "selector", "failover"):
                 raise ValueError("type must be urltest|selector|failover")
             fields.append(f"{col}=?")
-            vals.append(d[key])
+            vals.append(0 if key == "enabled" and not d[key] else d[key])
     for key in ("members", "dynamic_keywords"):
         if key in d:
             fields.append(f"{key}=?")
@@ -641,7 +888,8 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
         conn.commit()
     bump_rev(conn)
     return _group_row(conn.execute(
-        "SELECT id, name, type, members, dynamic_keywords, position FROM groups WHERE id=?",
+        "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
+        " interval_s, tolerance_ms FROM groups WHERE id=?",
         (gid,)).fetchone())
 
 
@@ -1072,6 +1320,18 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     req = urllib.request.Request(url, headers={"User-Agent": "openbox-oss/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         content = r.read().decode("utf-8", "replace")
+        userinfo_raw = r.headers.get("subscription-userinfo", "")
+    # subscription-userinfo: upload=1; download=2; total=1073741824; expire=1735689600
+    userinfo: dict = {}
+    for part in userinfo_raw.split(";"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            k, v = k.strip(), v.strip()
+            if k in ("upload", "download", "total", "expire"):
+                try:
+                    userinfo[k] = int(v)
+                except ValueError:
+                    pass
     from core.subscription import parse_subscription
     from core.clash import parse_clash_yaml, looks_like_clash
     nodes = (parse_clash_yaml(content) if looks_like_clash(content)
@@ -1091,6 +1351,9 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
             (sid, tag, n.protocol, n.server, n.server_port,
              json.dumps(n.params, ensure_ascii=False)))
         count += 1
+    conn.execute("UPDATE subscriptions SET updated_at=?, userinfo=? WHERE id=?",
+                 (time.strftime("%Y-%m-%dT%H:%M:%S"),
+                  json.dumps(userinfo, ensure_ascii=False), sid))
     conn.commit()
     bump_rev(conn)
-    return {"id": sid, "name": name, "node_count": count}
+    return {"id": sid, "name": name, "node_count": count, "userinfo": userinfo}

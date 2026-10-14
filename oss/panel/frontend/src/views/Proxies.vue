@@ -71,16 +71,28 @@
     <h3>节点组</h3>
     <div class="grid c2">
       <div v-for="g in groups" :key="g.id" class="card" style="margin:0">
-        <div><b>{{ g.name }}</b> <span class="muted">{{ g.type }}</span></div>
-        <div class="muted">成员: {{ g.members.length ? g.members.join(', ') : '—' }}</div>
-        <div class="muted">关键词: {{ g.dynamic_keywords.length ? g.dynamic_keywords.join(', ') : '—' }}</div>
-        <div><button class="small danger" @click="delGroup(g.id)">删除</button></div>
+        <div><b>{{ g.name }}</b>
+          <span class="muted">{{ typeName(g.type) }}</span>
+          <span v-if="g.builtin" class="pill">内置</span>
+          <span v-if="!g.enabled && !g.builtin" class="pill warn">已禁用</span>
+        </div>
+        <div v-if="g.desc" class="muted">{{ g.desc }}</div>
+        <div v-if="!g.builtin" class="muted" style="font-size:12px">
+          {{ g.dynamic ? '动态组' : '' }} · 当前 {{ g.member_count }} 个节点
+          <template v-if="g.type === 'urltest'"> · 检测间隔 {{ g.interval_s }}s · 容差 {{ g.tolerance_ms }}ms</template>
+        </div>
+        <div v-if="!g.builtin" class="muted" style="font-size:12px">关键词: {{ g.dynamic_keywords.length ? g.dynamic_keywords.join(', ') : '—' }}</div>
+        <div v-if="!g.builtin" style="margin-top:6px">
+          <button class="small ghost" @click="editGroup(g)">编辑</button>
+          <button class="small ghost" @click="toggleGroup(g)">{{ g.enabled ? '禁用' : '启用' }}</button>
+          <button class="small danger" @click="delGroup(g.id)">删除</button>
+        </div>
       </div>
     </div>
     <form @submit.prevent="createGroup" style="margin-top:12px">
-      <h3>新建节点组</h3>
+      <h3>{{ editingGroup ? '编辑节点组' : '新建节点组' }}</h3>
       <div class="form-row">
-        <div><label>名称</label><input v-model="gf.name" required></div>
+        <div><label>名称</label><input v-model="gf.name" required :disabled="!!editingGroup"></div>
         <div><label>类型</label><select v-model="gf.type">
           <option value="urltest">自动择优 (urltest)</option>
           <option value="selector">手动选择 (selector)</option>
@@ -91,7 +103,14 @@
       <input v-model="gf.members" placeholder="*nodes*">
       <label style="margin-top:8px">动态关键词（逗号分隔，标签含关键词自动收编）</label>
       <input v-model="gf.keywords" placeholder="香港, HK">
-      <div style="margin-top:8px"><button class="small">创建</button></div>
+      <div class="form-row" style="margin-top:8px">
+        <div><label>检测间隔（秒，urltest）</label><input v-model.number="gf.interval_s" type="number" min="30"></div>
+        <div><label>容差（毫秒，urltest）</label><input v-model.number="gf.tolerance_ms" type="number" min="0"></div>
+      </div>
+      <div style="margin-top:8px">
+        <button class="small">{{ editingGroup ? '保存' : '创建' }}</button>
+        <button v-if="editingGroup" type="button" class="small ghost" @click="resetGroupForm">取消</button>
+      </div>
     </form>
   </div>
 
@@ -122,7 +141,9 @@ const selected = ref([]), shareResult = ref([])
 const busy = ref(false)
 const failover = ref([])
 const nodeInfo = ref(null), niBusy = ref(false), entryText = ref('')
-const gf = ref({ name: '', type: 'urltest', members: '', keywords: '' })
+const gf = ref({ name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100 })
+const editingGroup = ref(null)
+const typeName = t => ({ urltest: '自动择优', selector: '手动选择', failover: '故障转移', builtin: '内置' }[t] || t)
 
 function lastLat(tag) {
   const h = (latHist.value[tag] || []).filter(x => x.ok && x.latency_ms != null)
@@ -171,11 +192,33 @@ async function delGroup(id) {
 }
 async function createGroup() {
   const split = s => s.split(',').map(x => x.trim()).filter(Boolean)
+  const body = { name: gf.value.name, type: gf.value.type,
+    members: split(gf.value.members), dynamic_keywords: split(gf.value.keywords),
+    interval_s: gf.value.interval_s, tolerance_ms: gf.value.tolerance_ms }
   try {
-    await post('/api/groups', { name: gf.value.name, type: gf.value.type,
-      members: split(gf.value.members), dynamic_keywords: split(gf.value.keywords) })
-    toast('已创建'); gf.value = { name: '', type: 'urltest', members: '', keywords: '' }; load()
+    if (editingGroup.value) {
+      await put('/api/groups/' + editingGroup.value, body)
+      toast('已保存')
+    } else {
+      await post('/api/groups', body)
+      toast('已创建')
+    }
+    resetGroupForm(); load()
   } catch (e) { toast(e.message) }
+}
+function resetGroupForm() {
+  editingGroup.value = null
+  gf.value = { name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100 }
+}
+function editGroup(g) {
+  editingGroup.value = g.id
+  gf.value = { name: g.name, type: g.type, members: (g.members || []).join(', '),
+    keywords: (g.dynamic_keywords || []).join(', '),
+    interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100 }
+}
+async function toggleGroup(g) {
+  try { await put('/api/groups/' + g.id, { enabled: !g.enabled }); load() }
+  catch (e) { toast(e.message) }
 }
 async function refreshFailover() {
   try { await post('/api/failover/refresh', {}); toast('已重选'); load() }

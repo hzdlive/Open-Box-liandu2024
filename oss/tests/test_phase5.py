@@ -87,7 +87,8 @@ def test_flip():
 
     # route rules go through the flip selectors
     rrules = conf["route"]["rules"]
-    assert rrules[0]["outbound"] == f"flip-{s1['id']}", rrules[0]
+    flips = [r for r in rrules if r.get("outbound", "").startswith("flip-")]
+    assert flips and flips[0]["outbound"] == f"flip-{s1['id']}", rrules
 
     # flip endpoint persists (kernel down -> hot=false but persisted)
     r = c.post(f"/api/sitesets/{s1['id']}/flip", json={"to": "direct"})
