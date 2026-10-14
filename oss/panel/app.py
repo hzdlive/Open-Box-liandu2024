@@ -7,7 +7,7 @@ import json
 import os
 import sqlite3
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 
 from core.routing import preview_route
 from core.singbox import build_config
@@ -24,24 +24,55 @@ def create_app(db_path: str = ":memory:") -> Flask:
     from werkzeug.security import check_password_hash, generate_password_hash
 
     app = Flask(__name__)
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    conn.execute("PRAGMA foreign_keys=ON")
-    dbmod.init_db(conn)
-    app.config["DB"] = conn
+
+    # Threading: a single sqlite3 connection handle must never be used from
+    # two threads at once (the Flask dev server is threaded; concurrent
+    # execute() on one handle fails with "bad parameter or other API
+    # misuse"). Every request therefore opens its own connection, closed at
+    # teardown. The ":memory:" test DB uses a shared-cache URI plus a keeper
+    # connection so all requests still see the same database.
+    if db_path == ":memory:":
+        _dsn, _uri = "file:openbox_memdb?mode=memory&cache=shared", True
+        _keeper = sqlite3.connect(_dsn, uri=True, check_same_thread=False,
+                                  timeout=30)
+        _keeper.execute("PRAGMA foreign_keys=ON")
+        dbmod.init_db(_keeper)
+        app.config["MEM_KEEPER"] = _keeper  # keep the shared cache alive
+    else:
+        _dsn, _uri = db_path, False
+        _boot = sqlite3.connect(_dsn, timeout=30)
+        _boot.execute("PRAGMA foreign_keys=ON")
+        dbmod.init_db(_boot)
+        _boot.close()
 
     # Session secret: env override, else random per boot (sessions don't
     # survive restart in that case — fine for dev, set the env in prod).
     app.secret_key = os.environ.get("OPENBOX_SECRET_KEY") or secrets.token_hex(32)
 
     def db() -> sqlite3.Connection:
-        return app.config["DB"]
+        if "db_conn" not in g:
+            c = sqlite3.connect(_dsn, uri=_uri, timeout=30)
+            c.execute("PRAGMA foreign_keys=ON")
+            g.db_conn = c
+        return g.db_conn
 
-    # Bootstrap panel password from env on first boot.
-    if not dbmod.get_setting(db(), "panel_password_hash"):
-        _env_pw = os.environ.get("OPENBOX_PANEL_PASSWORD")
-        if _env_pw:
-            dbmod.set_setting(db(), "panel_password_hash",
-                              generate_password_hash(_env_pw))
+    @app.teardown_appcontext
+    def _close_db(exc):
+        c = g.pop("db_conn", None)
+        if c is not None:
+            c.close()
+
+    # Bootstrap panel password from env on first boot (no request context
+    # here, so use a short-lived connection instead of db()).
+    _pw = sqlite3.connect(_dsn, uri=_uri, timeout=30)
+    try:
+        if not dbmod.get_setting(_pw, "panel_password_hash"):
+            _env_pw = os.environ.get("OPENBOX_PANEL_PASSWORD")
+            if _env_pw:
+                dbmod.set_setting(_pw, "panel_password_hash",
+                                  generate_password_hash(_env_pw))
+    finally:
+        _pw.close()
 
     def _password_set() -> bool:
         return bool(dbmod.get_setting(db(), "panel_password_hash"))
