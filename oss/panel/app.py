@@ -18,14 +18,59 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fronten
 
 
 def create_app(db_path: str = ":memory:") -> Flask:
+    import hashlib
+    import secrets
+    from flask import session
+    from werkzeug.security import check_password_hash, generate_password_hash
+
     app = Flask(__name__)
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute("PRAGMA foreign_keys=ON")
     dbmod.init_db(conn)
     app.config["DB"] = conn
 
+    # Session secret: env override, else random per boot (sessions don't
+    # survive restart in that case — fine for dev, set the env in prod).
+    app.secret_key = os.environ.get("OPENBOX_SECRET_KEY") or secrets.token_hex(32)
+
     def db() -> sqlite3.Connection:
         return app.config["DB"]
+
+    # Bootstrap panel password from env on first boot.
+    if not dbmod.get_setting(db(), "panel_password_hash"):
+        _env_pw = os.environ.get("OPENBOX_PANEL_PASSWORD")
+        if _env_pw:
+            dbmod.set_setting(db(), "panel_password_hash",
+                              generate_password_hash(_env_pw))
+
+    def _password_set() -> bool:
+        return bool(dbmod.get_setting(db(), "panel_password_hash"))
+
+    def _client_device():
+        auth = request.headers.get("Authorization", "")
+        if not auth.startswith("Bearer "):
+            return None
+        h = hashlib.sha256(auth[7:].encode()).hexdigest()
+        return dbmod.find_device_by_token_hash(db(), h)
+
+    # Central auth gate for /api/*. Open paths: auth status/login and the
+    # pairing confirm (the one-time code is its own credential). When no
+    # panel password is set the panel runs in open dev mode.
+    _OPEN = {"/api/auth/status", "/api/auth/login", "/api/pair/confirm"}
+
+    @app.before_request
+    def _auth_gate():
+        if not request.path.startswith("/api/"):
+            return None
+        if request.path in _OPEN:
+            return None
+        if not _password_set():
+            return None
+        if session.get("logged_in"):
+            return None
+        if request.path.startswith("/api/client/") and _client_device():
+            return None
+        return jsonify({"error": "login required"}), 401
 
     @app.errorhandler(400)
     def bad_request(e):
@@ -34,6 +79,68 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({"error": "not found"}), 404
+
+    # ---- auth ----
+    @app.get("/api/auth/status")
+    def auth_status():
+        return jsonify({"has_password": _password_set(),
+                        "logged_in": bool(session.get("logged_in"))})
+
+    @app.post("/api/auth/login")
+    def auth_login():
+        d = request.get_json(force=True, silent=True) or {}
+        pw_hash = dbmod.get_setting(db(), "panel_password_hash")
+        if not pw_hash:
+            return jsonify({"error": "no password set"}), 400
+        if not check_password_hash(pw_hash, d.get("password", "")):
+            return jsonify({"error": "wrong password"}), 401
+        session["logged_in"] = True
+        return jsonify({"logged_in": True})
+
+    @app.post("/api/auth/logout")
+    def auth_logout():
+        session.clear()
+        return jsonify({"logged_in": False})
+
+    @app.post("/api/auth/password")
+    def auth_password():
+        d = request.get_json(force=True, silent=True) or {}
+        new = d.get("new", "")
+        if len(new) < 4:
+            return jsonify({"error": "password too short (min 4)"}), 400
+        cur = dbmod.get_setting(db(), "panel_password_hash")
+        if cur and not check_password_hash(cur, d.get("old", "")):
+            return jsonify({"error": "wrong current password"}), 401
+        dbmod.set_setting(db(), "panel_password_hash", generate_password_hash(new))
+        return jsonify({"ok": True})
+
+    # ---- pairing ----
+    @app.post("/api/pair/code")
+    def pair_code():
+        token = secrets.token_urlsafe(24)
+        dbmod.create_pair_code(db(), token, ttl_s=600)
+        return jsonify({"token": token, "expires_in": 600})
+
+    @app.post("/api/pair/confirm")
+    def pair_confirm():
+        d = request.get_json(force=True, silent=True) or {}
+        token = d.get("token", "")
+        if not token or not dbmod.consume_pair_code(db(), token):
+            return jsonify({"error": "invalid or expired pair code"}), 401
+        client_token = secrets.token_urlsafe(32)
+        h = hashlib.sha256(client_token.encode()).hexdigest()
+        did = dbmod.register_device(db(), d.get("device", ""), h)
+        return jsonify({"client_token": client_token, "device_id": did})
+
+    @app.get("/api/pair/devices")
+    def pair_devices():
+        return jsonify(dbmod.list_devices(db()))
+
+    @app.delete("/api/pair/devices/<int:did>")
+    def pair_device_delete(did: int):
+        if not dbmod.delete_device(db(), did):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
 
     # ---- subscriptions ----
     @app.post("/api/subscriptions")
@@ -405,6 +512,118 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except (ValueError, json.JSONDecodeError) as e:
             return jsonify({"error": str(e)}), 400
         return jsonify(result)
+
+    # ---- client API (Bearer client_token; see docs/client-api.md) ----
+    def _client_cfg():
+        return dbmod.load_app_config(db())
+
+    @app.get("/api/client/status")
+    def client_status():
+        from core.service import manager_from_env
+        m = manager_from_env()
+        st = m.status()
+        return jsonify({
+            "running": st.running,
+            "version": st.version,
+            "uptime_s": round(st.uptime_s, 1) if st.uptime_s is not None else None,
+            "mode": dbmod.get_setting(db(), "client_mode", "rule"),
+            "rev": dbmod.get_rev(db()),
+        })
+
+    @app.get("/api/client/nodes")
+    def client_nodes():
+        health = {h["tag"]: h for h in dbmod.list_health(db())}
+        out = []
+        for n in dbmod.list_nodes(db()):
+            h = health.get(n["tag"], {})
+            out.append({**n, "latency_ms": h.get("latency_ms"),
+                        "ok": h.get("ok")})
+        return jsonify(out)
+
+    @app.get("/api/client/groups")
+    def client_groups():
+        cfg = _client_cfg()
+        from core.singbox import resolve_group_members
+        node_tags = [n.tag for n in cfg.nodes]
+        chain_tags = [c.name for c in cfg.chains]
+        return jsonify([{
+            "name": g.name, "type": g.type,
+            "members": resolve_group_members(g, node_tags, chain_tags),
+        } for g in cfg.groups])
+
+    @app.post("/api/client/groups/<name>/select")
+    def client_group_select(name: str):
+        from core.failover import switch_selector
+        d = request.get_json(force=True, silent=True) or {}
+        tag = d.get("tag", "")
+        if not tag:
+            return jsonify({"error": "tag required"}), 400
+        cfg = _client_cfg()
+        ok, msg = switch_selector(f"http://127.0.0.1:{cfg.clash_api_port}", "", name, tag)
+        if not ok:
+            return jsonify({"error": msg}), 502
+        return jsonify({"ok": True, "group": name, "tag": tag})
+
+    @app.get("/api/client/config")
+    def client_config():
+        from core.client_config import build_client_config
+        cfg = _client_cfg()
+        mode = request.args.get("mode") or dbmod.get_setting(db(), "client_mode", "rule")
+        ruleset = request.args.get("ruleset", "follow")
+        try:
+            return jsonify(build_client_config(cfg, mode=mode, ruleset=ruleset))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.get("/api/client/mode")
+    def client_mode_get():
+        return jsonify({"mode": dbmod.get_setting(db(), "client_mode", "rule")})
+
+    @app.post("/api/client/mode")
+    def client_mode_set():
+        from core.client_config import VALID_MODES
+        d = request.get_json(force=True, silent=True) or {}
+        mode = d.get("mode", "")
+        if mode not in VALID_MODES:
+            return jsonify({"error": f"mode must be one of {VALID_MODES}"}), 400
+        dbmod.set_setting(db(), "client_mode", mode)
+        return jsonify({"mode": mode})
+
+    @app.post("/api/client/subscriptions/sync")
+    def client_sync():
+        d = request.get_json(force=True, silent=True) or {}
+        direction = d.get("direction", "pull")
+        if direction == "push":
+            content = d.get("content", "")
+            if not content:
+                return jsonify({"error": "content required"}), 400
+            _sid, n = dbmod.add_subscription(
+                db(), d.get("name", "client-push"),
+                content, source="client-push",
+                format=d.get("format", "auto"))
+            return jsonify({"added": n, "rev": dbmod.get_rev(db())})
+        # pull
+        rev = dbmod.get_rev(db())
+        if d.get("client_rev") == rev:
+            return jsonify({"rev": rev, "nodes": []})
+        return jsonify({"rev": rev, "nodes": dbmod.list_nodes(db())})
+
+    @app.get("/api/client/wifi-policy")
+    def client_wifi_policy_get():
+        return jsonify(json.loads(dbmod.get_setting(
+            db(), "wifi_policy",
+            '{"enabled": false, "pause_ssids": [], "action": "pause"}')))
+
+    @app.put("/api/client/wifi-policy")
+    def client_wifi_policy_put():
+        d = request.get_json(force=True, silent=True) or {}
+        policy = {"enabled": bool(d.get("enabled")),
+                  "pause_ssids": [str(s) for s in d.get("pause_ssids", [])],
+                  "action": d.get("action", "pause")}
+        if policy["action"] not in ("pause", "direct"):
+            return jsonify({"error": "action must be pause|direct"}), 400
+        dbmod.set_setting(db(), "wifi_policy", json.dumps(policy))
+        return jsonify(policy)
 
     # ---- frontend (SPA, no build step) ----
     @app.get("/", defaults={"path": ""})

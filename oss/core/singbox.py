@@ -130,12 +130,11 @@ def resolve_group_members(group: Group, node_tags: list[str],
     return tags
 
 
-def build_config(cfg: AppConfig) -> dict:
-    """Build the full sing-box config dict."""
+def build_outbounds(cfg: AppConfig) -> list[dict]:
+    """Build the outbound list (nodes + chains + groups + builtins)."""
     node_tags = [n.tag for n in cfg.nodes]
     chain_tags = [c.name for c in cfg.chains]
     groups = cfg.groups or default_groups()
-    group_names = {g.name for g in groups}
 
     outbounds = [node_to_outbound(n) for n in cfg.nodes]
     outbounds += [chain_to_outbound(c) for c in cfg.chains]
@@ -161,6 +160,13 @@ def build_config(cfg: AppConfig) -> dict:
         {"type": "block", "tag": "block"},
         {"type": "dns", "tag": "dns-out"},
     ]
+    return outbounds
+
+
+def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]:
+    """Build (route_rules, dns_rules, group_names) from site sets."""
+    groups = cfg.groups or default_groups()
+    group_names = {g.name for g in groups}
 
     def target_of(action: str, group: str) -> str:
         if action == "direct":
@@ -186,6 +192,13 @@ def build_config(cfg: AppConfig) -> dict:
         target = target_of(s.action, s.group)
         route_rules.append({**rule, "outbound": target})
         dns_rules.append({**rule, "server": "proxy-dns" if s.action == "proxy" else "direct-dns"})
+    return route_rules, dns_rules, group_names
+
+
+def build_config(cfg: AppConfig) -> dict:
+    """Build the full sing-box config dict."""
+    outbounds = build_outbounds(cfg)
+    route_rules, dns_rules, _ = build_route_rules(cfg)
 
     return {
         "log": {"level": "warn"},

@@ -485,6 +485,62 @@ async function vSettings() {
       h1.after(pre(nft.script)); h2.after(pre(rules.script)); h3.after(pre(dns.script));
     } catch (err) { toast(err.message, false); }
   };
+
+  // password + pairing
+  const auth = await get('/auth/status');
+  const sec = document.createElement('div');
+  sec.innerHTML = `
+    <h3>面板密码 ${auth.has_password ? '<span class="pill ok">已设置</span>' : '<span class="pill bad">未设置</span>'}</h3>
+    <form class="panel" id="f-pw">
+      ${auth.has_password ? '<label>当前密码</label><input type="password" name="old">' : ''}
+      <label>新密码（≥4 位）</label><input type="password" name="new" required>
+      <div><button>${auth.has_password ? '修改密码' : '设置密码'}</button></div>
+    </form>
+    <h3>客户端配对</h3>
+    <div><button id="btn-pair">生成配对码</button>
+      <span class="muted">一次性，10 分钟有效；客户端扫码后完成配对</span></div>
+    <div id="pair-result"></div>
+    <h3>已配对设备</h3>
+    <div id="pair-devices"><p class="muted">加载中…</p></div>`;
+  $('#view').appendChild(sec);
+  $('#f-pw').onsubmit = async e => {
+    e.preventDefault();
+    const f = new FormData(e.target);
+    try {
+      await post('/auth/password', { old: f.get('old') || '', new: f.get('new') });
+      toast('密码已保存'); vSettings();
+    } catch (err) { toast(err.message, false); }
+  };
+  const loadDevices = async () => {
+    try {
+      const ds = await get('/pair/devices');
+      $('#pair-devices').innerHTML = ds.length ? `<table>
+        <tr><th>设备</th><th>配对时间</th><th></th></tr>
+        ${ds.map(d => `<tr><td>${esc(d.name) || '(未命名)'}</td>
+          <td class="muted">${esc(d.created_at)}</td>
+          <td><button class="small danger" data-unpair="${d.id}">解绑</button></td></tr>`).join('')}
+        </table>` : '<p class="muted">暂无已配对设备</p>';
+      $('#pair-devices').querySelectorAll('[data-unpair]').forEach(b => b.onclick = async () => {
+        if (!confirm('解绑该设备？其 token 立即失效。')) return;
+        try { await delReq('/pair/devices/' + b.dataset.unpair); toast('已解绑'); loadDevices(); }
+        catch (err) { toast(err.message, false); }
+      });
+    } catch (err) { $('#pair-devices').innerHTML = `<p class="muted">${esc(err.message)}</p>`; }
+  };
+  loadDevices();
+  $('#btn-pair').onclick = async () => {
+    try {
+      const r = await post('/pair/code', {});
+      const url = `openbox://pair?host=${location.hostname}&port=${location.port || 80}&token=${r.token}`;
+      $('#pair-result').innerHTML = `<div class="result">
+        <div class="grid2">
+          <div><textarea rows="3" readonly>${esc(url)}</textarea>
+            <p class="muted">10 分钟内有效，仅可使用一次</p></div>
+          <div><img src="/api/share/qr?text=${encodeURIComponent(url)}"
+               alt="QR" style="width:160px;height:160px;background:#fff;padding:8px;border-radius:8px"></div>
+        </div></div>`;
+    } catch (err) { toast(err.message, false); }
+  };
 }
 
 /* ---------- 配置 ---------- */
@@ -532,6 +588,39 @@ async function vConfig() {
   };
 }
 
+/* ---------- 登录 ---------- */
+async function renderLogin() {
+  $('#view').innerHTML = `
+    <h2>登录</h2>
+    <form class="panel" id="f-login" style="max-width:380px">
+      <label>面板密码</label>
+      <input type="password" name="password" required autofocus>
+      <div><button>登录</button></div>
+      <p class="muted">首次使用请先设置密码（设置页），或通过环境变量 OPENBOX_PANEL_PASSWORD 预置。</p>
+    </form>`;
+  $('#f-login').onsubmit = async e => {
+    e.preventDefault();
+    const pw = new FormData(e.target).get('password');
+    try {
+      await post('/auth/login', { password: pw });
+      toast('登录成功');
+      navigate();
+    } catch (err) { toast(err.message, false); }
+  };
+}
+
+async function updateAuthArea() {
+  const el = $('#auth-area');
+  if (!el) return;
+  try {
+    const a = await get('/auth/status');
+    el.innerHTML = (a.has_password && a.logged_in)
+      ? `<button class="small ghost" id="btn-logout" style="margin:0">退出</button>` : '';
+    const b = $('#btn-logout');
+    if (b) b.onclick = async () => { await post('/auth/logout', {}); navigate(); };
+  } catch (e) { /* ignore */ }
+}
+
 /* ---------- 路由 ---------- */
 const ROUTES = {
   '': vOverview, 'proxy': vProxy, 'subs': vSubs, 'sites': vSites,
@@ -543,6 +632,13 @@ async function navigate() {
   renderNav(h);
   $('#view').innerHTML = '<p class="muted">加载中…</p>';
   try {
+    const a = await get('/auth/status');
+    updateAuthArea();
+    if (a.has_password && !a.logged_in) {
+      await renderLogin();
+      window.scrollTo(0, 0);
+      return;
+    }
     await (ROUTES[h] || vOverview)();
   } catch (e) {
     $('#view').innerHTML = `<p class="muted">加载失败：${esc(e.message)}</p>`;

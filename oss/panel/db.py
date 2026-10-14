@@ -69,6 +69,18 @@ CREATE TABLE IF NOT EXISTS node_health(
   error TEXT NOT NULL DEFAULT '',
   checked_at TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS pair_codes(
+  token TEXT PRIMARY KEY,
+  expires_at REAL NOT NULL,
+  used INTEGER NOT NULL DEFAULT 0,
+  created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS devices(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  token_hash TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL
+);
 """
 
 DEFAULT_SETTINGS = {
@@ -76,6 +88,9 @@ DEFAULT_SETTINGS = {
     "dns_proxy": "tcp://1.1.1.1",
     "final_outbound": "auto",
     "tun_stack": "mixed",
+    "client_mode": "rule",
+    "state_rev": "0",
+    "wifi_policy": '{"enabled": false, "pause_ssids": [], "action": "pause"}',
 }
 
 
@@ -122,6 +137,7 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
         )
         count += 1
     conn.commit()
+    bump_rev(conn)
     return sid, count
 
 
@@ -139,6 +155,7 @@ def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
     conn.execute("DELETE FROM nodes WHERE sub_id=?", (sid,))
     cur = conn.execute("DELETE FROM subscriptions WHERE id=?", (sid,))
     conn.commit()
+    bump_rev(conn)
     return cur.rowcount > 0
 
 
@@ -187,6 +204,7 @@ def create_site_set(conn: sqlite3.Connection, d: dict) -> dict:
         (d["name"], d.get("action", "proxy"), d.get("group", "auto"), pos, _rules_blob(d)),
     )
     conn.commit()
+    bump_rev(conn)
     return _site_set_row(conn.execute(
         "SELECT id, name, action, grp, position, rules FROM site_sets WHERE id=?",
         (cur.lastrowid,)).fetchone())
@@ -210,6 +228,7 @@ def update_site_set(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
         vals.append(sid)
         conn.execute(f"UPDATE site_sets SET {', '.join(fields)} WHERE id=?", vals)
         conn.commit()
+    bump_rev(conn)
     return _site_set_row(conn.execute(
         "SELECT id, name, action, grp, position, rules FROM site_sets WHERE id=?",
         (sid,)).fetchone())
@@ -218,6 +237,7 @@ def update_site_set(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
 def delete_site_set(conn: sqlite3.Connection, sid: int) -> bool:
     cur = conn.execute("DELETE FROM site_sets WHERE id=?", (sid,))
     conn.commit()
+    bump_rev(conn)
     return cur.rowcount > 0
 
 
@@ -230,6 +250,60 @@ def set_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT INTO settings(key, value) VALUES (?, ?)"
                  " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
     conn.commit()
+
+
+def bump_rev(conn: sqlite3.Connection) -> int:
+    """Bump the state revision counter (client sync). Returns the new rev."""
+    rev = int(get_setting(conn, "state_rev", "0")) + 1
+    set_setting(conn, "state_rev", str(rev))
+    return rev
+
+
+def get_rev(conn: sqlite3.Connection) -> int:
+    return int(get_setting(conn, "state_rev", "0"))
+
+
+# ---- pairing & devices ----
+def create_pair_code(conn: sqlite3.Connection, token: str, ttl_s: float = 600) -> None:
+    now = time.time()
+    conn.execute("INSERT INTO pair_codes(token, expires_at, used, created_at)"
+                 " VALUES (?, ?, 0, ?)", (token, now + ttl_s, now))
+    conn.commit()
+
+
+def consume_pair_code(conn: sqlite3.Connection, token: str) -> bool:
+    """Mark a pair code used if valid. Returns True on success."""
+    r = conn.execute("SELECT expires_at, used FROM pair_codes WHERE token=?",
+                     (token,)).fetchone()
+    if not r or r[1] or r[0] < time.time():
+        return False
+    conn.execute("UPDATE pair_codes SET used=1 WHERE token=?", (token,))
+    conn.commit()
+    return True
+
+
+def register_device(conn: sqlite3.Connection, name: str, token_hash: str) -> int:
+    cur = conn.execute("INSERT INTO devices(name, token_hash, created_at)"
+                       " VALUES (?, ?, ?)",
+                       (name, token_hash, time.strftime("%Y-%m-%dT%H:%M:%S")))
+    conn.commit()
+    return cur.lastrowid
+
+
+def find_device_by_token_hash(conn: sqlite3.Connection, token_hash: str):
+    return conn.execute("SELECT id, name, created_at FROM devices WHERE token_hash=?",
+                        (token_hash,)).fetchone()
+
+
+def list_devices(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "name": r[1], "created_at": r[2]}
+            for r in conn.execute("SELECT id, name, created_at FROM devices ORDER BY id")]
+
+
+def delete_device(conn: sqlite3.Connection, did: int) -> bool:
+    cur = conn.execute("DELETE FROM devices WHERE id=?", (did,))
+    conn.commit()
+    return cur.rowcount > 0
 
 
 def load_app_config(conn: sqlite3.Connection):
@@ -307,6 +381,7 @@ def create_rule_set(conn: sqlite3.Connection, d: dict) -> dict:
         "INSERT INTO rule_sets(name, url, format) VALUES (?, ?, ?)",
         (d["name"], d.get("url", ""), d.get("format", "auto")))
     conn.commit()
+    bump_rev(conn)
     return get_rule_set(conn, cur.lastrowid)
 
 
@@ -332,12 +407,14 @@ def update_rule_set(conn: sqlite3.Connection, rid: int, d: dict) -> dict | None:
         vals.append(rid)
         conn.execute(f"UPDATE rule_sets SET {', '.join(fields)} WHERE id=?", vals)
         conn.commit()
+    bump_rev(conn)
     return get_rule_set(conn, rid)
 
 
 def delete_rule_set(conn: sqlite3.Connection, rid: int) -> bool:
     cur = conn.execute("DELETE FROM rule_sets WHERE id=?", (rid,))
     conn.commit()
+    bump_rev(conn)
     return cur.rowcount > 0
 
 
@@ -352,6 +429,7 @@ def refresh_rule_set(conn: sqlite3.Connection, rid: int, timeout: int = 15) -> d
     conn.execute("UPDATE rule_sets SET content=?, updated_at=? WHERE id=?",
                  (content, time.strftime("%Y-%m-%dT%H:%M:%S"), rid))
     conn.commit()
+    bump_rev(conn)
     return get_rule_set(conn, rid)
 
 
@@ -376,6 +454,7 @@ def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
          int(d.get("port", 0)), json.dumps(d.get("params", {}), ensure_ascii=False),
          d.get("front", "auto")))
     conn.commit()
+    bump_rev(conn)
     return _chain_row(conn.execute(
         "SELECT id, name, exit_protocol, server, port, params, front FROM chains WHERE id=?",
         (cur.lastrowid,)).fetchone())
@@ -408,6 +487,7 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
 def delete_chain(conn: sqlite3.Connection, cid: int) -> bool:
     cur = conn.execute("DELETE FROM chains WHERE id=?", (cid,))
     conn.commit()
+    bump_rev(conn)
     return cur.rowcount > 0
 
 
@@ -434,6 +514,7 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
          json.dumps(d.get("members", []), ensure_ascii=False),
          json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos))
     conn.commit()
+    bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
@@ -458,6 +539,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
         vals.append(gid)
         conn.execute(f"UPDATE groups SET {', '.join(fields)} WHERE id=?", vals)
         conn.commit()
+    bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position FROM groups WHERE id=?",
         (gid,)).fetchone())
@@ -466,6 +548,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
 def delete_group(conn: sqlite3.Connection, gid: int) -> bool:
     cur = conn.execute("DELETE FROM groups WHERE id=?", (gid,))
     conn.commit()
+    bump_rev(conn)
     return cur.rowcount > 0
 
 
