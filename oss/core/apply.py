@@ -37,7 +37,14 @@ def _atomic_write_json(path: str, obj: dict) -> None:
 
 def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
     """Build the config from DB and validate it. Returns (config, ok, message)."""
-    cfg = build_config(dbmod.load_app_config(conn))
+    app_cfg = dbmod.load_app_config(conn)
+    # Local .srs rule-sets referenced by site sets: fetch missing ones now.
+    # Anything still missing is skipped so a missing geodata file can never
+    # break validation (degraded routing, warning in the message).
+    from core import geodata as _gd
+    names = _gd.referenced_rule_sets(app_cfg)
+    _ok, missing = _gd.ensure(names) if names else ([], [])
+    cfg = build_config(app_cfg, set(missing))
     fd, tmp = tempfile.mkstemp(suffix=".json")
     try:
         with os.fdopen(fd, "w") as f:
@@ -48,6 +55,8 @@ def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
             os.remove(tmp)
         except OSError:
             pass
+    if missing:
+        msg = f"{msg} [geodata missing, skipped: {', '.join(missing)}]"
     return cfg, ok, msg
 
 

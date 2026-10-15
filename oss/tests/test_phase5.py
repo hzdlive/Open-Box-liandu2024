@@ -251,6 +251,33 @@ def test_orig_parity_batch():
     print("OK: original parity batch (expected_status/test_url, wan dns, rewrite enabled, month)")
 
 
+def test_geodata_api():
+    from core import geodata as _gd
+    app = _app()
+    c = app.test_client()
+    r = c.get("/api/geodata").get_json()
+    assert "dir" in r and "referenced" in r and "files" in r and "missing" in r, r
+    # referenced rule-sets come from the 12 seeded site sets
+    assert "geosite-youtube" in r["referenced"] and "geoip-cn" in r["referenced"]
+    # ensure with mocked download writes a file and reports it
+    orig_dl = _gd._download
+    orig_dir = _gd.geodata_dir
+    import tempfile
+    tmpd = tempfile.mkdtemp()
+    _gd.geodata_dir = lambda db_path=None: tmpd
+    try:
+        _gd._download = lambda url, dest, timeout=60: open(dest, "wb").write(b"srs")
+        res = c.post("/api/geodata/ensure", json={"names": ["geosite-youtube"]}).get_json()
+        assert res["downloaded"] == ["geosite-youtube"] and res["missing"] == [], res
+        assert _gd.is_available("geosite-youtube")
+        r2 = c.get("/api/geodata").get_json()
+        assert any(f["name"] == "geosite-youtube" for f in r2["files"]), r2
+    finally:
+        _gd._download = orig_dl
+        _gd.geodata_dir = orig_dir
+    print("OK: geodata api (list/ensure)")
+
+
 def test_terminal_mac():
     from core import arp as _arp
     from core import singbox as _sb
@@ -302,6 +329,7 @@ def main():
     test_terminals_api()
     test_terminal_mac()
     test_orig_parity_batch()
+    test_geodata_api()
     test_flip()
     test_connections_no_kernel()
     test_traffic_record()

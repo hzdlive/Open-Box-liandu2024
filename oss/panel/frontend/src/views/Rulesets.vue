@@ -2,6 +2,24 @@
   <div class="topbar"><h2>规则集</h2><span class="sub">远程规则列表，定期更新</span></div>
 
   <div class="card">
+    <h3>内置规则数据 <span class="muted">geosite / geoip（sing-box 本地规则集，站点集分流引用）</span></h3>
+    <div style="margin-bottom:8px">
+      <button class="small ghost" @click="ensureGeo">下载缺失</button>
+      <span class="muted" style="margin-left:8px">目录：{{ geo.dir }}</span>
+    </div>
+    <p v-if="geo.missing && geo.missing.length" class="muted">缺失 {{ geo.missing.length }} 个：{{ geo.missing.join(', ') }}</p>
+    <table v-if="geo.files && geo.files.length">
+      <tr><th>名称</th><th>类型</th><th>大小</th><th>更新时间</th></tr>
+      <tr v-for="f in geo.files" :key="f.name">
+        <td>{{ f.name }}</td><td class="muted">{{ f.kind }}</td>
+        <td class="muted">{{ fmtSize(f.size) }}</td><td class="muted">{{ f.updated_at }}</td>
+      </tr>
+    </table>
+    <p v-else class="muted">尚未下载。点"下载缺失"从上游公开源获取（geosite: MIT 数据；geoip: MaxMind GeoLite2，需署名）。</p>
+  </div>
+
+  <div class="card">
+    <h3>自定义远程规则集</h3>
     <table>
       <tr><th>名称</th><th>URL</th><th>格式</th><th>大小</th><th>更新时间</th><th></th></tr>
       <tr v-for="r in list" :key="r.id">
@@ -43,9 +61,25 @@ import { get, post, delReq } from '../api.js'
 
 const toast = inject('toast')
 const list = ref([])
+const geo = ref({ files: [], missing: [], dir: '' })
 const f = ref({ name: '', format: 'auto', url: '', content: '' })
 
-async function load() { list.value = await get('/api/rulesets') }
+async function load() {
+  list.value = await get('/api/rulesets')
+  try { geo.value = await get('/api/geodata') } catch (e) { /* optional */ }
+}
+function fmtSize(n) {
+  if (n > 1e6) return (n / 1e6).toFixed(1) + ' MB'
+  if (n > 1e3) return Math.round(n / 1e3) + ' KB'
+  return n + ' B'
+}
+async function ensureGeo() {
+  try {
+    const x = await post('/api/geodata/ensure', {})
+    toast(`已下载 ${x.downloaded.length} 个` + (x.missing.length ? `，缺失 ${x.missing.length} 个` : ''))
+    load()
+  } catch (e) { toast(e.message) }
+}
 async function create() {
   try {
     await post('/api/rulesets', { name: f.value.name, format: f.value.format,

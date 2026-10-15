@@ -212,7 +212,9 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
     return outbounds
 
 
-def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]:
+def build_route_rules(cfg: AppConfig,
+                      skip_rule_sets: set[str] | None = None
+                      ) -> tuple[list[dict], list[dict], set[str]]:
     """Build (route_rules, dns_rules, group_names) from site sets."""
     groups = cfg.groups or default_groups()
     group_names = {g.name for g in groups}
@@ -268,6 +270,9 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
             rule["domain_keyword"] = s.domain_keyword
         if s.ip_cidr:
             rule["ip_cidr"] = s.ip_cidr
+        rs = [n for n in (s.rule_sets or []) if n not in (skip_rule_sets or ())]
+        if rs:
+            rule["rule_set"] = rs
         if not rule:
             continue
         if s.action == "reject":
@@ -337,10 +342,21 @@ def _dns_servers(tag: str, addrs: str, detour: str,
             for i, a in enumerate(parts)]
 
 
-def build_config(cfg: AppConfig) -> dict:
-    """Build the full sing-box config dict."""
+def build_config(cfg: AppConfig,
+                 skip_rule_sets: set[str] | None = None) -> dict:
+    """Build the full sing-box config dict.
+
+    skip_rule_sets: rule-set names whose .srs is unavailable; their references
+    are dropped so a missing geodata file can never break config validation.
+    """
     outbounds = build_outbounds(cfg)
-    route_rules, dns_rules, _ = build_route_rules(cfg)
+    route_rules, dns_rules, _ = build_route_rules(cfg, skip_rule_sets)
+    from core import geodata as _gd
+    rule_set_decls = [
+        {"type": "local", "tag": name, "format": "binary",
+         "path": _gd.local_path(name)}
+        for name in _gd.referenced_rule_sets(cfg)
+        if not (skip_rule_sets and name in skip_rule_sets)]
 
     return {
         "log": {"level": "warn"},
@@ -369,6 +385,7 @@ def build_config(cfg: AppConfig) -> dict:
             # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol
             # traffic is handed to the DNS module via the hijack-dns action.
             "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "action": "hijack-dns"}],
+            **({"rule_set": rule_set_decls} if rule_set_decls else {}),
             "final": cfg.final_outbound,
             "auto_detect_interface": True,
             # sing-box >= 1.12 requires an explicit resolver for outbound

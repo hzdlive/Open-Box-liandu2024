@@ -48,6 +48,13 @@ cp "$SCRIPT_DIR/openbox-oss.init" /etc/init.d/openbox-oss
 chmod +x /etc/init.d/openbox-oss
 /etc/init.d/openbox-oss enable
 
+# Geodata (.srs rule-sets referenced by the default site sets). Best effort:
+# the panel downloads missing files on demand anyway (see core/geodata.py).
+if [ -z "${OBX_SKIP_GEODATA:-}" ]; then
+  echo "[openbox-oss] downloading geodata (best effort)"
+  "$SCRIPT_DIR/fetch-geodata.sh" || echo "[openbox-oss] geodata download incomplete; the panel will retry on demand" >&2
+fi
+
 echo "[openbox-oss] installed. Next:"
 echo "  1. start the panel: $PREFIX/panel/run.sh (or python3 panel/run.py)"
 echo "  2. open the panel, configure, then 'apply config' to start the kernel"

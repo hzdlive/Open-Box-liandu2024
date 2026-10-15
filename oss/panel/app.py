@@ -677,6 +677,28 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def ruleset_list():
         return jsonify(dbmod.list_rule_sets(db()))
 
+    @app.get("/api/geodata")
+    def geodata_list():
+        from core import geodata as _gd
+        cfg = dbmod.load_app_config(db())
+        referenced = _gd.referenced_rule_sets(cfg)
+        local = {x["name"]: x for x in _gd.list_local()}
+        return jsonify({
+            "dir": _gd.geodata_dir(),
+            "referenced": referenced,
+            "files": _gd.list_local(),
+            "missing": [n for n in referenced if n not in local],
+        })
+
+    @app.post("/api/geodata/ensure")
+    def geodata_ensure():
+        from core import geodata as _gd
+        d = request.get_json(force=True, silent=True) or {}
+        cfg = dbmod.load_app_config(db())
+        names = d.get("names") or _gd.referenced_rule_sets(cfg)
+        ok, missing = _gd.ensure([n for n in names if isinstance(n, str)])
+        return jsonify({"downloaded": ok, "missing": missing})
+
     @app.post("/api/rulesets")
     def ruleset_create():
         d = request.get_json(force=True, silent=True) or {}
