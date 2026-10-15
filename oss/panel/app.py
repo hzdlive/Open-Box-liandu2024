@@ -1079,6 +1079,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             direct_ipset_domains=direct_ipset_domains,
             bypass_ports=get_setting(c, "bypass_ports", ""),
             bypass_ports_mode=get_setting(c, "bypass_ports_mode", "black"),
+            mss_clamp=int(get_setting(c, "mss_clamp", "0") or 0),
         )
 
     def _dns_filter_conf_path(c) -> str:

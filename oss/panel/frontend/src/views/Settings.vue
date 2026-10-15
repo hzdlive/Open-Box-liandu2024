@@ -26,6 +26,8 @@
           <option value="black">黑名单：这些端口不进内核</option>
           <option value="white">白名单：只有这些端口进内核</option>
         </select></div>
+        <div><label>TCP MSS 钳制 <span class="muted">0=关闭，如 1452</span></label>
+          <input v-model="st.mss_clamp" placeholder="0"></div>
       </div>
       <div style="margin-top:8px"><label>测速地址 <span class="muted">urltest 组用</span></label>
         <input v-model="st.speedtest_url" placeholder="http://www.gstatic.com/generate_204"></div>
