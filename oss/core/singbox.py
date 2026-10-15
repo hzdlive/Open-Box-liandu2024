@@ -410,7 +410,10 @@ def build_config(cfg: AppConfig,
             "default_domain_resolver": dns_final,
         },
         "experimental": {
-            "clash_api": {"external_controller": f"127.0.0.1:{cfg.clash_api_port}"},
+            "clash_api": {
+                "external_controller": f"{cfg.clash_api_listen}:{cfg.clash_api_port}",
+                **({"secret": cfg.clash_api_secret} if cfg.clash_api_secret else {}),
+            },
             "cache_file": {"enabled": True},
         },
     }

@@ -138,6 +138,8 @@ class AppConfig:
     tun_address: str = "172.19.0.1/30"  # TUN interface address (sing-box >= 1.14 requires it)
     quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)
     clash_api_port: int = 9090
+    clash_api_listen: str = "127.0.0.1"  # dashboard 二开分支：浏览器直连 clash API 时需改为 0.0.0.0
+    clash_api_secret: str = ""           # clash API secret，为空表示不设密码
     share_lan_enabled: bool = False  # expose mixed inbound on LAN (shared network)
     share_lan_port: int = 8088
     front_rules: list = field(default_factory=list)  # list[dict], before site sets

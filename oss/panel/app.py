@@ -67,7 +67,10 @@ def _write_timezone(tz: str) -> tuple[bool, str]:
     except (OSError, subprocess.TimeoutExpired):
         pass
     return True, "ok"
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
+# oss-zashboard 分支：主 UI 换成基于 zashboard 二开的前端；旧自研 UI 保留在 /legacy/ 作为回退。
+FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "..", "dashboard", "zashboard-src", "dist")
+LEGACY_FRONTEND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend", "dist")
 
 
 def create_app(db_path: str = ":memory:") -> Flask:
@@ -2060,6 +2063,25 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 return jsonify({"log": f.read().decode("utf-8", "replace")})
         except FileNotFoundError:
             return jsonify({"log": ""})
+
+    # ---- openbox dashboard config (for the zashboard-based UI auto-connect) ----
+    @app.get("/api/openbox/clash-config")
+    def openbox_clash_config():
+        cfg = dbmod.load_app_config(db())
+        return jsonify({"port": cfg.clash_api_port,
+                        "secret": cfg.clash_api_secret,
+                        "listen": cfg.clash_api_listen})
+
+    # ---- legacy frontend (pre-zashboard UI, kept as fallback) ----
+    @app.get("/legacy", defaults={"path": ""})
+    @app.get("/legacy/<path:path>")
+    def legacy_frontend(path: str):
+        if path.startswith("api/"):
+            return jsonify({"error": "not found"}), 404
+        full = os.path.join(LEGACY_FRONTEND_DIR, path)
+        if path and os.path.isfile(full):
+            return send_from_directory(LEGACY_FRONTEND_DIR, path)
+        return send_from_directory(LEGACY_FRONTEND_DIR, "index.html")
 
     # ---- frontend (Vue build output) ----
     @app.get("/", defaults={"path": ""})

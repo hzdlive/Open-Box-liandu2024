@@ -30,3 +30,26 @@ contains data from the following sources:
 - Generator: GPL-3.0-or-later, copyright (C) 2022 nekohasekai
 - IP data: MaxMind GeoLite2 — "This product includes GeoLite2 data created by
   MaxMind, available from https://www.maxmind.com".
+
+---
+
+# Third-Party Notices — zashboard (oss-zashboard branch only)
+
+The `oss/dashboard/zashboard-src/` tree is based on zashboard v3.22.0, modified
+for Open-Box ("二开"). The upstream `LICENSE` (MIT) file is kept verbatim in
+`oss/dashboard/zashboard-src/LICENSE`.
+
+- Source: https://github.com/Zephyruso/zashboard (tag v3.22.0 — the last
+  upstream release with sing-box support; upstream removed sing-box support in
+  v3.23.0, see upstream `docs/sing-box-deprecation.md`)
+- License: MIT License, copyright (c) Zephyruso (see LICENSE file for the
+  full text and exact copyright line)
+- Modifications by Open-Box OSS branch (not upstream):
+  - `src/openbox/` — panel API wrapper, login gate reusing the Flask panel
+    session, auto-provisioning of the local sing-box Clash API backend
+  - `src/views/manage/` — new "Manage" section; subscription management ported
+    from the previous self-developed UI, further modules planned
+  - `src/router/index.ts`, `src/constant/index.ts`, `src/main.ts`,
+    `src/i18n/*`, `index.html` — route/nav/i18n/branding integration
+  - backend: `experimental.clash_api` listen address/secret made configurable
+    (`clash_api_listen`, `clash_api_secret`), `GET /api/openbox/clash-config`

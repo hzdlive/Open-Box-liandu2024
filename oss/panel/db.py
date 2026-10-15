@@ -880,6 +880,8 @@ def load_app_config(conn: sqlite3.Connection):
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         tun_address=get_setting(conn, "tun_address", "172.19.0.1/30"),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
+        clash_api_listen=get_setting(conn, "clash_api_listen", "127.0.0.1"),
+        clash_api_secret=get_setting(conn, "clash_api_secret", ""),
         share_lan_enabled=get_setting(conn, "share_lan_enabled", "0") == "1",
         share_lan_port=int(get_setting(conn, "share_lan_port", "8088") or 8088),
         sub_node_direct=get_setting(conn, "sub_node_direct", "0") == "1",
