@@ -156,7 +156,7 @@ def flip_outbound(site_set, group_names: set[str]) -> dict | None:
     Only for proxy/direct actions; reject stays a static block."""
     if site_set.action == "reject":
         return None
-    grp = site_set.group if site_set.group in group_names else "auto"
+    grp = site_set.group if site_set.group in group_names else "所有-自动"
     if site_set.action == "direct":
         primary, secondary = "direct", grp
     else:
@@ -227,7 +227,7 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
         dom = (fr.get("domain") or "").strip()
         if not dom:
             continue
-        target = (fr.get("target") or "auto").strip() or "auto"
+        target = (fr.get("target") or "所有-自动").strip() or "所有-自动"
         rule = {"domain_suffix": [dom.lstrip(".")]}
         dns_srv = "proxy-dns"
         if target == "direct":
@@ -332,7 +332,7 @@ def build_config(cfg: AppConfig) -> dict:
                 if cfg.dns.enable_fakeip else []
             ) + (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct",
                              cfg.dns.upstream_latency)
-                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "auto",
+                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "所有-自动",
                                 cfg.dns.upstream_latency)),
             "rules": dns_rules,
             "final": "direct-dns",
