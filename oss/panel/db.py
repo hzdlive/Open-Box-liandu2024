@@ -224,6 +224,7 @@ DEFAULT_SETTINGS = {
     "bypass_ports": "",               # e.g. "21114-21119, 2233"
     "bypass_ports_mode": "black",     # black = these ports bypass; white = only these enter
     "speedtest_url": "http://www.gstatic.com/generate_204",
+    "direct_speedtest_url": "http://connectivitycheck.platform.hicloud.com/generate_204",
     "router_name": "OpenBox",            # router identity shown in client apps
     "router_icon": "router",             # icon key
     "router_region": "cn",               # router region code
@@ -303,6 +304,45 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.commit()
     # migrate old default names (auto/manual) to the new ones, fixing references
     _migrate_default_groups(conn)
+    # default routing policies (match original 12)
+    _seed_default_site_sets(conn)
+    # default DNS rewrite rules (match original)
+    for domain, target in (("services.googleapis.cn", "services.googleapis.com"),
+                          ("developers.google.cn", "developers.google.com")):
+        conn.execute(
+            "INSERT OR IGNORE INTO dns_rewrite(domain, target) VALUES (?, ?)",
+            (domain, target))
+    conn.commit()
+
+
+def _seed_default_site_sets(conn: sqlite3.Connection) -> None:
+    """Seed the 12 default routing policies from the original, if none exist."""
+    if conn.execute("SELECT COUNT(*) FROM site_sets").fetchone()[0] > 0:
+        return
+    defaults = [
+        ("Speed", "proxy", [], ["misc:stopwatch"]),
+        ("AI", "proxy", ["geosite-category-ai-!cn"], ["brand:openai-light"]),
+        ("Youtube", "proxy", ["geosite-youtube"], ["brand:youtube"]),
+        ("TikTok", "proxy", ["geosite-tiktok", "geosite-tiktok@!cn"], ["brand:tiktok"]),
+        ("Netflix", "proxy", ["geosite-netflix", "geoip-netflix"], ["brand:netflix-mono"]),
+        ("Github", "proxy", ["geosite-github"], ["brand:github-mono"]),
+        ("Google", "proxy", ["geosite-google"], ["brand:google"]),
+        ("Microsoft", "proxy", ["geosite-microsoft"], ["brand:microsoft"]),
+        ("Apple", "direct", ["geosite-apple"], ["brand:apple-light"]),
+        ("Games", "proxy", ["geosite-steam", "geosite-sony"], ["misc:game-soft"]),
+        ("国外", "proxy", ["geosite-gfw", "geoip-cloudflare", "geoip-facebook",
+                          "geoip-cloudfront", "geoip-fastly", "geoip-google",
+                          "geoip-netflix", "geoip-telegram", "geoip-tor",
+                          "geoip-twitter"], ["globe:earth-americas"]),
+        ("国内", "direct", ["geosite-cn", "geoip-cn", "geoip-private"], ["misc:shield"]),
+    ]
+    for pos, (name, action, rulesets, _icon) in enumerate(defaults):
+        conn.execute(
+            "INSERT INTO site_sets(name, action, grp, domains, domain_suffix,"
+            " domain_keyword, ip_cidr, rule_sets, position)"
+            " VALUES (?, ?, '所有-自动', '[]', '[]', '[]', '[]', ?, ?)",
+            (name, action, json.dumps(rulesets, ensure_ascii=False), pos))
+    conn.commit()
 
 
 def add_subscription(conn: sqlite3.Connection, name: str, content: str,
