@@ -339,7 +339,7 @@ def build_config(cfg: AppConfig) -> dict:
         },
         "inbounds": [
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,
-             "mtu": cfg.tun_mtu,
+             "mtu": cfg.tun_mtu, "address": cfg.tun_address,
              "auto_route": True, "strict_route": False},
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080},
         ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",

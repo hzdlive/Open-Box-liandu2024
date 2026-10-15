@@ -131,6 +131,7 @@ class AppConfig:
     final_outbound: str = "所有-自动"  # fallback route
     tun_stack: str = "mixed"     # mixed | gvisor | system
     tun_mtu: int = 9000
+    tun_address: str = "172.19.0.1/30"  # TUN interface address (sing-box >= 1.14 requires it)
     quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)
     clash_api_port: int = 9090
     share_lan_enabled: bool = False  # expose mixed inbound on LAN (shared network)
