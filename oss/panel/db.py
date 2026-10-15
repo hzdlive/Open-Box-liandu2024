@@ -261,6 +261,8 @@ def init_db(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(site_sets)")}
     if "flip" not in cols:
         conn.execute("ALTER TABLE site_sets ADD COLUMN flip TEXT NOT NULL DEFAULT ''")
+    if "icon" not in cols:
+        conn.execute("ALTER TABLE site_sets ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     if "idle_timeout" not in gcols:
         conn.execute("ALTER TABLE groups ADD COLUMN idle_timeout TEXT NOT NULL DEFAULT '12h'")
@@ -324,28 +326,44 @@ def _seed_default_site_sets(conn: sqlite3.Connection) -> None:
     if conn.execute("SELECT COUNT(*) FROM site_sets").fetchone()[0] > 0:
         return
     defaults = [
-        ("Speed", "proxy", [], ["misc:stopwatch"]),
-        ("AI", "proxy", ["geosite-category-ai-!cn"], ["brand:openai-light"]),
-        ("Youtube", "proxy", ["geosite-youtube"], ["brand:youtube"]),
-        ("TikTok", "proxy", ["geosite-tiktok", "geosite-tiktok@!cn"], ["brand:tiktok"]),
-        ("Netflix", "proxy", ["geosite-netflix", "geoip-netflix"], ["brand:netflix-mono"]),
-        ("Github", "proxy", ["geosite-github"], ["brand:github-mono"]),
-        ("Google", "proxy", ["geosite-google"], ["brand:google"]),
-        ("Microsoft", "proxy", ["geosite-microsoft"], ["brand:microsoft"]),
-        ("Apple", "direct", ["geosite-apple"], ["brand:apple-light"]),
-        ("Games", "proxy", ["geosite-steam", "geosite-sony"], ["misc:game-soft"]),
-        ("国外", "proxy", ["geosite-gfw", "geoip-cloudflare", "geoip-facebook",
+        ("Speed", "proxy", {"domain": ["speed.cloudflare.com", "challenges.cloudflare.com"],
+                           "domain_suffix": [
+                               "yalala.com", "whois.pconline.com.cn", "ipip.net", "b0.upaiyun.com",
+                               "asn247.net", "astrill.org", "ipinfo.io", "vultr.com", "test-ipv6.com",
+                               "ipw.cn", "ipcheck.im", "fast.com", "speedcheck.org", "speedtest.net",
+                               "speedtest.cn", "ustc.edu.cn", "dnscheck.tools", "whoer.net",
+                               "browserleaks.com", "browserleaks.org", "browserleaks.net",
+                               "dnsleaktest.org", "1-b.net", "workers.dev", "jsonp-ip.com",
+                               "sspanel.net", "dnsleaktest.com", "browserscan.net", "surfshark.com",
+                               "surfsharkdns.com", "ip-api.com", "ipleak.net", "ip-score.com",
+                               "888005.xyz", "incolumitas.com", "null-addr.com", "null-addr.net",
+                               "null-addr.org", "null-addr.biz", "null-addr.info", "addr.tools",
+                               "ifconfig.me", "ip125.com", "skk.moe", "ip111.cn", "ping0.cc",
+                               "ip.sb", "ipify.org", "whoer.com", "whatismyip.com.tw",
+                               "whatismyip.com", "whoisip.me", "ipaddress.me", "ip2proxy.com",
+                               "vpnapi.io", "l.google.com"],
+                           "ip_cidr": ["142.251.215.0/24", "74.125.250.129/24"]},
+         "misc:stopwatch"),
+        ("AI", "proxy", {"rule_sets": ["geosite-category-ai-!cn"]}, "brand:openai-light"),
+        ("Youtube", "proxy", {"rule_sets": ["geosite-youtube"]}, "brand:youtube"),
+        ("TikTok", "proxy", {"rule_sets": ["geosite-tiktok", "geosite-tiktok@!cn"]}, "brand:tiktok"),
+        ("Netflix", "proxy", {"rule_sets": ["geosite-netflix", "geoip-netflix"]}, "brand:netflix-mono"),
+        ("Github", "proxy", {"rule_sets": ["geosite-github"]}, "brand:github-mono"),
+        ("Google", "proxy", {"rule_sets": ["geosite-google"]}, "brand:google"),
+        ("Microsoft", "proxy", {"rule_sets": ["geosite-microsoft"]}, "brand:microsoft"),
+        ("Apple", "direct", {"rule_sets": ["geosite-apple"]}, "brand:apple-light"),
+        ("Games", "proxy", {"rule_sets": ["geosite-steam", "geosite-sony"]}, "misc:game-soft"),
+        ("国外", "proxy", {"rule_sets": ["geosite-gfw", "geoip-cloudflare", "geoip-facebook",
                           "geoip-cloudfront", "geoip-fastly", "geoip-google",
                           "geoip-netflix", "geoip-telegram", "geoip-tor",
-                          "geoip-twitter"], ["globe:earth-americas"]),
-        ("国内", "direct", ["geosite-cn", "geoip-cn", "geoip-private"], ["misc:shield"]),
+                          "geoip-twitter"]}, "globe:earth-americas"),
+        ("国内", "direct", {"rule_sets": ["geosite-cn", "geoip-cn", "geoip-private"]}, "misc:shield"),
     ]
-    for pos, (name, action, rulesets, _icon) in enumerate(defaults):
-        rules = json.dumps({"rule_sets": rulesets}, ensure_ascii=False)
+    for pos, (name, action, rules, icon) in enumerate(defaults):
         conn.execute(
-            "INSERT INTO site_sets(name, action, grp, position, rules)"
-            " VALUES (?, ?, '所有-自动', ?, ?)",
-            (name, action, pos, rules))
+            "INSERT INTO site_sets(name, action, grp, position, rules, icon)"
+            " VALUES (?, ?, '所有-自动', ?, ?, ?)",
+            (name, action, pos, json.dumps(rules, ensure_ascii=False), icon))
     conn.commit()
 
 
@@ -502,12 +520,13 @@ def _rules_blob(d: dict) -> str:
 def _site_set_row(r) -> dict:
     return {"id": r[0], "name": r[1], "action": r[2], "group": r[3],
             "position": r[4], "rules": json.loads(r[5]),
-            "flip": r[6] if len(r) > 6 else ""}
+            "flip": r[6] if len(r) > 6 else "",
+            "icon": r[7] if len(r) > 7 else ""}
 
 
 def list_site_sets(conn: sqlite3.Connection) -> list[dict]:
     return [_site_set_row(r) for r in conn.execute(
-        "SELECT id, name, action, grp, position, rules, flip FROM site_sets"
+        "SELECT id, name, action, grp, position, rules, flip, icon FROM site_sets"
         " ORDER BY position, id")]
 
 
