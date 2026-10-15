@@ -1382,6 +1382,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "direct_dns": dbmod.get_setting(c, "dns_direct", dbmod.DEFAULT_SETTINGS["dns_direct"]),
             "proxy_dns": dbmod.get_setting(c, "dns_proxy", dbmod.DEFAULT_SETTINGS["dns_proxy"]),
             "fakeip": dbmod.get_setting(c, "dns_fakeip", "0") == "1",
+            "split": dbmod.get_setting(c, "dns_split", "1") == "1",
             "upstream_latency": dbmod._safe_json_loads(
                 dbmod.get_setting(c, "dns_upstream_latency", "{}")),
             "rewrites": dbmod.list_dns_rewrites(c),
@@ -1405,6 +1406,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 dbmod.set_setting(c, skey, str(d[k]).strip())
         if "fakeip" in d:
             dbmod.set_setting(c, "dns_fakeip", "1" if d["fakeip"] else "0")
+        if "split" in d:
+            dbmod.set_setting(c, "dns_split", "1" if d["split"] else "0")
         c.commit()
         return dns_get()
 

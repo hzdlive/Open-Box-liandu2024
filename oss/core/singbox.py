@@ -358,6 +358,12 @@ def build_config(cfg: AppConfig,
     """
     outbounds = build_outbounds(cfg)
     route_rules, dns_rules, _ = build_route_rules(cfg, skip_rule_sets)
+    # split=false: all DNS via the proxy upstream (no direct/proxy split).
+    dns_final = "direct-dns"
+    if not cfg.dns.split:
+        dns_rules = [{**r, "server": "proxy-dns"} if r.get("server") == "direct-dns" else r
+                     for r in dns_rules]
+        dns_final = "proxy-dns"
     from core import geodata as _gd
     rule_set_decls = [
         {"type": "local", "tag": name, "format": "binary",
@@ -377,7 +383,7 @@ def build_config(cfg: AppConfig,
                  + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "所有-自动",
                                 cfg.dns.upstream_latency)),
             "rules": dns_rules,
-            "final": "direct-dns",
+            "final": dns_final,
         },
         "inbounds": [
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,

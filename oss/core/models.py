@@ -102,6 +102,7 @@ class DnsConfig:
     proxy_dns: str = "tcp://1.1.1.1"       # for proxied domains
     enable_fakeip: bool = False
     mode: str = "dnsmasq"                  # dnsmasq | firewall | off (hijack mode)
+    split: bool = True                     # split direct/proxy upstreams; False = all via proxy
     region: str = "auto"                   # auto | cn | outside
     region_detected: str = ""              # last auto-detected region ("cn"/"outside")
     upstream_latency: dict = field(default_factory=dict)  # {upstream: ms}

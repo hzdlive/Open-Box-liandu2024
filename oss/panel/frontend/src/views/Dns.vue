@@ -18,6 +18,8 @@
       </div>
       <label style="margin-top:8px"><input type="checkbox" v-model="dns.fakeip" style="width:auto">
         FakeIP —— 走代理的域名不做本地解析，内核先返回占位地址 (198.19.0.0/16)，连接时把域名交给节点</label>
+      <label style="margin-top:8px"><input type="checkbox" v-model="dns.split" style="width:auto">
+        分流 DNS —— 直连和代理的域名用不同的上游解析；关闭则全部走代理上游</label>
       <label style="margin-top:12px">直连 DNS <span class="muted">同侧第一条是主上游，后面的是备用；按测速延迟自动排序</span></label>
       <upstream-list v-model="directList" :latency="dns.upstream_latency" @test="testOne" />
       <label style="margin-top:8px">代理 DNS <span class="muted">同侧第一条是主上游，后面的是备用；按测速延迟自动排序</span></label>
@@ -152,7 +154,7 @@ const tabs = [
 ]
 const tab = ref('mode')
 const dns = ref({ mode: 'dnsmasq', region: 'auto', direct_dns: '', proxy_dns: '',
-  fakeip: false, upstream_latency: {}, rewrites: [] })
+  fakeip: false, split: true, upstream_latency: {}, rewrites: [] })
 const rw = ref({ domain: '', target: '' })
 const wanInfo = ref('')
 const filter = ref({ enabled: false, lists: [], auto_update: false, update_time: '04:00' })

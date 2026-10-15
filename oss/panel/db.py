@@ -223,6 +223,7 @@ DEFAULT_SETTINGS = {
     "dns_filter_update_time": "04:00",  # HH:MM local time
     "dns_filter_auto_updated_at": "",
     "dns_fakeip": "0",                # fakeip for proxied domains (198.19.0.0/16)
+    "dns_split": "1",                 # split direct/proxy DNS upstreams; 0 = all via proxy
     "dns_upstream_latency": "{}",      # JSON {upstream: ms} for primary/backup ordering
     "sub_node_direct": "0",           # subscription & node server domains go direct
     "direct_bypass_kernel": "0",      # direct traffic bypasses kernel at ingress (ipset)
@@ -854,6 +855,7 @@ def load_app_config(conn: sqlite3.Connection):
         proxy_dns=get_setting(conn, "dns_proxy", DEFAULT_SETTINGS["dns_proxy"]),
         enable_fakeip=get_setting(conn, "dns_fakeip", "0") == "1",
         mode=get_setting(conn, "dns_mode", "dnsmasq"),
+        split=get_setting(conn, "dns_split", "1") == "1",
         region=get_setting(conn, "dns_region", "auto"),
         region_detected=get_setting(conn, "dns_region_detected", ""),
         upstream_latency=_safe_json_loads(get_setting(conn, "dns_upstream_latency", "{}")))
