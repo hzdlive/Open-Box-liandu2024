@@ -403,7 +403,7 @@ def build_config(cfg: AppConfig,
             "auto_detect_interface": True,
             # sing-box >= 1.12 requires an explicit resolver for outbound
             # server domain names (was implicit, removed in 1.14).
-            "default_domain_resolver": "direct-dns",
+            "default_domain_resolver": dns_final,
         },
         "experimental": {
             "clash_api": {"external_controller": f"127.0.0.1:{cfg.clash_api_port}"},
