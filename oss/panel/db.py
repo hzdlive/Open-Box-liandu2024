@@ -337,11 +337,11 @@ def _seed_default_site_sets(conn: sqlite3.Connection) -> None:
         ("国内", "direct", ["geosite-cn", "geoip-cn", "geoip-private"], ["misc:shield"]),
     ]
     for pos, (name, action, rulesets, _icon) in enumerate(defaults):
+        rules = json.dumps({"rule_sets": rulesets}, ensure_ascii=False)
         conn.execute(
-            "INSERT INTO site_sets(name, action, grp, domains, domain_suffix,"
-            " domain_keyword, ip_cidr, rule_sets, position)"
-            " VALUES (?, ?, '所有-自动', '[]', '[]', '[]', '[]', ?, ?)",
-            (name, action, json.dumps(rulesets, ensure_ascii=False), pos))
+            "INSERT INTO site_sets(name, action, grp, position, rules)"
+            " VALUES (?, ?, '所有-自动', ?, ?)",
+            (name, action, pos, rules))
     conn.commit()
 
 
