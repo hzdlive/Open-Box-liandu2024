@@ -56,6 +56,7 @@ def _tick(dsn: str, uri: bool) -> None:
                 print(f"[scheduler] subscription {sid} update failed: {e}", flush=True)
         _maybe_update_dns_filter(conn)
         _maybe_panel_self_update(conn)
+        _maybe_prune_traffic(conn)
     except Exception:
         traceback.print_exc()
     finally:
@@ -120,6 +121,21 @@ def _maybe_panel_self_update(conn: sqlite3.Connection) -> None:
             print(f"[scheduler] panel update applying, log: {logf}", flush=True)
     except Exception as e:
         print(f"[scheduler] panel self-update failed: {e}", flush=True)
+
+
+def _maybe_prune_traffic(conn: sqlite3.Connection) -> None:
+    """Delete traffic_daily rows older than traffic_keep_months, once a day."""
+    from panel import db as dbmod
+    from panel.db import get_setting, set_setting
+    today = time.strftime("%Y-%m-%d")
+    if get_setting(conn, "traffic_pruned_on", "") == today:
+        return
+    try:
+        n = dbmod.prune_old_traffic(conn)
+        set_setting(conn, "traffic_pruned_on", today)
+        print(f"[scheduler] pruned {n} old traffic rows", flush=True)
+    except Exception as e:
+        print(f"[scheduler] traffic prune failed: {e}", flush=True)
 
 
 def _loop(dsn: str, uri: bool, interval: float = 60.0) -> None:

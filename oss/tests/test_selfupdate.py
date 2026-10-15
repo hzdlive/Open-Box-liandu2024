@@ -171,6 +171,25 @@ def test_api_endpoints():
         su._run_git, su.apply_update_async = orig_git, orig_apply
 
 
+def test_traffic_prune_daily():
+    import datetime
+    c = _conn()
+    dbmod.set_setting(c, "traffic_keep_months", "3")
+    old_day = (datetime.date.today() - datetime.timedelta(days=200)).isoformat()
+    new_day = datetime.date.today().isoformat()
+    dbmod.record_traffic(c, old_day, "c1", "p", "h", 1, 2)
+    dbmod.record_traffic(c, new_day, "c1", "p", "h", 3, 4)
+    scheduler._maybe_prune_traffic(c)
+    rows = [r[0] for r in c.execute("SELECT day FROM traffic_daily")]
+    assert rows == [new_day], rows
+    assert dbmod.get_setting(c, "traffic_pruned_on") == new_day
+    # second call the same day is a no-op
+    dbmod.record_traffic(c, old_day, "c2", "p", "h", 5, 6)
+    scheduler._maybe_prune_traffic(c)
+    rows = [r[0] for r in c.execute("SELECT day FROM traffic_daily ORDER BY day")]
+    assert rows == [old_day, new_day], rows
+
+
 def main() -> int:
     test_due_never_checked()
     test_due_interval_and_daily()
@@ -180,6 +199,7 @@ def main() -> int:
     test_scheduler_triggers_check_and_apply()
     test_scheduler_skipped_when_auto_off()
     test_api_endpoints()
+    test_traffic_prune_daily()
     print("test_selfupdate: all OK")
     return 0
 
