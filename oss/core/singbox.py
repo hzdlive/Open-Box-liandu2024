@@ -194,7 +194,8 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                               "outbounds": tags or ["direct"],
                               "url": cfg.speedtest_url,
                               "interval": f"{g.interval_s}s",
-                              "tolerance": g.tolerance_ms})
+                              "tolerance": g.tolerance_ms,
+                              "idle_timeout": g.idle_timeout})
     outbounds += [
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},

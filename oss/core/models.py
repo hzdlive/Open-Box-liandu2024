@@ -68,6 +68,7 @@ class Group:
     enabled: bool = True
     interval_s: int = 300      # urltest check interval
     tolerance_ms: int = 100    # urltest tolerance
+    idle_timeout: str = "12h"  # urltest idle timeout (sing-box duration)
 
 
 @dataclass
