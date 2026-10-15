@@ -35,6 +35,8 @@ def geodata_dir(db_path: str | None = None) -> str:
 
 
 def _urls(name: str) -> list[str]:
+    if name in INLINE_RULE_SETS:
+        return []
     if name.startswith("geosite-"):
         return [f"{GEOSITE_BASE}/{name}.srs", f"{MIRROR_GEOSITE}/{name}.srs"]
     if name.startswith("geoip-"):
@@ -42,13 +44,28 @@ def _urls(name: str) -> list[str]:
     return []
 
 
+#: Rule-sets expanded inline instead of downloaded (fixed, well-known ranges).
+INLINE_RULE_SETS = {
+    # RFC1918 + loopback + link-local + CGNAT; replaces the retired
+    # upstream geoip-private.srs.
+    "geoip-private": [
+        "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+        "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
+        "::1/128", "fc00::/7", "fe80::/10",
+    ],
+}
+
+
 def referenced_rule_sets(app_cfg) -> list[str]:
-    """All rule-set names referenced by site sets, in first-seen order."""
+    """All rule-set names referenced by site sets, in first-seen order.
+
+    Inline-expanded names (INLINE_RULE_SETS) are excluded: they need no file.
+    """
     out: list[str] = []
     for s in getattr(app_cfg, "site_sets", []) or []:
         for n in getattr(s, "rule_sets", []) or []:
             n = (n or "").strip()
-            if n and n not in out:
+            if n and n not in out and n not in INLINE_RULE_SETS:
                 out.append(n)
     return out
 

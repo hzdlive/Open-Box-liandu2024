@@ -8,11 +8,13 @@ GEODIR="${OBX_GEODATA:-$HOME/.openbox-oss/geodata}"
 mkdir -p "$GEODIR"
 
 # rule-sets referenced by the seeded site sets (keep in sync with db.py seeds)
+# NOTE: geoip-private is expanded inline (core/geodata.py INLINE_RULE_SETS);
+# geoip-twitter is no longer published upstream and is skipped with a warning.
 NAMES="geosite-category-ai-!cn geosite-youtube geosite-tiktok geosite-tiktok@!cn
 geosite-netflix geosite-github geosite-google geosite-microsoft geosite-apple
 geosite-steam geosite-sony geosite-gfw geosite-cn
 geoip-netflix geoip-cloudflare geoip-facebook geoip-cloudfront geoip-fastly
-geoip-google geoip-telegram geoip-tor geoip-twitter geoip-cn geoip-private"
+geoip-google geoip-telegram geoip-tor geoip-cn"
 
 fail=0
 for n in $NAMES; do

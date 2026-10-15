@@ -270,7 +270,14 @@ def build_route_rules(cfg: AppConfig,
             rule["domain_keyword"] = s.domain_keyword
         if s.ip_cidr:
             rule["ip_cidr"] = s.ip_cidr
-        rs = [n for n in (s.rule_sets or []) if n not in (skip_rule_sets or ())]
+        from core.geodata import INLINE_RULE_SETS as _INLINE_RS
+        rs = []
+        for n in (s.rule_sets or []):
+            if n in _INLINE_RS:
+                # Fixed well-known ranges: expand inline, no download needed.
+                rule["ip_cidr"] = (rule.get("ip_cidr") or []) + _INLINE_RS[n]
+            elif not (skip_rule_sets and n in skip_rule_sets):
+                rs.append(n)
         if rs:
             rule["rule_set"] = rs
         if not rule:

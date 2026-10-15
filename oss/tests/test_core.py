@@ -64,6 +64,14 @@ def main() -> int:
     assert not [r for r in rc2["route"]["rules"] if r.get("rule_set") == ["geosite-youtube"]]
     # site set with ONLY rule_sets still produces a rule (was silently dropped)
     assert any(r.get("rule_set") == ["geosite-cn", "geoip-cn"] for r in rc["route"]["rules"])
+    # geoip-private expands inline (no download needed)
+    priv_cfg = AppConfig(nodes=nodes, dns=DnsConfig(),
+                         site_sets=[SiteSet(name="lan", action="direct",
+                                            rule_sets=["geoip-private"])])
+    rp = build_config(priv_cfg)
+    assert "rule_set" not in rp["route"], rp["route"].get("rule_set")
+    pr = [r for r in rp["route"]["rules"] if "10.0.0.0/8" in (r.get("ip_cidr") or [])]
+    assert pr and pr[0]["outbound"] == "flip-lan", pr  # via hot-switch selector
 
     print(f"OK: {len(nodes)} nodes parsed, config has "
           f"{len(conf['outbounds'])} outbounds / {len(conf['route']['rules'])} route rules / "
