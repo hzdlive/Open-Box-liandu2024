@@ -97,8 +97,9 @@ def test_terminal_probe():
     r = c.post("/api/terminal-test",
                json={"target": "127.0.0.1", "timeout": 2}).get_json()
     assert r["target"] == "127.0.0.1" and "ping" in r and "tcp" in r
-    # candidates: empty traffic + no leases file -> []
-    assert c.get("/api/terminal-candidates").get_json() == []
+    # candidates: empty traffic + no leases file -> {"candidates": [...]}
+    body = c.get("/api/terminal-candidates").get_json()
+    assert isinstance(body.get("candidates"), list)
     print("ok terminal probe")
 
 

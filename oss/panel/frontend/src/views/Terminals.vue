@@ -24,15 +24,20 @@
 
   <div class="card">
     <h3>终端探测 <span class="muted">ping + 常见 TCP 端口</span></h3>
-    <div style="margin-bottom:8px"><button class="small ghost" @click="loadCandidates">加载候选（DHCP 租约 / 流量来源）</button></div>
+    <div style="margin-bottom:8px"><button class="small ghost" @click="loadCandidates">加载候选（ARP / DHCP 租约 / 流量来源）</button></div>
     <table v-if="candidates.length">
-      <tr><th>IP</th><th>主机名</th><th>来源</th><th></th></tr>
+      <tr><th>IP</th><th>MAC</th><th>主机名</th><th>来源</th><th></th></tr>
       <tr v-for="(c, i) in candidates" :key="i">
-        <td>{{ c.ip }}</td><td class="muted">{{ c.hostname || '—' }}</td>
+        <td>{{ c.ip }}</td><td class="muted">{{ c.mac || '—' }}</td><td class="muted">{{ c.hostname || '—' }}</td>
         <td class="muted">{{ c.source }}</td>
-        <td><button class="small ghost" @click="probe(c.ip)">探测</button></td>
+        <td>
+          <button class="small ghost" @click="probe(c.ip)">探测</button>
+          <button class="small ghost" v-if="c.mac" @click="addByMac(c)">按MAC添加</button>
+          <button class="small ghost" @click="addByIp(c)">按IP添加</button>
+        </td>
       </tr>
     </table>
+    <p class="muted" style="font-size:12px">MAC 标识在拦截（bypass）时由 nftables 直接匹配，永不过期；直连（direct）时按当前 ARP 解析为 IP，设备 IP 变化后需重新应用配置。</p>
     <form @submit.prevent="probeManual" class="form-row" style="margin-top:10px">
       <div><input v-model="probeIp" placeholder="手动输入 IP" required></div>
       <div style="flex:0"><button class="small" :disabled="probing">{{ probing ? '探测中…' : '探测' }}</button></div>
@@ -74,6 +79,18 @@ async function delT(t) {
 async function loadCandidates() {
   try { candidates.value = (await get('/api/terminal-candidates')).candidates || [] }
   catch (e) { toast(e.message) }
+}
+async function addByMac(c) {
+  try {
+    await post('/api/terminals', { ident: c.mac, name: c.hostname || c.ip, policy: 'proxy' })
+    toast('已按 MAC 添加'); load()
+  } catch (e) { toast(e.message) }
+}
+async function addByIp(c) {
+  try {
+    await post('/api/terminals', { ident: c.ip, name: c.hostname || '', policy: 'proxy' })
+    toast('已按 IP 添加'); load()
+  } catch (e) { toast(e.message) }
 }
 async function probe(ip) { probeIp.value = ip; probeManual() }
 async function probeManual() {

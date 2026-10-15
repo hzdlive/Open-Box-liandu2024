@@ -82,10 +82,14 @@ def nft_script(cfg: TransparentConfig) -> str:
         udp dport != 53 tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept
     }}"""
     # Terminals configured as "bypass" never enter the kernel: accept early.
+    # IP/CIDR idents go into an ipv4 set; MAC idents match directly on the
+    # Ethernet source address (no ARP resolution needed, never goes stale).
+    from core import arp as _arp
+    _mac_terms, _ip_terms = _arp.split_mac_ip(cfg.terminal_bypass or [])
     bypass_terminals = ""
-    if cfg.terminal_bypass:
-        elts = ",\n        ".join(cfg.terminal_bypass)
-        bypass_terminals = f"""
+    if _ip_terms:
+        elts = ",\n        ".join(_ip_terms)
+        bypass_terminals += f"""
         set tbypass {{
             type ipv4_addr
             flags interval
@@ -93,7 +97,20 @@ def nft_script(cfg: TransparentConfig) -> str:
                 {elts}
             }}
         }}"""
-    tbypass_rule = "\n        ip saddr @tbypass accept" if cfg.terminal_bypass else ""
+    if _mac_terms:
+        mel = ",\n        ".join(_mac_terms)
+        bypass_terminals += f"""
+        set macbypass {{
+            type ether_addr
+            elements = {{
+                {mel}
+            }}
+        }}"""
+    tbypass_rule = ""
+    if _ip_terms:
+        tbypass_rule += "\n        ip saddr @tbypass accept"
+    if _mac_terms:
+        tbypass_rule += "\n        ether saddr @macbypass accept"
     # QUIC block: proxied UDP/443 is often poorly forwarded; rejecting it
     # makes browsers fall back to TCP. Placed before the tproxy rule.
     quic_rule = "\n        udp dport 443 reject" if cfg.quic_block else ""

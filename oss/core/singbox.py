@@ -219,7 +219,10 @@ def build_route_rules(cfg: AppConfig) -> tuple[list[dict], list[dict], set[str]]
     # Terminal policies: "direct" terminals bypass the proxy at the route
     # level (evaluated before any site set). "bypass" terminals never reach
     # the kernel at all (handled in nftables, see core/transparent.py).
-    direct_terms = [t.ident for t in cfg.terminals if t.policy == "direct"]
+    # MAC idents resolve to their current ARP IP (sing-box rules are L3).
+    from core import arp as _arp
+    direct_terms = _arp.expand_terminal_idents(
+        [t.ident for t in cfg.terminals if t.policy == "direct"])
     if direct_terms:
         route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
     # Front custom routing: user domain -> target mappings, evaluated before

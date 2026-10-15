@@ -1839,7 +1839,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/terminal-candidates")
     def terminal_candidates():
-        return jsonify(dbmod.terminal_candidates(db()))
+        return jsonify({"candidates": dbmod.terminal_candidates(db())})
+
+    @app.get("/api/arp")
+    def arp_table():
+        from core import arp as _arp
+        table = _arp.arp_table()
+        return jsonify({"entries": [
+            {"ip": ip, "mac": mac} for ip, mac in sorted(table.items())]})
 
     # ---- shared network (LAN proxy inbound) ----
     @app.get("/api/share-network")

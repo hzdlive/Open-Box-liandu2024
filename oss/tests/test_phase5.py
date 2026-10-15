@@ -190,9 +190,56 @@ def test_upgrade_endpoints():
     print("OK: upgrade status/log endpoints")
 
 
+def test_terminal_mac():
+    from core import arp as _arp
+    from core import singbox as _sb
+    from core import transparent as _tp
+    # unit: mac detect / split / expand
+    assert _arp.is_mac("AA:bb:CC:dd:EE:ff")
+    assert not _arp.is_mac("192.168.1.1") and not _arp.is_mac("192.168.1.0/24")
+    macs, ips = _arp.split_mac_ip(["aa:bb:cc:dd:ee:ff", "192.168.1.5", "10.0.0.0/8"])
+    assert macs == ["aa:bb:cc:dd:ee:ff"] and ips == ["192.168.1.5", "10.0.0.0/8"]
+    fake = {"192.168.1.50": "aa:bb:cc:dd:ee:ff"}
+    assert _arp.expand_terminal_idents(
+        ["aa:bb:cc:dd:ee:ff", "192.168.1.5", "aa:00:00:00:00:00"], fake) == [
+        "192.168.1.50", "192.168.1.5"]
+    # sing-box: MAC direct-terminal resolves to ARP IP, never leaks a MAC
+    # into source_ip_cidr
+    orig = _arp.arp_table
+    _arp.arp_table = lambda: dict(fake)
+    try:
+        app = _app()
+        c = app.test_client()
+        r = c.post("/api/terminals", json={"ident": "aa:bb:cc:dd:ee:ff",
+                                           "name": "macbook", "policy": "direct"})
+        assert r.status_code == 201, r.get_data(as_text=True)
+        conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
+        cfg = dbmod.load_app_config(conn)
+        conn.close()
+        conf = _sb.build_config(cfg)
+        rules = [x for x in conf["route"]["rules"] if "source_ip_cidr" in x]
+        assert rules, "no source_ip_cidr rule generated"
+        assert rules[0]["source_ip_cidr"] == ["192.168.1.50"], rules[0]
+        assert rules[0]["outbound"] == "direct"
+        # nftables: MAC bypass matches ether saddr directly
+        tcfg = _tp.TransparentConfig(terminal_bypass=["aa:bb:cc:dd:ee:ff",
+                                                     "192.168.1.60"])
+        script = _tp.nft_script(tcfg)
+        assert "type ether_addr" in script and "aa:bb:cc:dd:ee:ff" in script
+        assert "ether saddr @macbypass accept" in script
+        assert "192.168.1.60" in script and "ip saddr @tbypass accept" in script
+        # API: arp table endpoint
+        r = c.get("/api/arp")
+        assert r.status_code == 200 and "entries" in r.get_json()
+    finally:
+        _arp.arp_table = orig
+    print("OK: terminal MAC ident (arp resolve + nft ether match)")
+
+
 def main():
     test_dns_api()
     test_terminals_api()
+    test_terminal_mac()
     test_flip()
     test_connections_no_kernel()
     test_traffic_record()

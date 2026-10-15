@@ -1511,17 +1511,29 @@ def set_node_info_cache(conn: sqlite3.Connection, tag: str, data: dict) -> None:
 # ---- terminal candidates (DHCP leases + traffic clients) ----
 def terminal_candidates(conn: sqlite3.Connection) -> list[dict]:
     from core.dnslog import dhcp_hostnames
+    try:
+        from core import arp as _arp
+        arp = _arp.arp_table()
+    except Exception:
+        arp = {}
     leases = dhcp_hostnames()
-    out = [{"ip": ip, "hostname": hn, "source": "dhcp"} for ip, hn in leases.items()]
+    out = [{"ip": ip, "hostname": hn, "source": "dhcp",
+            "mac": arp.get(ip, "")} for ip, hn in leases.items()]
     seen = set(leases)
     try:
         for (client,) in conn.execute(
                 "SELECT DISTINCT client FROM traffic_daily WHERE client != ''"):
             if client not in seen:
-                out.append({"ip": client, "hostname": "", "source": "traffic"})
+                out.append({"ip": client, "hostname": "",
+                            "source": "traffic", "mac": arp.get(client, "")})
                 seen.add(client)
     except sqlite3.Error:
         pass
+    # ARP-only entries (no DHCP lease / traffic yet)
+    for ip, mac in arp.items():
+        if ip not in seen:
+            out.append({"ip": ip, "hostname": "", "source": "arp", "mac": mac})
+            seen.add(ip)
     return out
 
 
