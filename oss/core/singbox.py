@@ -283,16 +283,22 @@ def _dns_server(tag: str, addr: str, detour: str) -> dict:
     1.14, so every server needs an explicit "type". Accepts the address forms
     our panel stores: bare IP/host (udp), tcp://, tls://, https://, quic://,
     dhcp://.
+
+    A detour of "direct" is omitted: sing-box >= 1.14 rejects
+    dns servers whose detour points at a plain direct outbound
+    ("detour to an empty direct outbound makes no sense"), and direct
+    is the default dial behavior anyway.
     """
     a = (addr or "").strip()
     low = a.lower()
+    extra = {} if detour == "direct" else {"detour": detour}
     if low.startswith("https://"):
-        return {"type": "https", "tag": tag, "server": a, "detour": detour}
+        return {"type": "https", "tag": tag, "server": a, **extra}
     for scheme, typ in (("tls://", "tls"), ("tcp://", "tcp"),
                         ("quic://", "quic"), ("dhcp://", "dhcp")):
         if low.startswith(scheme):
-            return {"type": typ, "tag": tag, "server": a[len(scheme):], "detour": detour}
-    return {"type": "udp", "tag": tag, "server": a, "detour": detour}
+            return {"type": typ, "tag": tag, "server": a[len(scheme):], **extra}
+    return {"type": "udp", "tag": tag, "server": a, **extra}
 
 
 def _dns_servers(tag: str, addrs: str, detour: str,
