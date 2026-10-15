@@ -100,7 +100,7 @@ const targetName = t => ({ direct: '直连', reject: '拦截', auto: '自动' }[
 const split = s => (s || '').split(',').map(x => x.trim()).filter(Boolean)
 
 function rulesSummary(r) {
-  r = r || {}
+  r = (r && r.rules) || {}
   const p = []
   if (r.domains?.length) p.push(`域名×${r.domains.length}`)
   if (r.domain_suffix?.length) p.push(`后缀×${r.domain_suffix.length}`)

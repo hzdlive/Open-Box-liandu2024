@@ -967,12 +967,15 @@ def list_chains(conn: sqlite3.Connection) -> list[dict]:
 def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
     if d.get("exit_protocol", "socks") not in ("socks", "http"):
         raise ValueError("exit_protocol must be socks|http")
+    front = d.get("front", "所有-自动")
+    if isinstance(front, list):
+        front = front[0] if front else "所有-自动"
     cur = conn.execute(
         "INSERT INTO chains(name, exit_protocol, server, port, params, front)"
         " VALUES (?, ?, ?, ?, ?, ?)",
         (d["name"], d.get("exit_protocol", "socks"), d.get("server", ""),
          int(d.get("port", 0)), json.dumps(d.get("params", {}), ensure_ascii=False),
-         d.get("front", "auto")))
+         front))
     conn.commit()
     bump_rev(conn)
     return _chain_row(conn.execute(
@@ -990,8 +993,11 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
         if key in d:
             if key == "exit_protocol" and d[key] not in ("socks", "http"):
                 raise ValueError("exit_protocol must be socks|http")
+            v = d[key]
+            if key == "front" and isinstance(v, list):
+                v = v[0] if v else "所有-自动"
             fields.append(f"{col}=?")
-            vals.append(d[key])
+            vals.append(v)
     if "params" in d:
         fields.append("params=?")
         vals.append(json.dumps(d["params"], ensure_ascii=False))

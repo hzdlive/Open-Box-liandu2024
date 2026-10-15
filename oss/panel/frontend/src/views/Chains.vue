@@ -7,7 +7,7 @@
       <tr v-for="c in chains" :key="c.id">
         <td>{{ c.name }}</td><td>{{ c.exit_protocol }}</td>
         <td class="muted">{{ c.server }}:{{ c.port }}</td>
-        <td class="muted">{{ (c.front || []).join(' → ') || '—' }}</td>
+        <td class="muted">{{ c.front || '—' }}</td>
         <td>
           <button class="small ghost" @click="edit(c)">编辑</button>
           <button class="small danger" @click="del(c)">删除</button>
@@ -56,12 +56,12 @@ function reset() {
 function edit(c) {
   editing.value = c.id
   f.value = { name: c.name, exit_protocol: c.exit_protocol, server: c.server,
-              port: c.port, front: (c.front || []).join(', ') }
+              port: c.port, front: c.front || '' }
 }
 async function save() {
   const body = { name: f.value.name, exit_protocol: f.value.exit_protocol,
     server: f.value.server, port: f.value.port,
-    front: f.value.front.split(',').map(x => x.trim()).filter(Boolean) }
+    front: f.value.front.trim() || '所有-自动' }
   try {
     if (editing.value) await put('/api/chains/' + editing.value, body)
     else await post('/api/chains', body)
