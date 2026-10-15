@@ -636,8 +636,13 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # ---- generated sing-box config ----
     @app.get("/api/config")
     def config_get():
+        from core import geodata as _gd
         cfg = dbmod.load_app_config(db())
-        return jsonify(build_config(cfg))
+        # Preview reflects what apply would actually emit: rule-sets whose
+        # .srs is missing are dropped (apply downloads them first).
+        names = _gd.referenced_rule_sets(cfg)
+        missing = {n for n in names if not _gd.is_available(n)}
+        return jsonify(build_config(cfg, missing))
 
     # ---- settings ----
     @app.get("/api/settings")
