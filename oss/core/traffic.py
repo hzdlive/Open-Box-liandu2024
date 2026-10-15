@@ -28,6 +28,11 @@ def collect_once(db_path: str, port: int | None = None,
     if not conns:
         return 0
     day = time.strftime("%Y-%m-%d")
+    # day rollover: reset the per-day "already counted" set
+    if state.get("_day") != day:
+        state.clear()
+        state["_day"] = day
+    counted = state.setdefault("_counted", set())
     conn = sqlite3.connect(db_path, timeout=30)
     try:
         from panel import db as dbmod
@@ -39,7 +44,10 @@ def collect_once(db_path: str, port: int | None = None,
             d_up = up - prev_up if up >= prev_up else up
             d_down = down - prev_down if down >= prev_down else down
             state[cid] = (up, down)
-            if d_up <= 0 and d_down <= 0:
+            is_new = cid not in counted
+            if is_new:
+                counted.add(cid)
+            if d_up <= 0 and d_down <= 0 and not is_new:
                 continue
             meta = c.get("metadata", {}) or {}
             chains = c.get("chains", []) or []
@@ -48,12 +56,12 @@ def collect_once(db_path: str, port: int | None = None,
                 client=str(meta.get("sourceIP", "")),
                 proxy=str(chains[-1] if chains else ""),
                 host=str(meta.get("host", "") or meta.get("destinationIP", "")),
-                up=d_up, down=d_down)
+                up=d_up, down=d_down, conns=1 if is_new else 0)
     finally:
         conn.close()
     # drop state for connections that vanished
     alive = {str(c.get("id", "")) for c in conns}
-    for cid in [k for k in state if k not in alive]:
+    for cid in [k for k in state if k not in alive and not k.startswith("_")]:
         del state[cid]
     return len(conns)
 

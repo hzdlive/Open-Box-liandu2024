@@ -37,11 +37,12 @@
       <div class="card stat" style="margin:0"><div class="num">{{ fmtBytes(mData.total?.down) }}</div><div class="lbl">下行</div></div>
       <div class="card stat" style="margin:0"><div class="num">{{ fmtBytes((mData.total?.up || 0) + (mData.total?.down || 0)) }}</div><div class="lbl">合计</div></div>
     </div>
+    <p class="muted" style="margin:8px 0 0">本月连接数：{{ mData.total?.conns || 0 }}</p>
     <table style="margin-top:12px">
-      <tr><th>日期</th><th>上行</th><th>下行</th><th></th></tr>
+      <tr><th>日期</th><th>上行</th><th>下行</th><th>连接</th><th></th></tr>
       <tr v-for="d in mData.days" :key="d.day">
         <td>{{ d.day }}</td><td class="muted">{{ fmtBytes(d.up) }}</td>
-        <td class="muted">{{ fmtBytes(d.down) }}</td>
+        <td class="muted">{{ fmtBytes(d.down) }}</td><td class="muted">{{ d.conns || 0 }}</td>
         <td><button class="small ghost" @click="loadDay(d.day)">下钻</button></td>
       </tr>
     </table>

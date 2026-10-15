@@ -121,6 +121,50 @@ def test_connections_no_kernel():
     print("OK: connections/traffic degrade gracefully without kernel")
 
 
+def test_traffic_conns():
+    # record_traffic conns param + month/day aggregation
+    app = _app()
+    c = app.test_client()
+    conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
+    dbmod.record_traffic(conn, "2026-10-14", "192.168.1.2", "node-a", "example.com",
+                         100, 200, conns=1)
+    dbmod.record_traffic(conn, "2026-10-14", "192.168.1.3", "node-a", "example.com",
+                         50, 25, conns=1)
+    dbmod.record_traffic(conn, "2026-10-14", "192.168.1.2", "node-a", "example.com",
+                         10, 10)  # same conn, no new conns
+    conn.close()
+    m = c.get("/api/traffic/month?month=2026-10").get_json()
+    d14 = [d for d in m["days"] if d["day"] == "2026-10-14"][0]
+    assert d14["conns"] == 2, d14
+    assert d14["up"] == 160 and d14["down"] == 235, d14
+    assert m["total"]["conns"] == 2
+    rows = c.get("/api/traffic/daily?days=3650").get_json()["rows"]
+    assert sum(r["conns"] for r in rows) == 2, rows
+    # collector: new connection IDs counted once each
+    from core import traffic as _t
+    calls = []
+    orig_rt = dbmod.record_traffic
+    dbmod.record_traffic = lambda *a, **k: calls.append(k.get("conns", 0))
+    orig_snap = _t._snapshot
+    _t._snapshot = lambda port=None: [
+        {"id": "c1", "upload": 100, "download": 50,
+         "metadata": {"sourceIP": "1.1.1.1", "host": "a.com"}, "chains": ["p1"]},
+        {"id": "c2", "upload": 0, "download": 0,
+         "metadata": {"sourceIP": "1.1.1.1", "host": "b.com"}, "chains": ["p1"]},
+    ]
+    try:
+        state = {}
+        _t.collect_once(":memory:", state=state)
+        assert sum(calls) == 2, calls  # c1 and c2 each counted once
+        calls.clear()
+        _t.collect_once(":memory:", state=state)
+        assert sum(calls) == 0, calls  # second poll: no new conns
+    finally:
+        dbmod.record_traffic = orig_rt
+        _t._snapshot = orig_snap
+    print("OK: traffic conns counting")
+
+
 def test_traffic_record():
     app = _app()
     c = app.test_client()
@@ -333,6 +377,7 @@ def main():
     test_flip()
     test_connections_no_kernel()
     test_traffic_record()
+    test_traffic_conns()
     test_transparent_new_bits()
     test_tun_mtu_and_quic_settings()
     test_route_penetrate_and_test()

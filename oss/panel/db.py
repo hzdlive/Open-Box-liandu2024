@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS traffic_daily(
   host TEXT NOT NULL DEFAULT '',
   up BIGINT NOT NULL DEFAULT 0,
   down BIGINT NOT NULL DEFAULT 0,
+  conns INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (day, client, proxy, host)
 );
 CREATE TABLE IF NOT EXISTS failover_state(
@@ -305,6 +306,9 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("test_url", "TEXT NOT NULL DEFAULT ''")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
+    tcols = {r[1] for r in conn.execute("PRAGMA table_info(traffic_daily)")}
+    if "conns" not in tcols:
+        conn.execute("ALTER TABLE traffic_daily ADD COLUMN conns INTEGER NOT NULL DEFAULT 0")
     ncols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
     for col, ddl in (("orig_tag", "TEXT NOT NULL DEFAULT ''"),
                      ("custom_tag", "TEXT NOT NULL DEFAULT ''"),
@@ -1249,21 +1253,22 @@ def prune_old_traffic(conn: sqlite3.Connection) -> int:
 
 
 def record_traffic(conn: sqlite3.Connection, day: str, client: str,
-                   proxy: str, host: str, up: int, down: int) -> None:
+                   proxy: str, host: str, up: int, down: int,
+                   conns: int = 0) -> None:
     conn.execute(
-        "INSERT INTO traffic_daily(day, client, proxy, host, up, down)"
-        " VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO traffic_daily(day, client, proxy, host, up, down, conns)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT(day, client, proxy, host) DO UPDATE SET"
-        " up=up+excluded.up, down=down+excluded.down",
-        (day, client or "", proxy or "", host or "", up, down))
+        " up=up+excluded.up, down=down+excluded.down, conns=conns+excluded.conns",
+        (day, client or "", proxy or "", host or "", up, down, conns))
     conn.commit()
 
 
 def traffic_summary(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
     return [{"day": r[0], "client": r[1], "proxy": r[2], "host": r[3],
-             "up": r[4], "down": r[5]}
+             "up": r[4], "down": r[5], "conns": r[6] or 0}
             for r in conn.execute(
-                "SELECT day, client, proxy, host, SUM(up), SUM(down) FROM traffic_daily"
+                "SELECT day, client, proxy, host, SUM(up), SUM(down), SUM(conns) FROM traffic_daily"
                 " WHERE day >= date('now', ? || ' days') GROUP BY day, client, proxy, host"
                 " ORDER BY day DESC, down DESC LIMIT 500", (-days,))]
 
@@ -1396,18 +1401,21 @@ def traffic_month(conn: sqlite3.Connection, month: str) -> dict:
     """
     import calendar as _cal
     import time as _time
-    rows = {r[0]: (r[1] or 0, r[2] or 0) for r in conn.execute(
-        "SELECT day, SUM(up), SUM(down) FROM traffic_daily"
+    rows = {r[0]: (r[1] or 0, r[2] or 0, r[3] or 0) for r in conn.execute(
+        "SELECT day, SUM(up), SUM(down), SUM(conns) FROM traffic_daily"
         " WHERE substr(day, 1, 7)=? GROUP BY day", (month,))}
     y, m = int(month[:4]), int(month[5:7])
-    days = [{"day": f"{month}-{d:02d}", "up": rows.get(f"{month}-{d:02d}", (0, 0))[0],
-             "down": rows.get(f"{month}-{d:02d}", (0, 0))[1]}
+    days = [{"day": f"{month}-{d:02d}",
+             "up": rows.get(f"{month}-{d:02d}", (0, 0, 0))[0],
+             "down": rows.get(f"{month}-{d:02d}", (0, 0, 0))[1],
+             "conns": rows.get(f"{month}-{d:02d}", (0, 0, 0))[2]}
             for d in range(1, _cal.monthrange(y, m)[1] + 1)]
     total_up = sum(d["up"] for d in days)
     total_down = sum(d["down"] for d in days)
+    total_conns = sum(d["conns"] for d in days)
     n = len(days) or 1
     return {"month": month, "today": _time.strftime("%Y-%m-%d"), "days": days,
-            "total": {"up": total_up, "down": total_down},
+            "total": {"up": total_up, "down": total_down, "conns": total_conns},
             "daily_avg": {"up": total_up // n, "down": total_down // n}}
 
 
