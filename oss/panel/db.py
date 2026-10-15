@@ -236,6 +236,7 @@ DEFAULT_SETTINGS = {
     "update_channel": "auto",     # release channel (original: updates.openbox.channel)
     "update_check_channel": "mirror",  # check via mirror (original: updates.openbox.checkChannel)
     "update_days": "1",           # check interval in days (original: updates.openbox.days)
+    "traffic_keep_months": "3",   # traffic history retention (original: traffic.keepMonths)
 }
 
 
@@ -1199,6 +1200,21 @@ def delete_terminal(conn: sqlite3.Connection, tid: int) -> bool:
 
 
 # ---- traffic accounting ----
+def prune_old_traffic(conn: sqlite3.Connection) -> int:
+    """Delete traffic_daily rows older than traffic_keep_months. Returns rows deleted."""
+    try:
+        months = int(get_setting(conn, "traffic_keep_months", "3"))
+    except ValueError:
+        months = 3
+    if months <= 0:
+        return 0
+    import datetime
+    cutoff = (datetime.date.today() - datetime.timedelta(days=months * 30)).isoformat()
+    cur = conn.execute("DELETE FROM traffic_daily WHERE day < ?", (cutoff,))
+    conn.commit()
+    return cur.rowcount
+
+
 def record_traffic(conn: sqlite3.Connection, day: str, client: str,
                    proxy: str, host: str, up: int, down: int) -> None:
     conn.execute(
