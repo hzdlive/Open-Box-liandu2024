@@ -141,6 +141,21 @@
       <button class="small ghost" @click="loadUpLog">升级日志</button>
     </div>
     <pre v-if="upLog" class="code">{{ upLog }}</pre>
+    <h3 style="margin-top:16px">自动更新</h3>
+    <div class="grid">
+      <div><label>自动更新</label><select v-model="upCfg.update_auto">
+        <option value="0">关闭</option><option value="1">开启</option>
+      </select></div>
+      <div><label>检查时间（时）</label><input v-model="upCfg.update_hour" type="number" min="0" max="23"></div>
+      <div><label>版本通道</label><select v-model="upCfg.update_channel">
+        <option value="auto">自动</option><option value="stable">稳定版</option><option value="beta">测试版</option>
+      </select></div>
+      <div><label>检查通道</label><select v-model="upCfg.update_check_channel">
+        <option value="mirror">镜像</option><option value="official">官方</option>
+      </select></div>
+      <div><label>检查间隔（天）</label><input v-model="upCfg.update_days" type="number" min="1" max="30"></div>
+    </div>
+    <div style="margin-top:8px"><button class="small" @click="saveUpCfg">保存</button></div>
   </div>
 </template>
 
@@ -168,6 +183,7 @@ const editingRegion = ref(null)
 const rg = ref({ region: '', name: '', rulesText: '' })
 const fileInput = ref(null)
 const upStatus = ref({}), upLog = ref(''), upgrading = ref(false)
+const upCfg = ref({ update_auto: '0', update_hour: '4', update_channel: 'auto', update_check_channel: 'mirror', update_days: '1' })
 
 async function loadSettings() {
   const s = await get('/api/settings')
@@ -176,6 +192,17 @@ async function loadSettings() {
   tunOnly.value = s.tun_only === '1'
   subNodeDirect.value = s.sub_node_direct === '1'
   directBypass.value = s.direct_bypass_kernel === '1'
+  upCfg.value = { update_auto: s.update_auto || '0', update_hour: s.update_hour || '4',
+    update_channel: s.update_channel || 'auto', update_check_channel: s.update_check_channel || 'mirror',
+    update_days: s.update_days || '1' }
+}
+async function saveUpCfg() {
+  try {
+    await put('/api/settings', { update_auto: upCfg.value.update_auto, update_hour: upCfg.value.update_hour,
+      update_channel: upCfg.value.update_channel, update_check_channel: upCfg.value.update_check_channel,
+      update_days: upCfg.value.update_days })
+    toast.success('已保存')
+  } catch (e) { toast.error('保存失败: ' + e.message) }
 }
 async function saveSettings() {
   try {

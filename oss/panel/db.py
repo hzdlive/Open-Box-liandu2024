@@ -231,6 +231,11 @@ DEFAULT_SETTINGS = {
     "router_region": "cn",               # router region code
     "share_lan_enabled": "0",   # expose a mixed inbound on LAN for other devices
     "share_lan_port": "8088",
+    "update_auto": "0",           # panel self auto-update (original: updates.openbox.auto)
+    "update_hour": "4",           # hour of day to check (original: updates.openbox.hour)
+    "update_channel": "auto",     # release channel (original: updates.openbox.channel)
+    "update_check_channel": "mirror",  # check via mirror (original: updates.openbox.checkChannel)
+    "update_days": "1",           # check interval in days (original: updates.openbox.days)
 }
 
 
