@@ -190,6 +190,67 @@ def test_upgrade_endpoints():
     print("OK: upgrade status/log endpoints")
 
 
+def test_orig_parity_batch():
+    # Original-panel parity: urltest expected_status/test_url, DNS "wan",
+    # rewrite enabled flag, traffic month zero-fill + today.
+    from core import singbox as _sb
+    from core import dnstest as _dt
+    app = _app()
+    c = app.test_client()
+    # 1. group expected_status + test_url round-trip
+    r = c.post("/api/groups", json={"name": "g-parity", "type": "urltest",
+                                    "expected_status": "204",
+                                    "test_url": "http://example.com/ping"})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    g = r.get_json()
+    assert g["expected_status"] == "204" and g["test_url"] == "http://example.com/ping"
+    gid = g["id"]
+    conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
+    cfg = dbmod.load_app_config(conn)
+    conn.close()
+    obs = [o for o in _sb.build_config(cfg)["outbounds"] if o.get("tag") == "g-parity"]
+    assert obs and obs[0]["expected_status"] == "204", obs
+    assert obs[0]["url"] == "http://example.com/ping", obs
+    # empty expected_status must not be emitted
+    r = c.put(f"/api/groups/{gid}", json={"expected_status": "", "test_url": ""})
+    assert r.status_code == 200 and r.get_json()["expected_status"] == ""
+    conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
+    cfg = dbmod.load_app_config(conn)
+    conn.close()
+    obs = [o for o in _sb.build_config(cfg)["outbounds"] if o.get("tag") == "g-parity"]
+    assert "expected_status" not in obs[0], obs
+    # 2. DNS direct "wan" resolves to system upstreams
+    orig = _dt.system_upstreams
+    _dt.system_upstreams = lambda: ["9.9.9.9", "8.8.4.4"]
+    try:
+        servers = _sb._dns_servers("direct-dns", "wan", "direct")
+        assert [s["server"] for s in servers] == ["9.9.9.9", "8.8.4.4"], servers
+        assert servers[0]["tag"] == "direct-dns" and servers[0]["type"] == "udp"
+    finally:
+        _dt.system_upstreams = orig
+    r = c.put("/api/dns", json={"direct_dns": "wan"})
+    assert r.status_code == 200 and r.get_json()["direct_dns"] == "wan"
+    # 3. rewrite enabled flag: disabled rewrites leave the generated config
+    r = c.post("/api/dns/rewrite", json={"domain": "off.example", "target": "1.2.3.4"})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    rid = r.get_json()["id"]
+    assert r.get_json()["enabled"] is True
+    r = c.put(f"/api/dns/rewrite/{rid}", json={"enabled": False})
+    assert r.status_code == 200
+    rows = c.get("/api/dns").get_json()["rewrites"]
+    assert any(x["id"] == rid and x["enabled"] is False for x in rows), rows
+    conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
+    cfg = dbmod.load_app_config(conn)
+    conn.close()
+    assert all(w.domain != "off.example" for w in cfg.dns_rewrites)
+    # 4. traffic month: zero-filled + today
+    m = c.get("/api/traffic/month?month=2026-02").get_json()
+    assert m["today"] and len(m["days"]) == 28, (m["today"], len(m["days"]))
+    assert all(d["up"] == 0 and d["down"] == 0 for d in m["days"])
+    assert m["days"][0]["day"] == "2026-02-01" and m["days"][-1]["day"] == "2026-02-28"
+    print("OK: original parity batch (expected_status/test_url, wan dns, rewrite enabled, month)")
+
+
 def test_terminal_mac():
     from core import arp as _arp
     from core import singbox as _sb
@@ -240,6 +301,7 @@ def main():
     test_dns_api()
     test_terminals_api()
     test_terminal_mac()
+    test_orig_parity_batch()
     test_flip()
     test_connections_no_kernel()
     test_traffic_record()

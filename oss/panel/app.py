@@ -1409,6 +1409,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.put("/api/dns/rewrite/<int:rid>")
+    def dns_rewrite_put(rid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        if "enabled" not in d:
+            return jsonify({"error": "enabled is required"}), 400
+        if not dbmod.set_dns_rewrite_enabled(db(), rid, bool(d["enabled"])):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True, "enabled": bool(d["enabled"])})
+
     def _df_workdir() -> str:
         from core.service import manager_from_env
         return manager_from_env().workdir

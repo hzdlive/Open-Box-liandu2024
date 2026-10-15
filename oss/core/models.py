@@ -69,6 +69,8 @@ class Group:
     interval_s: int = 300      # urltest check interval
     tolerance_ms: int = 100    # urltest tolerance
     idle_timeout: str = "12h"  # urltest idle timeout (sing-box duration)
+    expected_status: str = ""  # urltest expected HTTP status ("" = kernel default)
+    test_url: str = ""         # per-group test URL ("" = global speedtest_url)
 
 
 @dataclass

@@ -27,6 +27,7 @@
         <button>保存</button>
         <button type="button" class="ghost" @click="detectRegion">检测地区</button>
         <button type="button" class="ghost" @click="getWan">查看 WAN DNS</button>
+        <button type="button" class="ghost" @click="useWan">直连改用 WAN DNS</button>
       </div>
     </form>
     <pre v-if="wanInfo" class="code">{{ wanInfo }}</pre>
@@ -35,15 +36,16 @@
   <div v-if="tab === 'rewrite'" class="card">
     <h3>DNS 重写</h3>
     <table>
-      <tr><th>域名</th><th>应答</th><th></th></tr>
+      <tr><th>域名</th><th>应答</th><th>启用</th><th></th></tr>
       <tr v-for="r in dns.rewrites" :key="r.id">
-        <td>{{ r.domain }}</td><td class="muted">{{ r.answer }}</td>
+        <td>{{ r.domain }}</td><td class="muted">{{ r.target }}</td>
+        <td><input type="checkbox" :checked="r.enabled" @change="toggleRewrite(r)" style="width:auto"></td>
         <td><button class="small danger" @click="delRewrite(r.id)">删除</button></td>
       </tr>
     </table>
     <form @submit.prevent="addRewrite" class="form-row" style="margin-top:10px">
       <div><input v-model="rw.domain" placeholder="域名" required></div>
-      <div><input v-model="rw.answer" placeholder="应答 IP / 域名" required></div>
+      <div><input v-model="rw.target" placeholder="应答 IP / 域名" required></div>
       <div style="flex:0"><button class="small">添加</button></div>
     </form>
   </div>
@@ -151,7 +153,7 @@ const tabs = [
 const tab = ref('mode')
 const dns = ref({ mode: 'dnsmasq', region: 'auto', direct_dns: '', proxy_dns: '',
   fakeip: false, upstream_latency: {}, rewrites: [] })
-const rw = ref({ domain: '', answer: '' })
+const rw = ref({ domain: '', target: '' })
 const wanInfo = ref('')
 const filter = ref({ enabled: false, lists: [], auto_update: false, update_time: '04:00' })
 const filterInfo = ref({})
@@ -207,10 +209,21 @@ async function getWan() {
   try { wanInfo.value = JSON.stringify(await get('/api/dns/wan'), null, 2) }
   catch (e) { toast(e.message) }
 }
+async function useWan() {
+  // "wan" = resolve to the box's current WAN DNS at config-build time
+  dns.value.direct_dns = 'wan'
+  try { await put('/api/dns', { direct_dns: 'wan' }); toast.success('直连 DNS 已设为 WAN（按系统 DNS 解析）') }
+  catch (e) { toast(e.message) }
+}
 async function addRewrite() {
   try {
     await post('/api/dns/rewrite', rw.value)
-    rw.value = { domain: '', answer: '' }; toast('已添加'); load()
+    rw.value = { domain: '', target: '' }; toast('已添加'); load()
+  } catch (e) { toast(e.message) }
+}
+async function toggleRewrite(r) {
+  try {
+    await put('/api/dns/rewrite/' + r.id, { enabled: !r.enabled }); load()
   } catch (e) { toast(e.message) }
 }
 async function delRewrite(id) {

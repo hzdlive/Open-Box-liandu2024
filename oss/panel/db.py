@@ -117,7 +117,9 @@ CREATE TABLE IF NOT EXISTS groups(
   enabled INTEGER NOT NULL DEFAULT 1,
   interval_s INTEGER NOT NULL DEFAULT 300,
   tolerance_ms INTEGER NOT NULL DEFAULT 100,
-  idle_timeout TEXT NOT NULL DEFAULT '12h'
+  idle_timeout TEXT NOT NULL DEFAULT '12h',
+  expected_status TEXT NOT NULL DEFAULT '',
+  test_url TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS node_health(
   tag TEXT PRIMARY KEY,
@@ -141,7 +143,8 @@ CREATE TABLE IF NOT EXISTS devices(
 CREATE TABLE IF NOT EXISTS dns_rewrite(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   domain TEXT NOT NULL UNIQUE,
-  target TEXT NOT NULL DEFAULT ''
+  target TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS terminal_policies(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -269,6 +272,9 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE site_sets ADD COLUMN flip TEXT NOT NULL DEFAULT ''")
     if "icon" not in cols:
         conn.execute("ALTER TABLE site_sets ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+    rwcols = {r[1] for r in conn.execute("PRAGMA table_info(dns_rewrite)")}
+    if "enabled" not in rwcols:
+        conn.execute("ALTER TABLE dns_rewrite ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     if "idle_timeout" not in gcols:
         conn.execute("ALTER TABLE groups ADD COLUMN idle_timeout TEXT NOT NULL DEFAULT '12h'")
@@ -294,7 +300,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     for col, ddl in (("enabled", "INTEGER NOT NULL DEFAULT 1"),
                      ("interval_s", "INTEGER NOT NULL DEFAULT 300"),
-                     ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100")):
+                     ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100"),
+                     ("expected_status", "TEXT NOT NULL DEFAULT ''"),
+                     ("test_url", "TEXT NOT NULL DEFAULT ''")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
     ncols = {r[1] for r in conn.execute("PRAGMA table_info(nodes)")}
@@ -822,10 +830,12 @@ def load_app_config(conn: sqlite3.Connection):
               dynamic_keywords=json.loads(r[3]), position=r[4],
               enabled=bool(r[5]), interval_s=r[6] or 300,
               tolerance_ms=r[7] or 100,
-              idle_timeout=r[8] if len(r) > 8 and r[8] else "12h")
+              idle_timeout=r[8] if len(r) > 8 and r[8] else "12h",
+              expected_status=r[9] if len(r) > 9 and r[9] else "",
+              test_url=r[10] if len(r) > 10 and r[10] else "")
         for r in conn.execute(
             "SELECT name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout FROM groups"
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups"
             " ORDER BY position, id")
     ]
     chains = [
@@ -850,7 +860,7 @@ def load_app_config(conn: sqlite3.Connection):
         dns.proxy_dns = "8.8.8.8"
     rewrites = [
         DnsRewrite(id=r[0], domain=r[1], target=r[2])
-        for r in conn.execute("SELECT id, domain, target FROM dns_rewrite ORDER BY domain")]
+        for r in conn.execute("SELECT id, domain, target FROM dns_rewrite WHERE enabled=1 ORDER BY domain")]
     terminals = [
         TerminalPolicy(id=r[0], ident=r[1], name=r[2], policy=r[3])
         for r in conn.execute("SELECT id, ident, name, policy FROM terminal_policies ORDER BY ident")]
@@ -1002,7 +1012,9 @@ def _group_row(r) -> dict:
             "dynamic_keywords": json.loads(r[4]), "position": r[5],
             "enabled": bool(r[6]), "interval_s": r[7] or 300,
             "tolerance_ms": r[8] or 100,
-            "idle_timeout": r[9] if len(r) > 9 and r[9] else "12h"}
+            "idle_timeout": r[9] if len(r) > 9 and r[9] else "12h",
+            "expected_status": r[10] if len(r) > 10 and r[10] else "",
+            "test_url": r[11] if len(r) > 11 and r[11] else ""}
 
 
 def list_groups(conn: sqlite3.Connection) -> list[dict]:
@@ -1015,7 +1027,7 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     out = []
     for r in conn.execute(
             "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout FROM groups ORDER BY position, id"):
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups ORDER BY position, id"):
         g = _group_row(r)
         gm = _Group(name=g["name"], type=g["type"], members=g["members"],
                     dynamic_keywords=g["dynamic_keywords"])
@@ -1043,20 +1055,23 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM groups").fetchone()[0]
     cur = conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position,"
-        " enabled, interval_s, tolerance_ms, idle_timeout)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " enabled, interval_s, tolerance_ms, idle_timeout,"
+        " expected_status, test_url)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (d["name"], d.get("type", "urltest"),
          json.dumps(d.get("members", []), ensure_ascii=False),
          json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos,
          0 if d.get("enabled") is False else 1,
          int(d.get("interval_s", 300) or 300),
          int(d.get("tolerance_ms", 100) or 100),
-         d.get("idle_timeout", "12h") or "12h"))
+         d.get("idle_timeout", "12h") or "12h",
+         (d.get("expected_status") or "").strip(),
+         (d.get("test_url") or "").strip()))
     conn.commit()
     bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-        " interval_s, tolerance_ms, idle_timeout FROM groups WHERE id=?",
+        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -1068,12 +1083,19 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
     for col, key in (("name", "name"), ("type", "type"), ("position", "position"),
                      ("enabled", "enabled"), ("interval_s", "interval_s"),
                      ("tolerance_ms", "tolerance_ms"),
-                     ("idle_timeout", "idle_timeout")):
+                     ("idle_timeout", "idle_timeout"),
+                     ("expected_status", "expected_status"),
+                     ("test_url", "test_url")):
         if key in d:
             if key == "type" and d[key] not in ("urltest", "selector", "failover"):
                 raise ValueError("type must be urltest|selector|failover")
             fields.append(f"{col}=?")
-            vals.append(0 if key == "enabled" and not d[key] else d[key])
+            v = d[key]
+            if key == "enabled" and not v:
+                v = 0
+            if key in ("expected_status", "test_url") and isinstance(v, str):
+                v = v.strip()
+            vals.append(v)
     for key in ("members", "dynamic_keywords"):
         if key in d:
             fields.append(f"{key}=?")
@@ -1085,7 +1107,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
     bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-        " interval_s, tolerance_ms, idle_timeout FROM groups WHERE id=?",
+        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups WHERE id=?",
         (gid,)).fetchone())
 
 
@@ -1136,8 +1158,10 @@ def set_site_set_flip(conn: sqlite3.Connection, sid: int, flip: str) -> bool:
 
 # ---- DNS rewrites ----
 def list_dns_rewrites(conn: sqlite3.Connection) -> list[dict]:
-    return [{"id": r[0], "domain": r[1], "target": r[2]}
-            for r in conn.execute("SELECT id, domain, target FROM dns_rewrite ORDER BY domain")]
+    return [{"id": r[0], "domain": r[1], "target": r[2],
+             "enabled": bool(r[3]) if len(r) > 3 else True}
+            for r in conn.execute(
+                "SELECT id, domain, target, enabled FROM dns_rewrite ORDER BY domain")]
 
 
 def add_dns_rewrite(conn: sqlite3.Connection, domain: str, target: str) -> dict:
@@ -1150,12 +1174,21 @@ def add_dns_rewrite(conn: sqlite3.Connection, domain: str, target: str) -> dict:
         (domain, target.strip()))
     conn.commit()
     bump_rev(conn)
-    r = conn.execute("SELECT id, domain, target FROM dns_rewrite WHERE id=?",
+    r = conn.execute("SELECT id, domain, target, enabled FROM dns_rewrite WHERE id=?",
                      (cur.lastrowid,)).fetchone()
     if not r:  # was an upsert on existing row; fetch by domain
-        r = conn.execute("SELECT id, domain, target FROM dns_rewrite WHERE domain=?",
+        r = conn.execute("SELECT id, domain, target, enabled FROM dns_rewrite WHERE domain=?",
                          (domain,)).fetchone()
-    return {"id": r[0], "domain": r[1], "target": r[2]}
+    return {"id": r[0], "domain": r[1], "target": r[2], "enabled": bool(r[3])}
+
+
+def set_dns_rewrite_enabled(conn: sqlite3.Connection, rid: int, enabled: bool) -> bool:
+    cur = conn.execute("UPDATE dns_rewrite SET enabled=? WHERE id=?",
+                       (1 if enabled else 0, rid))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
 
 
 def delete_dns_rewrite(conn: sqlite3.Connection, rid: int) -> bool:
@@ -1357,15 +1390,23 @@ def site_latency_history(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
 
 # ---- traffic aggregation ----
 def traffic_month(conn: sqlite3.Connection, month: str) -> dict:
-    """month='YYYY-MM'. Per-day rows + total + daily average."""
-    rows = conn.execute(
+    """month='YYYY-MM'. Per-day rows + total + daily average.
+
+    All days of the month are present (zero-filled), like the original panel.
+    """
+    import calendar as _cal
+    import time as _time
+    rows = {r[0]: (r[1] or 0, r[2] or 0) for r in conn.execute(
         "SELECT day, SUM(up), SUM(down) FROM traffic_daily"
-        " WHERE substr(day, 1, 7)=? GROUP BY day ORDER BY day", (month,)).fetchall()
-    days = [{"day": r[0], "up": r[1] or 0, "down": r[2] or 0} for r in rows]
+        " WHERE substr(day, 1, 7)=? GROUP BY day", (month,))}
+    y, m = int(month[:4]), int(month[5:7])
+    days = [{"day": f"{month}-{d:02d}", "up": rows.get(f"{month}-{d:02d}", (0, 0))[0],
+             "down": rows.get(f"{month}-{d:02d}", (0, 0))[1]}
+            for d in range(1, _cal.monthrange(y, m)[1] + 1)]
     total_up = sum(d["up"] for d in days)
     total_down = sum(d["down"] for d in days)
     n = len(days) or 1
-    return {"month": month, "days": days,
+    return {"month": month, "today": _time.strftime("%Y-%m-%d"), "days": days,
             "total": {"up": total_up, "down": total_down},
             "daily_avg": {"up": total_up // n, "down": total_down // n}}
 

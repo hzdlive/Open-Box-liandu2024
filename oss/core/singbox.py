@@ -190,12 +190,15 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                               "outbounds": tags or ["direct"],
                               "default": tags[0] if tags else "direct"})
         else:  # urltest
-            outbounds.append({"type": "urltest", "tag": g.name,
-                              "outbounds": tags or ["direct"],
-                              "url": cfg.speedtest_url,
-                              "interval": f"{g.interval_s}s",
-                              "tolerance": g.tolerance_ms,
-                              "idle_timeout": g.idle_timeout})
+            ob = {"type": "urltest", "tag": g.name,
+                  "outbounds": tags or ["direct"],
+                  "url": g.test_url or cfg.speedtest_url,
+                  "interval": f"{g.interval_s}s",
+                  "tolerance": g.tolerance_ms,
+                  "idle_timeout": g.idle_timeout}
+            if g.expected_status:
+                ob["expected_status"] = g.expected_status
+            outbounds.append(ob)
     outbounds += [
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},
@@ -305,15 +308,27 @@ def _dns_server(tag: str, addr: str, detour: str) -> dict:
     return {"type": "udp", "tag": tag, "server": a, **extra}
 
 
+def _wan_dns_servers() -> list[str]:
+    """System/WAN DNS servers for direct_dns='wan' (original panel parity)."""
+    from core.dnstest import system_upstreams
+    return system_upstreams()
+
+
 def _dns_servers(tag: str, addrs: str, detour: str,
                  latency: dict | None = None) -> list:
     """One entry per comma-separated upstream; the first keeps the canonical
     tag so dns rules / final keep working.
 
+    addrs == "wan" resolves to the system/WAN DNS servers (original parity).
+
     Primary/backup: when latency measurements exist, the fastest upstream
     goes first (primary), the rest are backups.
     """
-    parts = [x.strip() for x in (addrs or "").split(",") if x.strip()]
+    raw = (addrs or "").strip()
+    if raw.lower() == "wan":
+        parts = _wan_dns_servers()
+    else:
+        parts = [x.strip() for x in raw.split(",") if x.strip()]
     if not parts:
         parts = ["223.5.5.5"]
     if latency:

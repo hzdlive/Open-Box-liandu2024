@@ -140,6 +140,10 @@
         <div><label>容差（毫秒，urltest）</label><input v-model.number="gf.tolerance_ms" type="number" min="0"></div>
         <div><label>空闲超时（urltest，如 12h）</label><input v-model="gf.idle_timeout" placeholder="12h"></div>
       </div>
+      <div class="form-row" style="margin-top:8px">
+        <div><label>期望状态码（urltest，空=默认，如 204）</label><input v-model="gf.expected_status" placeholder="空"></div>
+        <div><label>测速地址（空=用全局测速地址）</label><input v-model="gf.test_url" placeholder="空"></div>
+      </div>
       <div style="margin-top:8px">
         <button class="small">{{ editingGroup ? '保存' : '创建' }}</button>
         <button v-if="editingGroup" type="button" class="small ghost" @click="resetGroupForm">取消</button>
@@ -177,7 +181,7 @@ const nodeInfo = ref(null), niBusy = ref(false), entryText = ref('')
 const nodeFilter = ref('')
 const manualLinks = ref(''), addingNode = ref(false)
 const expandedGroup = ref(null), groupMembers = ref([])
-const gf = ref({ name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h' })
+const gf = ref({ name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h', expected_status: '', test_url: '' })
 const editingGroup = ref(null)
 const typeName = t => ({ urltest: '自动择优', selector: '手动选择', failover: '故障转移', builtin: '内置' }[t] || t)
 
@@ -241,7 +245,8 @@ async function createGroup() {
   const body = { name: gf.value.name, type: gf.value.type,
     members: split(gf.value.members), dynamic_keywords: split(gf.value.keywords),
     interval_s: gf.value.interval_s, tolerance_ms: gf.value.tolerance_ms,
-    idle_timeout: gf.value.idle_timeout }
+    idle_timeout: gf.value.idle_timeout, expected_status: gf.value.expected_status,
+    test_url: gf.value.test_url }
   try {
     if (editingGroup.value) {
       await put('/api/groups/' + editingGroup.value, body)
@@ -255,14 +260,15 @@ async function createGroup() {
 }
 function resetGroupForm() {
   editingGroup.value = null
-  gf.value = { name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h' }
+  gf.value = { name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h', expected_status: '', test_url: '' }
 }
 function editGroup(g) {
   editingGroup.value = g.id
   gf.value = { name: g.name, type: g.type, members: (g.members || []).join(', '),
     keywords: (g.dynamic_keywords || []).join(', '),
     interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100,
-    idle_timeout: g.idle_timeout || '12h' }
+    idle_timeout: g.idle_timeout || '12h', expected_status: g.expected_status || '',
+    test_url: g.test_url || '' }
 }
 async function toggleGroup(g) {
   try { await put('/api/groups/' + g.id, { enabled: !g.enabled }); load() }

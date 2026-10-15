@@ -123,17 +123,24 @@ def test_upstream(upstream: str, domain: str = "www.google.com",
 
 
 def system_upstreams() -> list[str]:
-    """Read /etc/resolv.conf nameservers (the box's current WAN DNS)."""
-    out = []
-    try:
-        with open("/etc/resolv.conf", encoding="utf-8") as f:
-            for line in f:
-                p = line.split()
-                if len(p) >= 2 and p[0] == "nameserver":
-                    out.append(p[1])
-    except OSError:
-        pass
-    return out
+    """System/WAN DNS servers (the box's current upstream DNS).
+
+    OpenWrt: the wan interface's DHCP-provided servers first; generic Linux:
+    /etc/resolv.conf. Localhost entries are filtered out to avoid loops.
+    """
+    import re as _re
+    for path in ("/tmp/resolv.conf.d/resolv.conf.auto", "/etc/resolv.conf"):
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            continue
+        servers = _re.findall(r"^\s*nameserver\s+(\S+)", text, _re.M)
+        servers = [s for s in servers
+                   if not s.startswith(("127.", "0.0.0.0", "::1", "fe80:"))]
+        if servers:
+            return servers
+    return []
 
 
 def trace(domain: str, direct_upstream: str, proxy_upstream: str,
