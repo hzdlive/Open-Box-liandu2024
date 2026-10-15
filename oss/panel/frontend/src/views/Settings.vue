@@ -156,11 +156,23 @@
       <div><label>检查间隔（天）</label><input v-model="upCfg.update_days" type="number" min="1" max="30"></div>
     </div>
     <div style="margin-top:8px"><button class="small" @click="saveUpCfg">保存</button></div>
+    <h3 style="margin-top:16px">面板自更新状态</h3>
+    <dl class="kv">
+      <dt>本地提交</dt><dd>{{ puStatus.local_commit ? puStatus.local_commit.slice(0, 12) : '—' }}</dd>
+      <dt>上次检查</dt><dd>{{ puStatus.update_last_check || '从未检查' }}</dd>
+      <dt>检查结果</dt><dd>{{ puResultText }}</dd>
+    </dl>
+    <div style="margin-top:8px">
+      <button class="small" @click="checkPanelUpdate" :disabled="puChecking">{{ puChecking ? '检查中…' : '检查面板更新' }}</button>
+      <button class="small" @click="applyPanelUpdate" :disabled="!puStatus.last_result?.available">立即更新面板</button>
+      <button class="small ghost" @click="loadPuLog">更新日志</button>
+    </div>
+    <pre v-if="puLog" class="code">{{ puLog }}</pre>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, inject, computed } from 'vue'
 import { get, post, put, delReq } from '../api.js'
 
 const toast = inject('toast')
@@ -326,9 +338,37 @@ async function loadUpLog() {
   try { upLog.value = (await get('/api/upgrade/log')).log || '' }
   catch (e) { toast(e.message) }
 }
+const puStatus = ref({}), puLog = ref(''), puChecking = ref(false)
+const puResultText = computed(() => {
+  const r = puStatus.value.last_result
+  if (!r || !Object.keys(r).length) return '—'
+  if (r.error) return '检查失败：' + r.error
+  if (r.available) return '有可用更新（远端 ' + String(r.remote || '').slice(0, 12) + '）'
+  return '已是最新'
+})
+async function loadPanelUpdate() {
+  try { puStatus.value = await get('/api/panel/update/status') }
+  catch (e) { toast(e.message) }
+}
+async function checkPanelUpdate() {
+  puChecking.value = true
+  try { await post('/api/panel/update/check', {}); await loadPanelUpdate(); toast.success('检查完成') }
+  catch (e) { toast(e.message) }
+  puChecking.value = false
+}
+async function applyPanelUpdate() {
+  if (!confirm('将拉取远端更新并重启面板，确定？')) return
+  try { await post('/api/panel/update/apply', {}); toast('更新已启动，面板即将重启'); loadPuLog() }
+  catch (e) { toast(e.message) }
+}
+async function loadPuLog() {
+  try { puLog.value = (await get('/api/panel/update/log')).log || '' }
+  catch (e) { toast(e.message) }
+}
 
 onMounted(async () => {
   loadSettings(); loadTp('nft'); loadTz(); loadDevices(); loadRouter(); loadRegionRules()
   upStatus.value = await get('/api/upgrade/status').catch(() => ({}))
+  loadPanelUpdate()
 })
 </script>

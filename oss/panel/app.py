@@ -1968,6 +1968,52 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except FileNotFoundError:
             return jsonify({"log": ""})
 
+    # ---- panel self-update (update_auto / update_hour / update_channel /
+    #        update_check_channel / update_days settings) ----
+    @app.get("/api/panel/update/status")
+    def panel_update_status():
+        from core import selfupdate as _su
+        c = db()
+        res = _su.last_result(c)
+        return jsonify({
+            "update_auto": dbmod.get_setting(c, "update_auto", "0"),
+            "update_hour": dbmod.get_setting(c, "update_hour", "4"),
+            "update_channel": dbmod.get_setting(c, "update_channel", "auto"),
+            "update_check_channel": dbmod.get_setting(c, "update_check_channel", "mirror"),
+            "update_days": dbmod.get_setting(c, "update_days", "1"),
+            "update_last_check": dbmod.get_setting(c, "update_last_check", ""),
+            "last_result": res,
+            "local_commit": _su.local_head(),
+            "panel_version": VERSION,
+        })
+
+    @app.post("/api/panel/update/check")
+    def panel_update_check():
+        from core import selfupdate as _su
+        c = db()
+        result = _su.check_for_update(c)
+        return jsonify(result)
+
+    @app.post("/api/panel/update/apply")
+    def panel_update_apply():
+        from core import selfupdate as _su
+        c = db()
+        res = _su.last_result(c)
+        if not res.get("available"):
+            return jsonify({"error": "no update available (run a check first)"}), 409
+        ref = res.get("ref") or "refs/heads/oss"
+        logf = _su.apply_update_async(ref)
+        return jsonify({"ok": True, "ref": ref, "log": logf})
+
+    @app.get("/api/panel/update/log")
+    def panel_update_log():
+        try:
+            with open("/tmp/openbox-oss-selfupdate.log", "rb") as f:
+                f.seek(max(0, os.path.getsize("/tmp/openbox-oss-selfupdate.log") - 20000))
+                return jsonify({"log": f.read().decode("utf-8", "replace")})
+        except FileNotFoundError:
+            return jsonify({"log": ""})
+
     # ---- frontend (Vue build output) ----
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")

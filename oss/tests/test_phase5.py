@@ -32,14 +32,15 @@ def test_dns_api():
     assert c.put("/api/dns", json={"mode": "bogus"}).status_code == 400
     assert c.put("/api/dns", json={"region": "bogus"}).status_code == 400
 
-    # rewrites
+    # rewrites (2 defaults are seeded to match the original panel)
+    n0 = len(c.get("/api/dns").get_json()["rewrites"])
     r = c.post("/api/dns/rewrite", json={"domain": "Example.COM ", "target": "1.2.3.4"})
     assert r.status_code == 201
     rw = r.get_json()
     assert rw["domain"] == "example.com" and rw["target"] == "1.2.3.4", rw
-    assert len(c.get("/api/dns").get_json()["rewrites"]) == 1
+    assert len(c.get("/api/dns").get_json()["rewrites"]) == n0 + 1
     assert c.delete(f"/api/dns/rewrite/{rw['id']}").status_code == 200
-    assert c.get("/api/dns").get_json()["rewrites"] == []
+    assert len(c.get("/api/dns").get_json()["rewrites"]) == n0
     assert c.post("/api/dns/rewrite", json={"domain": "", "target": "x"}).status_code == 400
     print("OK: DNS api (mode/region/upstreams/rewrites)")
 
@@ -67,9 +68,9 @@ def test_flip():
     app = _app()
     c = app.test_client()
     conn = sqlite3.connect(app.config["DB_DSN"], uri=app.config["DB_URI"])
-    s1 = dbmod.create_site_set(conn, {"name": "国外", "action": "proxy", "group": "auto",
+    s1 = dbmod.create_site_set(conn, {"name": "翻转测试国外", "action": "proxy", "group": "所有-自动",
                                       "rules": {"domain_suffix": ["example.com"]}})
-    s2 = dbmod.create_site_set(conn, {"name": "国内", "action": "direct",
+    s2 = dbmod.create_site_set(conn, {"name": "翻转测试国内", "action": "direct",
                                       "rules": {"domain_suffix": ["cn.example"]}})
     conn.close()
 
@@ -80,15 +81,15 @@ def test_flip():
     tags = {o["tag"] for o in conf["outbounds"]}
     assert f"flip-{s1['id']}" in tags and f"flip-{s2['id']}" in tags, tags
     sel = next(o for o in conf["outbounds"] if o["tag"] == f"flip-{s1['id']}")
-    assert sel["type"] == "selector" and sel["outbounds"] == ["auto", "direct"], sel
-    assert sel["default"] == "auto"  # follows action=proxy
+    assert sel["type"] == "selector" and sel["outbounds"] == ["所有-自动", "direct"], sel
+    assert sel["default"] == "所有-自动"  # follows action=proxy
     sel2 = next(o for o in conf["outbounds"] if o["tag"] == f"flip-{s2['id']}")
-    assert sel2["outbounds"] == ["direct", "auto"] and sel2["default"] == "direct"
+    assert sel2["outbounds"] == ["direct", "所有-自动"] and sel2["default"] == "direct"
 
-    # route rules go through the flip selectors
+    # route rules go through the flip selectors (12 defaults are seeded first)
     rrules = conf["route"]["rules"]
     flips = [r for r in rrules if r.get("outbound", "").startswith("flip-")]
-    assert flips and flips[0]["outbound"] == f"flip-{s1['id']}", rrules
+    assert flips and f"flip-{s1['id']}" in {r["outbound"] for r in flips}, rrules
 
     # flip endpoint persists (kernel down -> hot=false but persisted)
     r = c.post(f"/api/sitesets/{s1['id']}/flip", json={"to": "direct"})

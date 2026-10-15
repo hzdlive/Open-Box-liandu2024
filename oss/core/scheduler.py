@@ -55,6 +55,7 @@ def _tick(dsn: str, uri: bool) -> None:
             except Exception as e:
                 print(f"[scheduler] subscription {sid} update failed: {e}", flush=True)
         _maybe_update_dns_filter(conn)
+        _maybe_panel_self_update(conn)
     except Exception:
         traceback.print_exc()
     finally:
@@ -95,6 +96,30 @@ def _maybe_update_dns_filter(conn: sqlite3.Connection) -> None:
         print(f"[scheduler] dns filter auto-updated: {result}", flush=True)
     except Exception as e:
         print(f"[scheduler] dns filter update failed: {e}", flush=True)
+
+
+def _maybe_panel_self_update(conn: sqlite3.Connection) -> None:
+    """Scheduled panel self-update check (update_auto=1).
+
+    Runs at most once per update_days, at/after update_hour. On an available
+    update with update_auto enabled, the check is followed by a detached
+    fast-forward pull + panel restart.
+    """
+    from panel.db import get_setting
+    from core import selfupdate as _su
+    if get_setting(conn, "update_auto", "0") != "1":
+        return
+    if not _su.due_for_check(conn):
+        return
+    try:
+        result = _su.check_for_update(conn)
+        print(f"[scheduler] panel update check: {result}", flush=True)
+        if result.get("available"):
+            ref = result.get("ref") or "refs/heads/oss"
+            logf = _su.apply_update_async(ref)
+            print(f"[scheduler] panel update applying, log: {logf}", flush=True)
+    except Exception as e:
+        print(f"[scheduler] panel self-update failed: {e}", flush=True)
 
 
 def _loop(dsn: str, uri: bool, interval: float = 60.0) -> None:

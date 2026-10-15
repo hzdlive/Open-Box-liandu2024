@@ -217,12 +217,13 @@ def test_backup_roundtrip():
         data = json.loads(text)
         assert data["format"] == "openbox-oss-backup"
         n_nodes = len(dbmod.list_nodes(conn))
+        n_sites = len(dbmod.list_site_sets(conn))  # 12 seeded defaults + s1
         conn.execute("DELETE FROM nodes")
         conn.execute("DELETE FROM site_sets")
         res = backupmod.backup_from_json(conn, text)
         assert res["counts"]["nodes"] == n_nodes
         assert len(dbmod.list_nodes(conn)) == n_nodes
-        assert len(dbmod.list_site_sets(conn)) == 1
+        assert len(dbmod.list_site_sets(conn)) == n_sites
         try:
             backupmod.backup_from_json(conn, '{"format":"nope"}')
             raise AssertionError("should have raised")

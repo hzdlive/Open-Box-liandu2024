@@ -44,7 +44,7 @@ jobs:
 
       - name: Run Python suites
         run: |
-          for t in test_core test_panel test_phase1b test_phase3 test_phase4 test_phase5 test_frontend_contract; do
+          for t in test_core test_panel test_phase1b test_phase3 test_phase4 test_phase5 test_frontend_contract test_selfupdate; do
             python -m tests.$t || exit 1
           done
         working-directory: oss
