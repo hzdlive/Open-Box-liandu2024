@@ -153,17 +153,15 @@
 
   <div class="card">
     <h3>故障转移状态</h3>
-    <div v-if="failover.length" class="grid c2">
-      <div v-for="g in failover" :key="g.group" class="card" style="margin:0">
-        <div><b>{{ g.group }}</b>
-          <span :class="['pill', g.current ? 'ok' : '']">{{ g.current ? '当前: ' + g.current : '未运行' }}</span></div>
-        <div class="muted">主用: {{ g.primary || '—' }} · 最近切换: {{ g.last_switch_at || '无' }}</div>
-        <div class="muted">成员: {{ g.members.map(m => m.tag + (m.health === true ? '✓' : m.health === false ? '✗' : '?')).join(' ') }}</div>
-        <div><button class="small ghost" @click="recheck(g.group)">强制重测该组</button></div>
+    <p class="muted">故障转移组由内核原生处理（sing-box failover），按检测间隔自动切换，无需面板干预。</p>
+    <div v-if="failoverGroups.length" class="grid c2">
+      <div v-for="g in failoverGroups" :key="g.name" class="card" style="margin:0">
+        <div><b>{{ g.name }}</b>
+          <span class="pill ok">内核原生</span></div>
+        <div class="muted">{{ g.member_count }} 个节点 · 检测间隔 {{ g.interval_s }}s · 检测地址 {{ g.test_url || '全局' }}</div>
       </div>
     </div>
     <p v-else class="muted">暂无故障转移组（新建组时类型选 failover）</p>
-    <div style="margin-top:8px"><button class="small ghost" @click="refreshFailover">立即重选全部</button></div>
   </div>
 </template>
 
@@ -176,7 +174,6 @@ const nodes = ref([]), groups = ref([])
 const hm = ref({}), latHist = ref({})
 const selected = ref([]), shareResult = ref([])
 const busy = ref(false), testing = ref(null)
-const failover = ref([])
 const nodeInfo = ref(null), niBusy = ref(false), entryText = ref('')
 const nodeFilter = ref('')
 const manualLinks = ref(''), addingNode = ref(false)
@@ -191,6 +188,7 @@ const filteredNodes = computed(() => {
   return nodes.value.filter(n => (n.tag + n.server + n.protocol).toLowerCase().includes(f))
 })
 
+const failoverGroups = computed(() => groups.value.filter(g => g.type === 'failover'))
 const sortedGroups = computed(() =>
   [...groups.value].sort((a, b) => (a.builtin ? 1 : 0) - (b.builtin ? 1 : 0)
     || (a.position ?? 0) - (b.position ?? 0)))
@@ -208,7 +206,6 @@ async function load() {
   nodes.value = n
   hm.value = Object.fromEntries(h.map(x => [x.tag, x]))
   groups.value = g; latHist.value = lh
-  failover.value = await get('/api/failover/status').catch(() => [])
 }
 
 async function checkHealth() {
@@ -272,14 +269,6 @@ function editGroup(g) {
 }
 async function toggleGroup(g) {
   try { await put('/api/groups/' + g.id, { enabled: !g.enabled }); load() }
-  catch (e) { toast(e.message) }
-}
-async function refreshFailover() {
-  try { await post('/api/failover/refresh', {}); toast('已重选'); load() }
-  catch (e) { toast(e.message) }
-}
-async function recheck(group) {
-  try { await post('/api/failover/recheck', { group }); toast('已重测'); load() }
   catch (e) { toast(e.message) }
 }
 async function showNodeInfo(tag) {

@@ -286,7 +286,8 @@ def test_phase3_api():
                                     "members": [tags[0]]})
         conf = c.get("/api/config").get_json()
         fo = [o for o in conf["outbounds"] if o.get("tag") == "fo2"]
-        assert fo and fo[0]["type"] == "selector", fo
+        assert fo and fo[0]["type"] == "failover", fo
+        assert "check_url" in fo[0] and "check_interval" in fo[0], fo
     print("OK: phase3 panel APIs")
 
 

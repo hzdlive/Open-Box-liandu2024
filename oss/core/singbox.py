@@ -184,11 +184,15 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                               "outbounds": tags or ["direct"],
                               "default": tags[0] if tags else "direct"})
         elif g.type == "failover":
-            # Priority-ordered members; the runtime election (core/failover.py)
-            # switches this selector's active proxy via the clash API.
-            outbounds.append({"type": "selector", "tag": g.name,
-                              "outbounds": tags or ["direct"],
-                              "default": tags[0] if tags else "direct"})
+            # Native sing-box failover: kernel-level health checking and
+            # automatic fallback, no panel-side watcher required.
+            ob = {"type": "failover", "tag": g.name,
+                  "outbounds": tags or ["direct"],
+                  "check_url": g.test_url or cfg.speedtest_url,
+                  "check_interval": f"{g.interval_s}s"}
+            if g.expected_status:
+                ob["expected_status"] = g.expected_status
+            outbounds.append(ob)
         else:  # urltest
             ob = {"type": "urltest", "tag": g.name,
                   "outbounds": tags or ["direct"],
