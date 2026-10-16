@@ -109,6 +109,7 @@ const zhTW: LANG_MESSAGE = {
     auto: '自動',
     renameRules: '重命名規則',
     reset: '重置',
+    directNoProxy: '直連,不經代理',
     regionKeywords: '地區關鍵詞',
     unknownRegionTag: '無法識別地區時的標籤',
     featureKeywords: '特徵關鍵詞',

@@ -109,6 +109,7 @@ const zh: LANG_MESSAGE = {
     auto: '自动',
     renameRules: '重命名规则',
     reset: '重置',
+    directNoProxy: '直连,不经代理',
     regionKeywords: '地区关键词',
     unknownRegionTag: '无法识别地区时的标签',
     featureKeywords: '特征关键词',

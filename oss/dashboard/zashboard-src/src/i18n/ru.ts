@@ -109,6 +109,7 @@ const ru: LANG_MESSAGE = {
     auto: 'Авто',
     renameRules: 'Правила переименования',
     reset: 'Сбросить',
+    directNoProxy: '',
     regionKeywords: 'Ключевые слова регионов',
     unknownRegionTag: 'Метка неизвестного региона',
     featureKeywords: 'Ключевые слова признаков',

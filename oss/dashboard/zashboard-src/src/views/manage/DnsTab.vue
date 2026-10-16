@@ -77,7 +77,7 @@
         <span class="badge badge-ghost badge-sm">{{ $t('obx.proxyDns') }}</span>
       </div>
       <div v-for="(u, i) in proxyList" :key="'p'+i" class="flex items-center gap-2 border-b border-base-200 py-2">
-        <span class="flex-1 font-mono text-sm">{{ u.label }}</span>
+        <span class="flex-1 font-mono text-sm">{{ u.label }}<span v-if="(u as any).directNote" class="ml-2 text-xs opacity-60">{{ $t('obx.directNoProxy') }}</span></span>
         <button class="btn btn-ghost btn-xs" @click="testOne(u)">⚡</button>
         <button class="btn btn-ghost btn-xs" @click="openUpstreamEdit('proxy', i)">✎</button>
         <button class="btn btn-ghost btn-xs text-error" @click="delUpstream('proxy', i)">🗑</button>
@@ -238,7 +238,7 @@ const f = ref({ mode: 'dnsmasq', fakeip: false })
 const regionTab = ref('cn')
 
 // 上游
-type Up = { proto: string; addr: string; port: number; label: string }
+type Up = { proto: string; addr: string; port: number; label: string; isUpstream?: boolean }
 const directList = ref<Up[]>([])
 const proxyList = ref<Up[]>([])
 const regionConfirm = ref<null | { to: string; text: string }>(null)
@@ -247,23 +247,38 @@ const upDlg = ref<null | { isNew: boolean; side: string; idx: number; proto: str
 function parseUpstream(s: string): Up {
   // 格式: [proto://]addr[:port] 或 "上游 DNS"
   s = (s || '').trim()
-  let proto = 'udp', addr = s, port = 53
-  const m = s.match(/^(udp|tcp|tls|https):\/\/(.+)$/i)
-  if (m) { proto = m[1].toLowerCase(); addr = m[2] }
-  const pm = addr.match(/^(.*):(\d+)$/)
-  if (pm && !addr.includes('://')) { addr = pm[1]; port = parseInt(pm[2]) }
-  if (proto === 'tls') port = port === 53 ? 853 : port
-  if (proto === 'https') port = port === 53 ? 443 : port
-  const label = addr === 'wan' || s.includes('上游') ? `${t('obx.upstreamDns')} ${addr}` : `${proto.toUpperCase()} ${addr}${port !== 53 || proto !== 'udp' ? ':' + port : ''}`
-  return { proto, addr, port, label: s.includes('上游 DNS') ? s : label }
+  let proto = 'udp', addr = s, port = 53, isUpstream = false
+  if (s.includes('上游 DNS')) {
+    isUpstream = true
+    // "上游 DNS 223.5.5.5" -> addr=223.5.5.5
+    const am = s.match(/上游 DNS\s*(.*)/)
+    addr = (am && am[1].trim()) || 'wan'
+  } else {
+    const m = s.match(/^(udp|tcp|tls|https):\/\/(.+)$/i)
+    if (m) { proto = m[1].toLowerCase(); addr = m[2] }
+    const pm = addr.match(/^(.*):(\d+)$/)
+    if (pm && !addr.includes('://')) { addr = pm[1]; port = parseInt(pm[2]) }
+    if (proto === 'tls' && port === 53) port = 853
+    if (proto === 'https' && port === 53) port = 443
+  }
+  let label: string
+  if (isUpstream) {
+    label = `${t('obx.upstreamDns')}${addr && addr !== 'wan' ? ' ' + addr : ''}`
+  } else {
+    label = `${proto.toUpperCase()} ${addr}`
+    const defaultPort = proto === 'tls' ? 853 : proto === 'https' ? 443 : 53
+    if (port !== defaultPort) label += `:${port}`
+    else if (proto !== 'udp') label += `:${port}`
+  }
+  return { proto, addr, port, label, isUpstream }
 }
-function fmtUpstream(u: Up): string {
-  if (u.addr === 'wan' || u.label.includes('上游 DNS')) return '上游 DNS'
+function fmtUpstream(u: any): string {
+  if (u.isUpstream) return `上游 DNS${u.addr && u.addr !== 'wan' ? ' ' + u.addr : ''}`.trim()
   const defaultPort = u.proto === 'tls' ? 853 : u.proto === 'https' ? 443 : 53
   let s = ''
-  if (u.proto !== 'udp' || u.port !== 53) s += `${u.proto}://`
+  if (u.proto !== 'udp') s += `${u.proto}://`
   s += u.addr
-  if (u.port !== defaultPort || (u.proto === 'udp' && u.port !== 53)) s += `:${u.port}`
+  if (u.port !== defaultPort) s += `:${u.port}`
   else if (u.proto !== 'udp') s += `:${u.port}`
   return s
 }
@@ -326,10 +341,12 @@ async function doSwitchRegion() {
   try {
     // 按原版：两侧换成默认值，备用清空
     if (to === 'outside') {
-      directList.value = [parseUpstream('上游 DNS')]
-      proxyList.value = [parseUpstream('上游 DNS')]
+      directList.value = [parseUpstream('上游 DNS 223.5.5.5')]
+      const p = parseUpstream('上游 DNS 223.5.5.5')
+      ;(p as any).directNote = true
+      proxyList.value = [p]
     } else {
-      directList.value = [parseUpstream('上游 DNS')]
+      directList.value = [parseUpstream('上游 DNS 223.5.5.5')]
       proxyList.value = [parseUpstream('tcp://1.1.1.1:53')]
     }
     regionTab.value = to
@@ -355,7 +372,9 @@ function openUpstreamEdit(side: string, idx: number) {
 }
 async function saveUpstream() {
   if (!upDlg.value || !upDlg.value.addr.trim()) return
-  const u: Up = { proto: upDlg.value.proto, addr: upDlg.value.addr.trim(), port: upDlg.value.port, label: '' }
+  const addrTrim = upDlg.value.addr.trim()
+  const isUp = addrTrim.includes('上游 DNS') || addrTrim === 'wan'
+  const u: Up = { proto: upDlg.value.proto, addr: addrTrim.replace('上游 DNS', '').trim() || 'wan', port: upDlg.value.port, label: '', isUpstream: isUp }
   u.label = fmtUpstream(u)
   const list = upDlg.value.side === 'direct' ? directList.value : proxyList.value
   if (list.length >= 4 && upDlg.value.isNew) { err.value = t('obx.maxUpstream'); return }
@@ -375,10 +394,12 @@ async function resetUpstream() {
 async function doSwitchRegionReset() {
   // 重置为当前地区的默认值
   if (regionTab.value === 'outside') {
-    directList.value = [parseUpstream('上游 DNS')]
-    proxyList.value = [parseUpstream('上游 DNS')]
+    directList.value = [parseUpstream('上游 DNS 223.5.5.5')]
+    const p = parseUpstream('上游 DNS 223.5.5.5')
+    ;(p as any).directNote = true
+    proxyList.value = [p]
   } else {
-    directList.value = [parseUpstream('上游 DNS')]
+    directList.value = [parseUpstream('上游 DNS 223.5.5.5')]
     proxyList.value = [parseUpstream('tcp://1.1.1.1:53')]
   }
   try { await saveUpstreams() } catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }

@@ -107,6 +107,7 @@ const en = {
     auto: 'Auto',
     renameRules: 'Rename rules',
     reset: 'Reset',
+    directNoProxy: 'Direct, no proxy',
     regionKeywords: 'Region keywords',
     unknownRegionTag: 'Tag for unknown region',
     featureKeywords: 'Feature keywords',
