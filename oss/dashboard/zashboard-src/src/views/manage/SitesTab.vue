@@ -257,7 +257,7 @@ async function move(s: SiteSet, dir: number) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '排序失败' }
 }
 async function flip(s: SiteSet, to: string) {
-  try { await obxPost(`/api/sitesets/${s.id}/flip`, { flip: to }); await load() }
+  try { await obxPost(`/api/sitesets/${s.id}/flip`, { to }); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '切换失败' }
 }
 
