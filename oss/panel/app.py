@@ -1953,6 +1953,36 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    # ---- terminal rules (1:1 对标原版) ----
+    @app.get("/api/terminal-rules")
+    def terminal_rules_list():
+        return jsonify(dbmod.list_terminal_rules(db()))
+
+    @app.post("/api/terminal-rules")
+    def terminal_rule_create():
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(dbmod.create_terminal_rule(db(), d))
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.put("/api/terminal-rules/<int:rid>")
+    def terminal_rule_update(rid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            row = dbmod.update_terminal_rule(db(), rid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(row)
+
+    @app.delete("/api/terminal-rules/<int:rid>")
+    def terminal_rule_del(rid: int):
+        if not dbmod.delete_terminal_rule(db(), rid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
     @app.get("/api/terminal-test/capability")
     def terminal_test_capability():
         from core import terminalprobe as _tp

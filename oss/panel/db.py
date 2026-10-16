@@ -157,6 +157,16 @@ CREATE TABLE IF NOT EXISTS terminal_policies(
   name TEXT NOT NULL DEFAULT '',
   policy TEXT NOT NULL DEFAULT 'proxy'
 );
+CREATE TABLE IF NOT EXISTS terminal_rules(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  match_by TEXT NOT NULL DEFAULT 'ip',
+  targets TEXT NOT NULL DEFAULT '[]',
+  policy TEXT NOT NULL DEFAULT 'proxy',
+  outbound TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  position INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS traffic_daily(
   day TEXT NOT NULL,
   client TEXT NOT NULL DEFAULT '',
@@ -1429,6 +1439,94 @@ def upsert_terminal(conn: sqlite3.Connection, ident: str, name: str,
 
 def delete_terminal(conn: sqlite3.Connection, tid: int) -> bool:
     cur = conn.execute("DELETE FROM terminal_policies WHERE id=?", (tid,))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
+
+
+# ---- terminal rules (1:1 对标原版终端分流规则) ----
+def _tr_row(r) -> dict:
+    return {
+        "id": r[0], "name": r[1], "match_by": r[2],
+        "targets": json.loads(r[3] or "[]"),
+        "policy": r[4], "outbound": r[5],
+        "enabled": bool(r[6]), "position": r[7],
+    }
+
+def list_terminal_rules(conn: sqlite3.Connection) -> list[dict]:
+    return [_tr_row(r) for r in conn.execute(
+        "SELECT id, name, match_by, targets, policy, outbound, enabled, position"
+        " FROM terminal_rules ORDER BY position, id")]
+
+def create_terminal_rule(conn: sqlite3.Connection, d: dict) -> dict:
+    name = (d.get("name") or "").strip()
+    match_by = d.get("match_by", "ip")
+    if match_by not in ("ip", "mac"):
+        raise ValueError("match_by must be ip|mac")
+    targets = d.get("targets") or []
+    if not isinstance(targets, list):
+        raise ValueError("targets must be a list")
+    policy = d.get("policy", "proxy")
+    if policy not in ("proxy", "direct", "whitelist"):
+        raise ValueError("policy must be proxy|direct|whitelist")
+    outbound = (d.get("outbound") or "").strip()
+    # 只有 proxy 策略才需要出站
+    if policy != "proxy":
+        outbound = ""
+    enabled = 1 if d.get("enabled", True) else 0
+    pos = conn.execute("SELECT COALESCE(MAX(position), -1) + 1 FROM terminal_rules").fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO terminal_rules(name, match_by, targets, policy, outbound, enabled, position)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, match_by, json.dumps(targets, ensure_ascii=False), policy, outbound, enabled, pos))
+    conn.commit()
+    bump_rev(conn)
+    r = conn.execute(
+        "SELECT id, name, match_by, targets, policy, outbound, enabled, position"
+        " FROM terminal_rules WHERE id=?", (cur.lastrowid,)).fetchone()
+    return _tr_row(r)
+
+def update_terminal_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | None:
+    row = conn.execute("SELECT id FROM terminal_rules WHERE id=?", (rid,)).fetchone()
+    if not row:
+        return None
+    fields, vals = [], []
+    if "name" in d:
+        fields.append("name=?"); vals.append((d["name"] or "").strip())
+    if "match_by" in d:
+        if d["match_by"] not in ("ip", "mac"):
+            raise ValueError("match_by must be ip|mac")
+        fields.append("match_by=?"); vals.append(d["match_by"])
+    if "targets" in d:
+        if not isinstance(d["targets"], list):
+            raise ValueError("targets must be a list")
+        fields.append("targets=?"); vals.append(json.dumps(d["targets"], ensure_ascii=False))
+    if "policy" in d:
+        if d["policy"] not in ("proxy", "direct", "whitelist"):
+            raise ValueError("policy must be proxy|direct|whitelist")
+        fields.append("policy=?"); vals.append(d["policy"])
+        # 切换到非 proxy 时清空出站
+        if d["policy"] != "proxy":
+            fields.append("outbound=?"); vals.append("")
+    if "outbound" in d:
+        fields.append("outbound=?"); vals.append((d["outbound"] or "").strip())
+    if "enabled" in d:
+        fields.append("enabled=?"); vals.append(1 if d["enabled"] else 0)
+    if "position" in d:
+        fields.append("position=?"); vals.append(int(d["position"]))
+    if fields:
+        vals.append(rid)
+        conn.execute(f"UPDATE terminal_rules SET {', '.join(fields)} WHERE id=?", vals)
+        conn.commit()
+        bump_rev(conn)
+    r = conn.execute(
+        "SELECT id, name, match_by, targets, policy, outbound, enabled, position"
+        " FROM terminal_rules WHERE id=?", (rid,)).fetchone()
+    return _tr_row(r)
+
+def delete_terminal_rule(conn: sqlite3.Connection, rid: int) -> bool:
+    cur = conn.execute("DELETE FROM terminal_rules WHERE id=?", (rid,))
     conn.commit()
     if cur.rowcount:
         bump_rev(conn)

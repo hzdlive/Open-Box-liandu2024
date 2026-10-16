@@ -1,0 +1,1 @@
+import{N as e,j as t}from"./backend-DXMivYvq.js";import{t as n}from"./config-CKAiDCGl.js";var r=async()=>{n.value=(await t()).data},i=async t=>{await e(t),r()};export{r as fetchConfigs,i as updateConfigs};
