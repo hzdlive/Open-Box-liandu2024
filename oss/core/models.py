@@ -29,7 +29,9 @@ class SiteSet:
     domain_suffix: list = field(default_factory=list)  # domain suffixes
     domain_keyword: list = field(default_factory=list)
     ip_cidr: list = field(default_factory=list)
+    ports: list = field(default_factory=list)          # port numbers/ranges
     rule_sets: list = field(default_factory=list)      # referenced rule set names
+    ruleset_urls: list = field(default_factory=list)   # remote ruleset URLs
     group: str = "所有-自动"  # outbound group tag used when action == "proxy"
     flip: str = ""  # hot-switch state: "" (= follow action) | "direct" | "proxy"
     sid: int = 0  # database id (used for the hot-switch selector tag)

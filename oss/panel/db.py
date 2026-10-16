@@ -906,13 +906,16 @@ def load_app_config(conn: sqlite3.Connection):
                 pass
     site_sets = []
     for r in conn.execute(
-            "SELECT id, name, action, grp, rules, flip FROM site_sets ORDER BY position, id"):
+            "SELECT id, name, action, grp, rules, flip FROM site_sets"
+            " WHERE enabled=1 ORDER BY position, id"):
         rules = json.loads(r[4])
         domains = list(rules.get("domains", []))
         suffix = list(rules.get("domain_suffix", []))
         keyword = list(rules.get("domain_keyword", []))
         cidrs = list(rules.get("ip_cidr", []))
+        ports = list(rules.get("ports", []))
         rs_names = list(rules.get("rule_sets", []))
+        ruleset_urls = list(rules.get("ruleset_urls", []))
         for rs_name in rs_names:
             parsed = rs_parsed.get(rs_name)
             if parsed:
@@ -926,7 +929,9 @@ def load_app_config(conn: sqlite3.Connection):
             domain_suffix=list(dict.fromkeys(suffix)),
             domain_keyword=list(dict.fromkeys(keyword)),
             ip_cidr=list(dict.fromkeys(cidrs)),
+            ports=list(dict.fromkeys(ports)),
             rule_sets=rs_names,
+            ruleset_urls=list(dict.fromkeys(ruleset_urls)),
         ))
     def _mk_group(r):
         try:

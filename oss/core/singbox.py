@@ -332,6 +332,9 @@ def build_route_rules(cfg: AppConfig,
         if snd:
             route_rules.append({"domain_suffix": sorted(snd), "outbound": "direct"})
             dns_rules.append({"domain_suffix": sorted(snd), "server": "direct-dns"})
+    # Collect remote ruleset URLs (side effect for build_config declarations)
+    if not hasattr(cfg, "_remote_rulesets"):
+        cfg._remote_rulesets = {}
     for s in cfg.site_sets:
         rule: dict = {}
         if s.domains:
@@ -342,6 +345,27 @@ def build_route_rules(cfg: AppConfig,
             rule["domain_keyword"] = s.domain_keyword
         if s.ip_cidr:
             rule["ip_cidr"] = s.ip_cidr
+        if s.ports:
+            # ports: list of ints or "start-end" strings -> sing-box port list
+            rule["port"] = s.ports
+        # Remote ruleset URLs -> generate tags and add to rule_set
+        for url in (s.ruleset_urls or []):
+            url = str(url).strip()
+            if not url:
+                continue
+            # Find or create tag for this URL
+            tag = None
+            for t, u in cfg._remote_rulesets.items():
+                if u == url:
+                    tag = t
+                    break
+            if not tag:
+                tag = f"url-{len(cfg._remote_rulesets)}"
+                cfg._remote_rulesets[tag] = url
+            rs = rule.get("rule_set", [])
+            if tag not in rs:
+                rs.append(tag)
+            rule["rule_set"] = rs
         from core.geodata import INLINE_RULE_SETS as _INLINE_RS
         rs = []
         for n in (s.rule_sets or []):
@@ -554,6 +578,15 @@ def build_config(cfg: AppConfig,
          "path": _gd.local_path(name)}
         for name in _gd.referenced_rule_sets(cfg)
         if not (skip_rule_sets and name in skip_rule_sets)]
+    # Remote ruleset URLs from site sets: collected during build_route_rules
+    # via cfg._remote_rulesets (populated as side effect). Declare them here.
+    for tag, url in getattr(cfg, "_remote_rulesets", {}).items():
+        rule_set_decls.append({
+            "type": "remote",
+            "tag": tag,
+            "format": "binary",
+            "url": url,
+        })
 
     return {
         "log": {"level": "warn"},
