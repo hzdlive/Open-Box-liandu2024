@@ -89,6 +89,9 @@ def _clash_proxy_to_node(p: dict, seen: set) -> Node | None:
         params = {"password": str(p.get("password", ""))}
         if p.get("obfs"):
             params["obfs"] = {"type": p["obfs"], "password": str(p.get("obfs-password", ""))}
+    elif ptype == "anytls":
+        proto = "anytls"
+        params = {"password": str(p.get("password", ""))}
     elif ptype == "wireguard":
         proto = "wireguard"
         local = []
@@ -117,7 +120,7 @@ def _clash_proxy_to_node(p: dict, seen: set) -> Node | None:
         transport = _transport_from_clash(p)
         if transport:
             params["transport"] = transport
-    elif ptype in ("tuic", "hysteria2"):
+    elif ptype in ("tuic", "hysteria2", "anytls"):
         tls = _tls_from_clash(p, server) or {"enabled": True, "server_name": p.get("sni") or server}
         if p.get("sni"):
             tls["server_name"] = p["sni"]
