@@ -184,33 +184,36 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                               "outbounds": tags or ["direct"],
                               "default": tags[0] if tags else "direct"})
         elif g.type == "failover":
-            # Native sing-box failover: kernel-level health checking and
-            # automatic fallback, no panel-side watcher required.
+            # sing-box 没有原生 failover 类型，用 urltest 实现故障转移：
+            # 内核级健康检测 + 自动选择最优可用节点，不依赖面板存活。
             # 1:1 with the original: lanes = 主用/备用1/备用2... tabs.
             # Each lane: single node -> used directly; multi-node ->
             # auto=urltest (by speed) or manual=selector (pick in proxy page).
-            # Top-level failover tries lanes in order.
-            fo_kwargs = {"check_url": g.test_url or cfg.speedtest_url,
-                         "check_interval": f"{g.interval_s}s"}
+            # 顶层用 urltest 覆盖所有 lane 成员，自动故障转移。
+            fo_kwargs = {"url": g.test_url or cfg.speedtest_url,
+                         "interval": f"{g.interval_s}s"}
             if g.expected_status:
-                fo_kwargs["expected_status"] = g.expected_status
+                # urltest 不支持 expected_status，忽略（sing-box 限制）
+                pass
             if g.lanes:
-                lane_tags = []
+                # 收集所有 lane 的成员，顶层 urltest 统一健康检查
+                all_members = []
                 for i, ln in enumerate(g.lanes):
                     lane_name = ln.get("name") or (f"备用{i}" if i > 0 else "主用")
                     lane_tag = f"{g.name}#{lane_name}"
                     lane_members = [t for t in (ln.get("members") or [])
                                     if t in node_tags or t in chain_tags]
                     if not lane_members:
-                        lane_members = ["direct"]
+                        continue
                     if len(lane_members) == 1:
                         # 单节点页签直接使用
-                        lane_tags.append(lane_members[0])
+                        if lane_members[0] not in all_members:
+                            all_members.append(lane_members[0])
                     elif (ln.get("mode") or "auto") == "manual":
                         outbounds.append({"type": "selector", "tag": lane_tag,
                                           "outbounds": lane_members,
                                           "default": lane_members[0]})
-                        lane_tags.append(lane_tag)
+                        all_members.append(lane_tag)
                     else:
                         outbounds.append({"type": "urltest", "tag": lane_tag,
                                           "outbounds": lane_members,
@@ -218,13 +221,15 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                                           "interval": f"{g.interval_s}s",
                                           "tolerance": g.tolerance_ms,
                                           "idle_timeout": g.idle_timeout})
-                        lane_tags.append(lane_tag)
-                outbounds.append({"type": "failover", "tag": g.name,
-                                  "outbounds": lane_tags or ["direct"],
+                        all_members.append(lane_tag)
+                outbounds.append({"type": "urltest", "tag": g.name,
+                                  "outbounds": all_members or ["direct"],
+                                  "tolerance": g.tolerance_ms,
                                   **fo_kwargs})
             else:
-                outbounds.append({"type": "failover", "tag": g.name,
+                outbounds.append({"type": "urltest", "tag": g.name,
                                   "outbounds": tags or ["direct"],
+                                  "tolerance": g.tolerance_ms,
                                   **fo_kwargs})
         elif g.type in ("smart", "loadbalance"):
             # smart: 按延迟智能选择（映射为 urltest）；loadbalance: 负载均衡（映射为 urltest）
