@@ -767,10 +767,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 elif f_["kind"] == "geoip":
                     geoip_n += 1
             if files:
-                # 用最新的更新时间
-                times = [f_["updated_at"] for f_ in files if f_.get("updated_at")]
-                if times:
-                    geodata_time = sorted(times)[-1]
+                # 用目录的最新修改时间，转为 ISO 8601 UTC
+                import os
+                from core import geodata as _gd2
+                try:
+                    d = _gd2.geodata_dir()
+                    mtime = os.stat(d).st_mtime
+                    import datetime
+                    geodata_time = datetime.datetime.fromtimestamp(
+                        mtime, tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                except Exception:
+                    pass
         except Exception:
             pass
         # 开机自启
