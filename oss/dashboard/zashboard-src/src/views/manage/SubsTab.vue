@@ -41,10 +41,14 @@
     <!-- 订阅卡片 -->
     <div class="flex flex-col gap-3">
       <div
-        v-for="s in subs"
+        v-for="(s, idx) in subs"
         :key="s.id"
         class="rounded-box border border-base-300/30 bg-base-100 p-4"
         :class="{ 'opacity-70': !s.enabled }"
+        draggable="true"
+        @dragstart="dragStart(idx)"
+        @dragover.prevent
+        @drop="dragDrop(idx)"
       >
         <!-- 卡片头 -->
         <div class="mb-2 flex items-center gap-2">
@@ -533,6 +537,22 @@ type Sub = {
 const subs = ref<Sub[]>([])
 const loading = ref(false)
 const shareCollapsed = ref(true)
+const dragIdx = ref(-1)
+function dragStart(idx: number) {
+  dragIdx.value = idx
+}
+async function dragDrop(idx: number) {
+  if (dragIdx.value < 0 || dragIdx.value === idx) return
+  const item = subs.value.splice(dragIdx.value, 1)[0]
+  subs.value.splice(idx, 0, item)
+  dragIdx.value = -1
+  // 保存排序
+  try {
+    await obxPut('/api/openbox/subscriptions/order', { ids: subs.value.map((s) => s.id) })
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '保存排序失败'
+  }
+}
 const err = ref('')
 const busyId = ref<number | null>(null)
 const dlg = ref<any>(null)

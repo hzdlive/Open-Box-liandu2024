@@ -30,6 +30,7 @@ def _is_ip(host: str) -> bool:
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS subscriptions(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  position INTEGER NOT NULL DEFAULT 0,
   name TEXT NOT NULL,
   source TEXT NOT NULL DEFAULT 'manual',
   url TEXT,
@@ -389,6 +390,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO groups(name, type, members, dynamic_keywords, position)"
         " VALUES ('所有-手动', 'selector', '[\"*all*\"]', '[]', 1)")
     _migrate_chains_enabled(conn)
+    _migrate_sub_position(conn)
     _migrate_share_params(conn)
     conn.commit()
     # migrate old default names (auto/manual) to the new ones, fixing references
@@ -494,7 +496,7 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
             "SELECT id, name, source, url, created_at, enabled, auto_update_hours,"
             " updated_at, userinfo, urls, rename_enabled, rename_prefix, rename_order,"
             " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
-            f" rename_filter, dns_resolve{au_cols} FROM subscriptions ORDER BY id"):
+            f" rename_filter, dns_resolve{au_cols} FROM subscriptions ORDER BY position, id"):
         (sid, name, source, url, created, enabled, auh, updated, userinfo,
          urls, rn_en, rn_prefix, rn_order, rn_digits, rn_regions,
          rn_fallback, rn_features, rn_filter, dns_resolve, *au_rest) = r
@@ -1848,6 +1850,12 @@ def find_sub_share(conn: sqlite3.Connection, token: str) -> dict | None:
 # -- share servers (1:1 original: profile.servers[]; LAN inbound proxies) ----
 SS_METHODS = ("aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305",
               "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm")
+
+
+def _migrate_sub_position(conn: sqlite3.Connection):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")]
+    if "position" not in cols:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
 
 
 def _migrate_share_params(conn: sqlite3.Connection):

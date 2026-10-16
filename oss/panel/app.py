@@ -477,6 +477,16 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception as e:
             return jsonify({"error": f"refresh failed: {e}"}), 502
 
+    @app.put("/api/openbox/subscriptions/order")
+    def ob_subs_order():
+        d = request.get_json(force=True, silent=True) or {}
+        ids = d.get("ids", [])
+        c = db()
+        for pos, sid in enumerate(ids):
+            c.execute("UPDATE subscriptions SET position=? WHERE id=?", (pos, sid))
+        c.commit()
+        return jsonify({"ok": True})
+
     @app.post("/api/subscriptions/<int:sid>/speedtest")
     def sub_speedtest(sid: int):
         # 触发该订阅下所有节点的测速（通过内核 clash API）
