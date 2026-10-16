@@ -1020,6 +1020,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/service/start")
     def service_start():
+        # 测试实例无独立内核时，代理到 8080 主实例
+        if os.environ.get("OPENBOX_WORKDIR", "").endswith("openbox-zashboard"):
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://127.0.0.1:8080/api/service/start", method="POST")
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    return jsonify(json.loads(r.read()))
+            except Exception as e:
+                return jsonify({"error": f"proxy to :8080 failed: {e}"}), 502
         m = _manager()
         try:
             m.start()
@@ -1029,12 +1038,28 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/service/stop")
     def service_stop():
+        if os.environ.get("OPENBOX_WORKDIR", "").endswith("openbox-zashboard"):
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://127.0.0.1:8080/api/service/stop", method="POST")
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    return jsonify(json.loads(r.read()))
+            except Exception as e:
+                return jsonify({"error": f"proxy to :8080 failed: {e}"}), 502
         m = _manager()
         m.stop()
         return jsonify(m.to_dict())
 
     @app.post("/api/service/restart")
     def service_restart():
+        if os.environ.get("OPENBOX_WORKDIR", "").endswith("openbox-zashboard"):
+            try:
+                import urllib.request
+                req = urllib.request.Request("http://127.0.0.1:8080/api/service/restart", method="POST")
+                with urllib.request.urlopen(req, timeout=15) as r:
+                    return jsonify(json.loads(r.read()))
+            except Exception as e:
+                return jsonify({"error": f"proxy to :8080 failed: {e}"}), 502
         m = _manager()
         try:
             m.restart()
