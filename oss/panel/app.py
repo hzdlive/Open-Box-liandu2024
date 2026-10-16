@@ -748,7 +748,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         kernel_running = False
         try:
             from core import service as _svc
-            km = _svc.KernelManager()
+            km = _svc.manager_from_env()
             v = km.version()
             if v:
                 kernel_version = f"sing-box version {v}"
