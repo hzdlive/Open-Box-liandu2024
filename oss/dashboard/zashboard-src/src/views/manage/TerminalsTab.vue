@@ -133,11 +133,11 @@
             >
               <option value="">{{ $t('obx.selectFromDhcp') }}</option>
               <option
-                v-for="c in candidates"
-                :key="c.ident"
-                :value="c.ident"
+                v-for="c in filteredCandidates"
+                :key="c.ip + c.mac"
+                :value="dlg.match_by === 'mac' ? c.mac : c.ip"
               >
-                {{ c.name || c.ident }} ({{ c.ident }})
+                {{ candidateLabel(c) }}
               </option>
             </select>
           </div>
@@ -344,7 +344,7 @@ type TRule = {
 }
 
 const rules = ref<TRule[]>([])
-const candidates = ref<{ ident: string; name: string }[]>([])
+const candidates = ref<{ ip: string; hostname: string; mac: string; source: string }[]>([])
 const err = ref('')
 
 const dlg = ref<null | {
@@ -369,11 +369,31 @@ function policyLabel(p: string) {
   return { proxy: t('obx.polProxyFull'), direct: t('obx.polDirectFull'), whitelist: t('obx.polWhitelistFull') }[p] || p
 }
 
+// 已知终端候选：按当前匹配方式过滤
+const filteredCandidates = computed(() => {
+  if (!dlg.value) return []
+  if (dlg.value.match_by === 'mac') {
+    // MAC 模式只显示有 MAC 的
+    return candidates.value.filter((c) => c.mac)
+  }
+  return candidates.value
+})
+
+function candidateLabel(c: { ip: string; hostname: string; mac: string }) {
+  const main = dlg.value?.match_by === 'mac' ? c.mac : c.ip
+  const parts = [main]
+  if (c.hostname) parts.push(c.hostname)
+  // 显示另一维度的信息
+  if (dlg.value?.match_by === 'mac' && c.ip) parts.push(c.ip)
+  if (dlg.value?.match_by !== 'mac' && c.mac) parts.push(c.mac)
+  return parts.join(' ')
+}
+
 async function load() {
   err.value = ''
   try {
     rules.value = await obxGet<TRule[]>('/api/terminal-rules')
-    const c = await obxGet<{ candidates: { ident: string; name: string }[] }>('/api/terminal-candidates').catch(() => ({ candidates: [] }))
+    const c = await obxGet<{ candidates: { ip: string; hostname: string; mac: string; source: string }[] }>('/api/terminal-candidates').catch(() => ({ candidates: [] }))
     candidates.value = c.candidates || []
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载失败' }
 }
