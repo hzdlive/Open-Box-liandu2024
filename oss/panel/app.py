@@ -752,7 +752,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             v = km.version()
             if v:
                 kernel_version = f"sing-box version {v}"
-            kernel_running = km.is_running()
+            kernel_running = km.status().running
         except Exception:
             pass
         # Geo 数据统计

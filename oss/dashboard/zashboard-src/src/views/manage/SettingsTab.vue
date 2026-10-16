@@ -306,14 +306,14 @@ async function savePorts() {
 }
 async function kernelOp(op: string) {
   opBusy.value = true; err.value = ''
-  try { await obxPost(`/api/kernel/${op}`, {}); await load() }
+  try { await obxPost(`/api/service/${op}`, {}); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
   finally { opBusy.value = false }
 }
 async function checkUpdate() {
   checking.value = true; updateInfo.value = ''; err.value = ''
   try {
-    const r = await obxPost<any>('/api/update/check', {})
+    const r = await obxPost<any>('/api/panel/update/check', {})
     updateInfo.value = r.message || r.version || '已是最新'
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '检查失败' }
   finally { checking.value = false }
