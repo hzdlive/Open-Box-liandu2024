@@ -264,12 +264,12 @@
                 class="relative flex-1"
               >
                 <button
-                  class="input input-bordered input-sm flex w-full items-center justify-between"
+                  class="input input-bordered input-sm relative w-full pr-8 text-left"
                   type="button"
                   @click="toggleGeoDrop(ri, r.type, $event)"
                 >
-                  <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
-                  <span>▾</span>
+                  <span class="block truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
+                  <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-60">▾</span>
                 </button>
                 <Teleport to="body">
                   <div
@@ -432,12 +432,12 @@
               class="relative flex-1"
             >
               <button
-                class="input input-bordered input-sm flex w-full items-center justify-between"
+                class="input input-bordered input-sm relative w-full pr-8 text-left"
                 type="button"
                 @click="toggleGeoDrop('f' + fri, r.type, $event)"
               >
-                <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
-                <span>▾</span>
+                <span class="block truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
+                <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-60">▾</span>
               </button>
               <Teleport to="body">
                 <div
