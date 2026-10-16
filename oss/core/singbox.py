@@ -24,6 +24,18 @@ def _tls_block(params: dict) -> dict | None:
     tls = params.get("tls")
     if not tls:
         return None
+    # 兼容两种格式：内部格式 tls.fingerprint 和原始 sing-box 格式 tls.utls.fingerprint
+    if isinstance(tls.get("utls"), dict) and tls["utls"].get("fingerprint"):
+        # 已经是 sing-box 原生格式，直接返回（确保 enabled）
+        out = dict(tls)
+        out["enabled"] = True
+        if isinstance(out.get("utls"), dict):
+            out["utls"] = dict(out["utls"])
+            out["utls"]["enabled"] = True
+        if isinstance(out.get("reality"), dict):
+            out["reality"] = dict(out["reality"])
+            out["reality"]["enabled"] = True
+        return out
     out = {"enabled": True}
     if tls.get("server_name"):
         out["server_name"] = tls["server_name"]
