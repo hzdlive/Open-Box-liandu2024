@@ -8,9 +8,10 @@ sequence numbers, prefix with subscription name, filter keywords exclude nodes.
 from __future__ import annotations
 
 
+# 1:1 对标原版预置地区关键词（见原版订阅弹窗规则 tab 截图）
 DEFAULT_REGIONS = [
     {"name": "美国", "flag": "🇺🇸",
-     "keywords": "us,united states,america,美国,美西,洛杉矶,硅谷,圣何塞,西雅图"},
+     "keywords": "us,united states,america,美国,美國,洛杉矶,硅谷,圣何塞,西雅图"},
     {"name": "香港", "flag": "🇭🇰",
      "keywords": "hk,hong kong,hongkong,香港,深港"},
     {"name": "日本", "flag": "🇯🇵",
@@ -18,7 +19,7 @@ DEFAULT_REGIONS = [
     {"name": "新加坡", "flag": "🇸🇬",
      "keywords": "sg,singapore,新加坡,狮城,獅城"},
     {"name": "台湾", "flag": "🇹🇼",
-     "keywords": "tw,taiwan,台湾,台灣,台中,台北"},
+     "keywords": "tw,taiwan,台湾,臺灣,台北,台中"},
     {"name": "韩国", "flag": "🇰🇷",
      "keywords": "kr,korea,韩国,韓國,首尔,首爾"},
     {"name": "英国", "flag": "🇬🇧",

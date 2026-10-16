@@ -595,9 +595,22 @@ async function load() {
   }
 }
 
+// 1:1 对标原版预置地区（core/rename.py DEFAULT_REGIONS）
+const DEFAULT_REGIONS = [
+  { flag: '🇺🇸', name: '美国', keywords: 'us,united states,america,美国,美國,洛杉矶,硅谷,圣何塞,西雅图' },
+  { flag: '🇭🇰', name: '香港', keywords: 'hk,hong kong,hongkong,香港,深港' },
+  { flag: '🇯🇵', name: '日本', keywords: 'jp,japan,日本,东京,東京,大阪' },
+  { flag: '🇸🇬', name: '新加坡', keywords: 'sg,singapore,新加坡,狮城,獅城' },
+  { flag: '🇹🇼', name: '台湾', keywords: 'tw,taiwan,台湾,臺灣,台北,台中' },
+  { flag: '🇰🇷', name: '韩国', keywords: 'kr,korea,韩国,韓國,首尔,首爾' },
+  { flag: '🇬🇧', name: '英国', keywords: 'uk,gb,united kingdom,britain,英国,英國,伦敦,倫敦' },
+  { flag: '🇩🇪', name: '德国', keywords: 'de,germany,德国,德國,法兰克福,法蘭克福' },
+  { flag: '🇨🇳', name: '中国', keywords: 'cn,china,中国,中國,回国,回國,back to china' },
+]
 const DEFAULT_RENAME = () => ({
   enabled: false, prefix: true, order: ['region', 'feature', 'seq'], seq_digits: 2,
-  regions: [], fallback: '其他', features: '', filter: '',
+  regions: DEFAULT_REGIONS.map((r) => ({ ...r })),
+  fallback: '其他', features: 'iepl,iplc,ipv6,专线,家宽,2x', filter: '官网,工单,客服',
 })
 
 function openAdd() {
@@ -625,8 +638,10 @@ async function openEdit(s: Sub) {
       enabled: !!rn.enabled, prefix: rn.prefix !== false,
       order: [...(rn.order || ['region', 'feature', 'seq'])],
       seq_digits: rn.seq_digits || 2,
-      regions: (rn.regions || []).map((r: any) => ({ ...r })),
-      fallback: rn.fallback || '其他', features: rn.features || '', filter: rn.filter || '',
+      regions: ((rn.regions && rn.regions.length ? rn.regions : DEFAULT_REGIONS).map((r: any) => ({ ...r }))),
+      fallback: rn.fallback || '其他',
+      features: rn.features || 'iepl,iplc,ipv6,专线,家宽,2x',
+      filter: rn.filter || '官网,工单,客服',
     },
   }
   nodeTab.value = 'ok'
