@@ -410,12 +410,26 @@
 
         <!-- tab: 节点 -->
         <div v-if="dlg.tab === 'node'">
-          <div
-            v-if="!dlg.id"
-            class="rounded-box border border-dashed border-base-300 p-8 text-center opacity-60"
-          >
-            <div class="mb-2 text-2xl">🔍</div>
-            填写链接或粘贴内容后，这里会实时显示预览结果。
+          <div v-if="!dlg.id">
+            <div class="mb-2 flex items-center justify-between">
+              <span class="text-sm">预览解析出 {{ previewNodes.length }} 个节点</span>
+              <button class="btn btn-ghost btn-sm" :disabled="previewBusy" @click="doPreview">
+                <span v-if="previewBusy" class="loading loading-spinner loading-xs"></span>
+                {{ previewBusy ? '拉取中...' : '重新拉取' }}
+              </button>
+            </div>
+            <p v-if="previewErr" class="mb-2 text-xs text-error">{{ previewErr }}</p>
+            <div v-if="previewNodes.length" class="max-h-96 overflow-y-auto rounded-box border border-base-300/30">
+              <div v-for="(n, i) in previewNodes" :key="i" class="flex items-center gap-2 border-b border-base-200 px-3 py-2 text-sm">
+                <span class="flex-1 truncate">{{ n.name || n.tag }}</span>
+                <span class="badge badge-ghost badge-xs">{{ n.protocol }}</span>
+                <span class="font-mono text-xs opacity-60">{{ n.server }}:{{ n.port }}</span>
+              </div>
+            </div>
+            <div v-else class="rounded-box border border-dashed border-base-300 p-8 text-center opacity-60">
+              <div class="mb-2 text-2xl">🔍</div>
+              填写链接或粘贴内容后，点"重新拉取"预览解析结果。
+            </div>
           </div>
           <div v-else>
             <p class="mb-2">解析出 {{ subNodes.length }} 个节点 <span class="opacity-60">已应用重命名规则，可单独改名 / 禁用</span></p>
@@ -537,6 +551,9 @@ type Sub = {
 const subs = ref<Sub[]>([])
 const loading = ref(false)
 const shareCollapsed = ref(true)
+const previewNodes = ref<any[]>([])
+const previewBusy = ref(false)
+const previewErr = ref('')
 const dragIdx = ref(-1)
 function dragStart(idx: number) {
   dragIdx.value = idx
@@ -766,6 +783,31 @@ const testingAll = ref(false)
 const okNodes = computed(() => subNodes.value.filter((n) => !n.disabled))
 const offNodes = computed(() => subNodes.value.filter((n) => n.disabled))
 const shownNodes = computed(() => nodeTab.value === 'ok' ? okNodes.value : offNodes.value)
+
+async function doPreview() {
+  if (!dlg.value) return
+  const urls = (dlg.value.urls || []).filter((u: string) => u.trim())
+  const content = (dlg.value.nodeContent || '').trim() + '\n' + (dlg.value.manualContent || '').trim()
+  if (!urls.length && !content.trim()) {
+    previewNodes.value = []
+    return
+  }
+  previewBusy.value = true
+  previewErr.value = ''
+  try {
+    const r = await obxPost<any>('/api/openbox/subscriptions/preview', {
+      urls, content: content.trim(),
+    })
+    previewNodes.value = r.nodes || []
+    if (r.errors?.length) {
+      previewErr.value = r.errors.map((e: any) => `${e.url}: ${e.error}`).join('; ')
+    }
+  } catch (e) {
+    previewErr.value = e instanceof ObxApiError ? e.message : '预览失败'
+  } finally {
+    previewBusy.value = false
+  }
+}
 
 async function openNodeTab() {
   if (!dlg.value) return

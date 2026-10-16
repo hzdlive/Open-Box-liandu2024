@@ -477,6 +477,77 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception as e:
             return jsonify({"error": f"refresh failed: {e}"}), 502
 
+    @app.post("/api/openbox/subscriptions/preview")
+    def ob_subs_preview():
+        """预览订阅：拉取 URL 并解析节点，返回给前端显示（1:1 对标原版）。"""
+        from core.subscription import parse_subscription
+        from core.clash import parse_clash_yaml, looks_like_clash
+        import urllib.request
+        d = request.get_json(force=True, silent=True) or {}
+        urls = d.get("urls", [])
+        if isinstance(urls, str):
+            urls = [urls]
+        content = d.get("content", "") or ""
+        url = d.get("url", "") or ""
+        if url:
+            urls = [url] + urls
+
+        all_nodes = []
+        errors = []
+        fetched = []
+
+        # 拉取 URL
+        for u in urls:
+            u = u.strip()
+            if not u:
+                continue
+            try:
+                req = urllib.request.Request(u, headers={"User-Agent": "Open-Box/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    text = r.read().decode("utf-8", errors="ignore")
+                    fetched.append({"url": u, "length": len(text)})
+                    if looks_like_clash(text):
+                        nodes = parse_clash_yaml(text)
+                    else:
+                        nodes = parse_subscription(text)
+                    all_nodes.extend(nodes)
+            except Exception as e:
+                errors.append({"url": u, "error": str(e)})
+
+        # 解析直接粘贴的内容
+        if content.strip():
+            try:
+                if looks_like_clash(content):
+                    nodes = parse_clash_yaml(content)
+                else:
+                    nodes = parse_subscription(content)
+                all_nodes.extend(nodes)
+            except Exception as e:
+                errors.append({"url": "content", "error": str(e)})
+
+        # 去重（按 tag）
+        seen = set()
+        uniq = []
+        for n in all_nodes:
+            tag = getattr(n, "tag", "") or f"{n.server}:{n.server_port}"
+            if tag not in seen:
+                seen.add(tag)
+                uniq.append({
+                    "tag": tag,
+                    "server": getattr(n, "server", ""),
+                    "port": getattr(n, "server_port", 0),
+                    "protocol": getattr(n, "protocol", ""),
+                    "name": getattr(n, "name", tag),
+                })
+
+        return jsonify({
+            "nodes": uniq,
+            "count": len(uniq),
+            "fetched": fetched,
+            "errors": errors,
+            "format": "clash" if any(looks_like_clash(content) for _ in [1]) else "auto",
+        })
+
     @app.put("/api/openbox/subscriptions/order")
     def ob_subs_order():
         d = request.get_json(force=True, silent=True) or {}
