@@ -268,10 +268,10 @@
           </div>
         </div>
 
-        <!-- 二维码 -->
+        <!-- 二维码（本地生成，不依赖外部服务） -->
         <div v-if="shareLink" class="mt-4 flex justify-center">
           <img
-            :src="`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(shareLink)}`"
+            :src="`/api/share/qr?text=${encodeURIComponent(shareLink)}`"
             alt="QR"
             class="rounded-box border border-base-300 p-2"
           />

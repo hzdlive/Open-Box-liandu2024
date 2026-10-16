@@ -447,6 +447,87 @@ def _dns_servers(tag: str, addrs: str, detour: str,
             for i, a in enumerate(parts)]
 
 
+def _share_server_inbound(s: dict) -> dict:
+    """Build a sing-box inbound for a share server (1:1, 5 protocols)."""
+    import json as _json
+    proto = s.get("protocol", "shadowsocks")
+    tag = f"share-{s['id']}"
+    base = {
+        "tag": tag,
+        "listen": "0.0.0.0",
+        "listen_port": int(s["port"]),
+    }
+    params = s.get("params") or {}
+    if isinstance(params, str):
+        try:
+            params = _json.loads(params)
+        except Exception:
+            params = {}
+    if proto == "shadowsocks":
+        base.update({
+            "type": "shadowsocks",
+            "method": s.get("method", "aes-256-gcm"),
+            "password": s.get("password", ""),
+        })
+    elif proto == "vless":
+        # VLESS inbound with TLS (from params)
+        base.update({
+            "type": "vless",
+            "users": [{"uuid": s.get("password", ""), "flow": params.get("flow", "")}],
+            "tls": {
+                "enabled": True,
+                "server_name": params.get("sni", ""),
+                "certificate_path": params.get("cert_path", ""),
+                "key_path": params.get("key_path", ""),
+            },
+        })
+        # Remove empty TLS fields
+        tls = base["tls"]
+        if not tls["server_name"]:
+            tls.pop("server_name")
+    elif proto == "tuic":
+        base.update({
+            "type": "tuic",
+            "users": [{"uuid": s.get("password", ""), "password": s.get("password", "")}],
+            "congestion_control": params.get("congestion_control", "bbr"),
+            "tls": {
+                "enabled": True,
+                "server_name": params.get("sni", ""),
+                "certificate_path": params.get("cert_path", ""),
+                "key_path": params.get("key_path", ""),
+            },
+        })
+    elif proto == "hysteria2":
+        base.update({
+            "type": "hysteria2",
+            "users": [{"password": s.get("password", "")}],
+            "tls": {
+                "enabled": True,
+                "server_name": params.get("sni", ""),
+                "certificate_path": params.get("cert_path", ""),
+                "key_path": params.get("key_path", ""),
+            },
+        })
+        if params.get("obfs"):
+            base["obfs"] = params["obfs"]
+    elif proto == "socks5http":
+        # SOCKS5 + HTTP combined (mixed)
+        base.update({
+            "type": "mixed",
+            "users": [{"username": params.get("username", ""),
+                       "password": s.get("password", "")}]
+                       if params.get("username") else [],
+        })
+    else:
+        # Fallback to shadowsocks
+        base.update({
+            "type": "shadowsocks",
+            "method": s.get("method", "aes-256-gcm"),
+            "password": s.get("password", ""),
+        })
+    return base
+
+
 def build_config(cfg: AppConfig,
                  skip_rule_sets: set[str] | None = None) -> dict:
     """Build the full sing-box config dict.
@@ -496,10 +577,9 @@ def build_config(cfg: AppConfig,
         ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",
                "listen_port": cfg.share_lan_port}]
              if cfg.share_lan_enabled else []) + [
-            {"type": "shadowsocks", "tag": f"share-{s['id']}",
-             "listen": "0.0.0.0", "listen_port": s["port"],
-             "method": s["method"], "password": s["password"]}
+            _share_server_inbound(s)
             for s in (cfg.share_servers or [])
+            if s.get("enabled", 1)
         ],
         "outbounds": outbounds,
         "route": {
