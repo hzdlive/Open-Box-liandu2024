@@ -209,6 +209,7 @@
               <select
                 v-model="dlg.type"
                 class="select select-bordered w-full"
+                @change="onTypeChange"
               >
                 <option value="urltest">{{ $t('obx.urltestLong') }}</option>
                 <option value="selector">{{ $t('obx.selectorLong') }}</option>
@@ -228,7 +229,7 @@
               </div>
             </label>
             <label class="form-control">
-              <span class="label-text mb-1">{{ $t('obx.toleranceMs') }}</span>
+              <span class="label-text mb-1">{{ dlg.type === 'failover' ? $t('obx.toleranceMsLane') : $t('obx.toleranceMs') }}</span>
               <div class="flex items-center gap-1">
                 <input
                   v-model.number="dlg.tolerance_ms"
@@ -258,8 +259,11 @@
             </label>
           </div>
 
-          <!-- 动态组 / 静态组 切换 -->
-          <div class="mt-4 flex gap-2">
+          <!-- 动态组 / 静态组 切换（故障转移不显示，直接用页签） -->
+          <div
+            v-if="dlg.type !== 'failover'"
+            class="mt-4 flex gap-2"
+          >
             <button
               class="btn btn-sm"
               :class="dlg.mode === 'dynamic' ? 'btn-success' : 'btn-ghost'"
@@ -278,7 +282,7 @@
 
           <!-- 动态组：关键词 -->
           <div
-            v-if="dlg.mode === 'dynamic'"
+            v-if="dlg.type !== 'failover' && dlg.mode === 'dynamic'"
             class="mt-3"
           >
             <label class="form-control">
@@ -319,38 +323,77 @@
             v-else
             class="mt-3"
           >
+            <!-- 故障转移：主用/备用页签（1:1 对标原版） -->
             <div
               v-if="dlg.type === 'failover'"
               class="mb-3"
             >
-              <div class="mb-2 flex items-center justify-between">
-                <span class="label-text font-medium">{{ $t('obx.lanes') }}</span>
+              <p class="mb-2 text-xs opacity-60">{{ $t('obx.lanesHint2') }}</p>
+              <div class="mb-2 flex items-center gap-2">
                 <button
-                  class="btn btn-ghost btn-xs"
-                  @click="dlg.lanes.push({ name: `lane${dlg.lanes.length + 1}`, members: [] })"
+                  v-for="(ln, idx) in dlg.lanes"
+                  :key="idx"
+                  class="btn btn-sm"
+                  :class="activeLane === idx ? 'btn-success' : 'btn-ghost'"
+                  @click="activeLane = Number(idx)"
                 >
-                  {{ $t('obx.addLane') }}
+                  {{ laneTabName(ln, Number(idx)) }} · {{ (ln.members || []).length }}
+                </button>
+                <button
+                  class="btn btn-ghost btn-sm btn-square"
+                  :title="$t('obx.addLane')"
+                  @click="addLane"
+                >
+                  +
                 </button>
               </div>
               <div
-                v-for="(ln, i) in dlg.lanes"
-                :key="i"
-                class="mb-2 flex items-center gap-2"
+                v-if="dlg.lanes[activeLane]"
+                class="flex items-end gap-2"
               >
-                <input
-                  v-model="ln.name"
-                  class="input input-bordered input-sm w-32"
-                  :placeholder="$t('obx.laneName')"
-                />
-                <span class="text-xs opacity-60">{{ $t('obx.laneMembersHint') }}</span>
+                <label class="form-control">
+                  <span class="label-text mb-1 text-xs">{{ $t('obx.icon') }}</span>
+                  <select
+                    v-model="dlg.lanes[activeLane].icon"
+                    class="select select-bordered select-sm w-28"
+                  >
+                    <option value="">{{ $t('obx.none') }}</option>
+                    <option
+                      v-for="ic in ICONS"
+                      :key="ic.value"
+                      :value="ic.value"
+                    >
+                      {{ ic.label }}
+                    </option>
+                  </select>
+                </label>
+                <label class="form-control flex-1">
+                  <span class="label-text mb-1 text-xs">{{ $t('obx.laneNameOpt') }}</span>
+                  <input
+                    v-model="dlg.lanes[activeLane].name"
+                    class="input input-bordered input-sm w-full"
+                    :placeholder="activeLane === 0 ? '主用' : `备用 ${activeLane}`"
+                  />
+                </label>
+                <label class="form-control">
+                  <span class="label-text mb-1 text-xs">{{ $t('obx.laneMode') }}</span>
+                  <select
+                    v-model="dlg.lanes[activeLane].mode"
+                    class="select select-bordered select-sm"
+                  >
+                    <option value="auto">{{ $t('obx.laneModeAuto') }}</option>
+                    <option value="manual">{{ $t('obx.laneModeManual') }}</option>
+                  </select>
+                </label>
                 <button
-                  class="btn btn-ghost btn-xs text-error"
-                  @click="dlg.lanes.splice(i, 1)"
+                  v-if="dlg.lanes.length > 1"
+                  class="btn btn-ghost btn-sm text-error"
+                  :title="$t('obx.delete')"
+                  @click="removeLane(activeLane)"
                 >
-                  ✕
+                  🗑
                 </button>
               </div>
-              <p class="text-xs opacity-60">{{ $t('obx.lanesHint') }}</p>
             </div>
             <div class="grid grid-cols-[1fr_auto_1fr] gap-3">
               <div class="rounded-box border border-base-300/30">
@@ -420,7 +463,7 @@
               <div class="rounded-box border border-base-300/30">
                 <div class="border-b border-base-300/30 p-2">
                   <div class="mb-2 flex items-center justify-between">
-                    <span class="text-sm font-medium">{{ $t('obx.selectedN', { n: dlg.members.length }) }}</span>
+                    <span class="text-sm font-medium">{{ $t('obx.selectedN', { n: curMembers.length }) }}</span>
                     <input
                       v-model="selFilter"
                       class="input input-bordered input-xs w-32"
@@ -541,7 +584,7 @@ type Group = {
   test_url: string
   icon: string
   icon_scale: number
-  lanes: { name: string; members: string[] }[]
+  lanes: { name: string; icon: string; mode: string; members: string[] }[]
   builtin?: boolean
   detail?: string
 }
@@ -559,6 +602,40 @@ const availFilter = ref('')
 const selFilter = ref('')
 const availChecked = ref<string[]>([])
 const selChecked = ref<string[]>([])
+const activeLane = ref(0)
+
+// 当前编辑的成员列表：failover 时为当前页签的 members，否则为 dlg.members
+const curMembers = computed<string[]>({
+  get() {
+    if (!dlg.value) return []
+    if (dlg.value.type === 'failover') {
+      const ln = dlg.value.lanes?.[activeLane.value]
+      return (ln?.members || []) as string[]
+    }
+    return (dlg.value.members || []) as string[]
+  },
+  set(v: string[]) {
+    if (!dlg.value) return
+    if (dlg.value.type === 'failover') {
+      const ln = dlg.value.lanes?.[activeLane.value]
+      if (ln) ln.members = v
+    } else {
+      dlg.value.members = v
+    }
+  },
+})
+function laneTabName(ln: any, i: number) {
+  return (ln?.name || '').trim() || (i === 0 ? '主用' : `备用 ${i}`)
+}
+function addLane() {
+  dlg.value.lanes.push({ name: '', icon: '', mode: 'auto', members: [] })
+  activeLane.value = dlg.value.lanes.length - 1
+}
+function removeLane(i: number) {
+  dlg.value.lanes.splice(i, 1)
+  if (activeLane.value >= dlg.value.lanes.length)
+    activeLane.value = Math.max(0, dlg.value.lanes.length - 1)
+}
 
 function typeBadge(ty: string) {
   return {
@@ -586,13 +663,13 @@ const hitCount = computed(() => hitTags.value.length)
 
 // 可选列表 = 全部标签 - 已选
 const availList = computed(() => {
-  const sel = new Set(dlg.value?.members || [])
+  const sel = new Set(curMembers.value)
   const f = availFilter.value.trim().toLowerCase()
   return allTags.value.filter((x) => !sel.has(x.tag) && (!f || x.tag.toLowerCase().includes(f)))
 })
 const selList = computed<string[]>(() => {
   const f = selFilter.value.trim().toLowerCase()
-  return ((dlg.value?.members || []) as string[]).filter((m: string) => !f || m.toLowerCase().includes(f))
+  return curMembers.value.filter((m: string) => !f || m.toLowerCase().includes(f))
 })
 
 function selectAllAvail() { availChecked.value = availList.value.map((x) => x.tag) }
@@ -608,14 +685,14 @@ function invertSel() {
 }
 function clearSel() { selChecked.value = [] }
 function moveToSelected() {
-  const sel = new Set(dlg.value.members)
+  const sel = new Set(curMembers.value)
   availChecked.value.forEach((x) => sel.add(x))
-  dlg.value.members = [...sel]
+  curMembers.value = [...sel]
   availChecked.value = []
 }
 function moveToAvail() {
   const rm = new Set(selChecked.value)
-  dlg.value.members = dlg.value.members.filter((x: string) => !rm.has(x))
+  curMembers.value = curMembers.value.filter((x: string) => !rm.has(x))
   selChecked.value = []
 }
 
@@ -660,20 +737,29 @@ function baseDlg() {
     interval_s: 300, tolerance_ms: 100, idle_timeout: '12h',
     expected_status: '', test_url: '',
     mode: 'dynamic', keywords: '', members: [] as string[],
-    lanes: [] as { name: string; members: string[] }[],
+    lanes: [] as { name: string; icon: string; mode: string; members: string[] }[],
   }
 }
 function openAdd() {
   dlgErr.value = ''
   availFilter.value = ''; selFilter.value = ''
   availChecked.value = []; selChecked.value = []
+  activeLane.value = 0
   dlg.value = baseDlg()
   loadTags()
+}
+// 切换到故障转移时自动创建主用页签
+function onTypeChange() {
+  if (dlg.value?.type === 'failover' && !dlg.value.lanes.length) {
+    dlg.value.lanes.push({ name: '', icon: '', mode: 'auto', members: [] })
+    activeLane.value = 0
+  }
 }
 function openEdit(g: Group) {
   dlgErr.value = ''
   availFilter.value = ''; selFilter.value = ''
   availChecked.value = []; selChecked.value = []
+  activeLane.value = 0
   const isDynamic = !!(g.dynamic_keywords?.length) || (g.members || []).some((m) => m === '*nodes*' || m === '*all*')
   dlg.value = {
     ...baseDlg(),
@@ -685,7 +771,10 @@ function openEdit(g: Group) {
     mode: isDynamic ? 'dynamic' : 'static',
     keywords: (g.dynamic_keywords || []).join(', '),
     members: (g.members || []).filter((m) => m !== '*nodes*' && m !== '*all*'),
-    lanes: (g.lanes || []).map((ln: any) => ({ name: ln.name, members: [...(ln.members || [])] })),
+    lanes: (g.lanes || []).map((ln: any) => ({
+      name: ln.name || '', icon: ln.icon || '',
+      mode: ln.mode || 'auto', members: [...(ln.members || [])],
+    })),
   }
   loadTags()
 }
@@ -701,7 +790,10 @@ async function save() {
       // 内置组只能改名和图标
       await obxPut(`/api/groups/${d.id}`, { name: d.name.trim(), icon: d.icon, icon_scale: d.icon_scale })
     } else {
-      const lanes = (d.lanes || []).map((ln: any) => ({ name: (ln.name || '').trim(), members: ln.members || [] }))
+      const lanes = (d.lanes || []).map((ln: any) => ({
+        name: (ln.name || '').trim(), icon: ln.icon || '',
+        mode: ln.mode || 'auto', members: ln.members || [],
+      }))
       const body: any = {
         name: d.name.trim(), type: d.type,
         icon: d.icon, icon_scale: d.icon_scale,
@@ -710,7 +802,11 @@ async function save() {
         expected_status: d.expected_status, test_url: d.test_url,
         lanes,
       }
-      if (d.mode === 'dynamic') {
+      if (d.type === 'failover') {
+        // 故障转移：成员全在页签里，顶层 members/dynamic_keywords 为空
+        body.members = []
+        body.dynamic_keywords = []
+      } else if (d.mode === 'dynamic') {
         body.dynamic_keywords = d.keywords.split(',').map((s: string) => s.trim()).filter(Boolean)
         body.members = []
       } else {

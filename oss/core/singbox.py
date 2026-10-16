@@ -186,9 +186,10 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         elif g.type == "failover":
             # Native sing-box failover: kernel-level health checking and
             # automatic fallback, no panel-side watcher required.
-            # 1:1 with the original: lanes = primary/backup tabs. Each lane
-            # becomes a failover outbound; the top-level failover tries the
-            # lanes in order.
+            # 1:1 with the original: lanes = 主用/备用1/备用2... tabs.
+            # Each lane: single node -> used directly; multi-node ->
+            # auto=urltest (by speed) or manual=selector (pick in proxy page).
+            # Top-level failover tries lanes in order.
             fo_kwargs = {"check_url": g.test_url or cfg.speedtest_url,
                          "check_interval": f"{g.interval_s}s"}
             if g.expected_status:
@@ -196,13 +197,28 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
             if g.lanes:
                 lane_tags = []
                 for i, ln in enumerate(g.lanes):
-                    lane_tag = f"{g.name}#{ln.get('name') or f'line{i+1}'}"
+                    lane_name = ln.get("name") or (f"备用{i}" if i > 0 else "主用")
+                    lane_tag = f"{g.name}#{lane_name}"
                     lane_members = [t for t in (ln.get("members") or [])
                                     if t in node_tags or t in chain_tags]
-                    outbounds.append({"type": "failover", "tag": lane_tag,
-                                      "outbounds": lane_members or ["direct"],
-                                      **fo_kwargs})
-                    lane_tags.append(lane_tag)
+                    if not lane_members:
+                        lane_members = ["direct"]
+                    if len(lane_members) == 1:
+                        # 单节点页签直接使用
+                        lane_tags.append(lane_members[0])
+                    elif (ln.get("mode") or "auto") == "manual":
+                        outbounds.append({"type": "selector", "tag": lane_tag,
+                                          "outbounds": lane_members,
+                                          "default": lane_members[0]})
+                        lane_tags.append(lane_tag)
+                    else:
+                        outbounds.append({"type": "urltest", "tag": lane_tag,
+                                          "outbounds": lane_members,
+                                          "url": g.test_url or cfg.speedtest_url,
+                                          "interval": f"{g.interval_s}s",
+                                          "tolerance": g.tolerance_ms,
+                                          "idle_timeout": g.idle_timeout})
+                        lane_tags.append(lane_tag)
                 outbounds.append({"type": "failover", "tag": g.name,
                                   "outbounds": lane_tags or ["direct"],
                                   **fo_kwargs})

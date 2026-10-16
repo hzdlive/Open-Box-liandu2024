@@ -1129,17 +1129,27 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
 
 
 def _normalize_lanes(lanes) -> list[dict]:
-    """Normalize failover lanes to [{name, members[]}]."""
+    """Normalize failover lanes to [{name, icon, mode, members[]}].
+
+    1:1 对标原版：每页签有独立图标、名称（可选）、模式（auto=自动优选/urltest,
+    manual=手动选择/selector）。
+    """
     out = []
     if not isinstance(lanes, list):
         return out
     for i, ln in enumerate(lanes):
         if not isinstance(ln, dict):
             continue
-        name = str(ln.get("name") or f"lane{i+1}").strip()
+        name = str(ln.get("name") or "").strip()
+        mode = ln.get("mode") or "auto"
+        if mode not in ("auto", "manual"):
+            mode = "auto"
         members = [str(m).strip() for m in (ln.get("members") or [])
                    if str(m).strip()]
-        out.append({"name": name, "members": members})
+        out.append({"name": name,
+                    "icon": str(ln.get("icon") or "").strip(),
+                    "mode": mode,
+                    "members": members})
     return out
 
 
