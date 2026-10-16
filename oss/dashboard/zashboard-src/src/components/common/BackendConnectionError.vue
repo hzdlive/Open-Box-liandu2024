@@ -44,6 +44,17 @@
             {{ isRetrying ? $t('backendConnecting') : $t('retry') }}
           </button>
           <button
+            class="btn btn-success btn-sm flex-1"
+            :disabled="isStartingKernel"
+            @click="startKernel"
+          >
+            <span
+              v-if="isStartingKernel"
+              class="loading loading-spinner loading-xs"
+            ></span>
+            {{ $t('obx.startKernel') }}
+          </button>
+          <button
             class="btn btn-sm flex-1"
             @click="editActiveBackend"
           >
@@ -173,6 +184,28 @@ watch(
 )
 
 const retry = () => startBackendSession()
+
+const isStartingKernel = ref(false)
+const startKernel = async () => {
+  if (isStartingKernel.value) return
+  isStartingKernel.value = true
+  try {
+    // 调用面板 API 启动内核
+    const resp = await fetch('/api/service/start', { method: 'POST' })
+    if (resp.ok) {
+      // 等待内核启动后重试连接
+      setTimeout(() => {
+        startBackendSession()
+      }, 3000)
+    } else {
+      showNotification({ content: '启动内核失败', type: 'alert-error' })
+    }
+  } catch {
+    showNotification({ content: '启动内核失败', type: 'alert-error' })
+  } finally {
+    isStartingKernel.value = false
+  }
+}
 
 const editActiveBackend = () => {
   if (!activeUuid.value) return

@@ -386,6 +386,7 @@ const zh: LANG_MESSAGE = {
     diagPackHint: '版本、固件、内核状态、脱敏配置和最近日志打成一个文件,反馈问题时贴到 GitHub issue。',
     diagSafe: '已去掉密码、密钥、节点和订阅网址。可以直接贴到公开的 issue 里。',
     close: '关闭',
+    startKernel: '启动内核',
   },
 
   // 后端类型

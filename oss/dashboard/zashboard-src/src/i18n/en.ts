@@ -384,6 +384,7 @@ const en = {
     diagPackHint: '',
     diagSafe: '',
     close: 'Close',
+    startKernel: 'Start Kernel',
   },
 
   // Backend type

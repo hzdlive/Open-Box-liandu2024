@@ -386,6 +386,7 @@ const zhTW: LANG_MESSAGE = {
     diagPackHint: '',
     diagSafe: '',
     close: '關閉',
+    startKernel: '啟動內核',
   },
 
   // 後端類型
