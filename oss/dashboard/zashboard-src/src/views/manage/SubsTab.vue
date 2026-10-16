@@ -196,7 +196,8 @@
                 class="textarea textarea-bordered w-full"
                 rows="6"
                 placeholder="粘贴 ss:// / trojan:// / hysteria2:// 等链接，或 Clash/sing-box 配置…"
-              />
+                @input="debouncedPreview"
+              ></textarea>
             </label>
             <p class="mb-3 text-xs opacity-60">一行一个节点链接（ss:// / trojan:// / vless:// / socks5:// 等），也支持整段 Clash / sing-box 配置。</p>
           </div>
@@ -235,7 +236,7 @@
                 class="textarea textarea-bordered w-full"
                 rows="3"
                 placeholder="粘贴 base64 订阅 / 链接列表 / Clash YAML"
-              />
+              @input="debouncedPreview"></textarea>
               <button
                 class="btn btn-ghost btn-sm mt-2"
                 :disabled="!dlg.manualContent.trim() || dlgBusy"
@@ -554,6 +555,13 @@ const shareCollapsed = ref(true)
 const previewNodes = ref<any[]>([])
 const previewBusy = ref(false)
 const previewErr = ref('')
+let previewTimer: any = null
+function debouncedPreview() {
+  if (previewTimer) clearTimeout(previewTimer)
+  previewTimer = setTimeout(() => {
+    doPreview()
+  }, 800)
+}
 const dragIdx = ref(-1)
 function dragStart(idx: number) {
   dragIdx.value = idx
