@@ -127,6 +127,18 @@ class TerminalPolicy:
 
 
 @dataclass
+class TerminalRule:
+    id: int = 0
+    name: str = ""
+    match_by: str = "ip"                  # ip | mac
+    targets: list = field(default_factory=list)
+    policy: str = "proxy"                 # proxy | direct | whitelist
+    outbound: str = ""
+    enabled: bool = True
+    position: int = 0
+
+
+@dataclass
 class AppConfig:
     nodes: list = field(default_factory=list)      # list[Node]
     site_sets: list = field(default_factory=list)  # list[SiteSet], top-down order
@@ -135,6 +147,7 @@ class AppConfig:
     dns: DnsConfig = field(default_factory=DnsConfig)
     dns_rewrites: list = field(default_factory=list)  # list[DnsRewrite]
     terminals: list = field(default_factory=list)     # list[TerminalPolicy]
+    terminal_rules: list = field(default_factory=list)  # list[TerminalRule]
     final_outbound: str = "所有-自动"  # fallback route
     routing_fallback: str = "direct"  # 1:1 original: unmatched -> direct
     tun_stack: str = "mixed"     # mixed | gvisor | system

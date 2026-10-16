@@ -1333,6 +1333,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         cfg = dbmod.load_app_config(c)
         rewrites = [(r.domain, r.target) for r in cfg.dns_rewrites]
         bypass_terms = [t.ident for t in cfg.terminals if t.policy == "bypass"]
+        # terminal_rules: direct -> bypass kernel; whitelist -> only listed enter
+        whitelist_terms = []
+        for tr in getattr(cfg, "terminal_rules", []) or []:
+            if tr.policy == "direct":
+                # direct: never enter kernel (IP or MAC)
+                bypass_terms.extend(tr.targets)
+            elif tr.policy == "whitelist":
+                whitelist_terms.extend(tr.targets)
         site_domains = []
         for s in cfg.site_sets:
             # dnsmasq server=/domain/ matches the domain and its subdomains
@@ -1360,6 +1368,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             enable_ipv6=d.get("ipv6", "1") == "1",
             quic_block=cfg.quic_block,
             terminal_bypass=bypass_terms,
+            terminal_whitelist=whitelist_terms,
             dns_rewrites=rewrites,
             dns_direct_ip=_strip_scheme(cfg.dns.direct_dns),
             dns_proxy_ip=_strip_scheme(cfg.dns.proxy_dns),

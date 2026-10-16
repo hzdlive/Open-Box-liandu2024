@@ -48,6 +48,7 @@ class TransparentConfig:
     quic_block: bool = True         # reject UDP/443 so browsers fall back to TCP
     mss_clamp: int = 0              # TCP MSS clamp value; 0 = off
     terminal_bypass: list = field(default_factory=list)  # idents (IP/CIDR) that never enter the kernel
+    terminal_whitelist: list = field(default_factory=list)  # if non-empty, ONLY these enter kernel
     dns_rewrites: list = field(default_factory=list)     # (domain, target) for dnsmasq address=
     dns_direct_ip: str = ""         # direct upstream, for per-domain server= lines
     dns_proxy_ip: str = ""          # proxy upstream, for per-domain server= lines
@@ -111,6 +112,44 @@ def nft_script(cfg: TransparentConfig) -> str:
         tbypass_rule += "\n        ip saddr @tbypass accept"
     if _mac_terms:
         tbypass_rule += "\n        ether saddr @macbypass accept"
+    # Whitelist mode: only listed terminals enter the kernel; all other
+    # LAN traffic bypasses (like OpenClash whitelist). DNS also bypasses
+    # for non-whitelisted (handled by placing before DNS accept).
+    _wmac_terms, _wip_terms = _arp.split_mac_ip(cfg.terminal_whitelist or [])
+    whitelist_set = ""
+    whitelist_rule = ""
+    if _wip_terms or _wmac_terms:
+        if _wip_terms:
+            welts = ",\n        ".join(_wip_terms)
+            whitelist_set += f"""
+        set twhitelist {{
+            type ipv4_addr
+            flags interval
+            elements = {{
+                {welts}
+            }}
+        }}"""
+        if _wmac_terms:
+            wmel = ",\n        ".join(_wmac_terms)
+            whitelist_set += f"""
+        set macwhitelist {{
+            type ether_addr
+            elements = {{
+                {wmel}
+            }}
+        }}"""
+        # Bypass if NOT in whitelist (IP and MAC)
+        conds = []
+        if _wip_terms:
+            conds.append("ip saddr != @twhitelist")
+        if _wmac_terms:
+            conds.append("ether saddr != @macwhitelist")
+        # If both IP and MAC whitelists exist, bypass if NEITHER matches
+        # (conservative: require at least one match to enter kernel)
+        if len(conds) == 2:
+            whitelist_rule = "\n        ip saddr != @twhitelist ether saddr != @macwhitelist accept"
+        else:
+            whitelist_rule = f"\n        {conds[0]} accept"
     # QUIC block: proxied UDP/443 is often poorly forwarded; rejecting it
     # makes browsers fall back to TCP. Placed before the tproxy rule.
     quic_rule = "\n        udp dport 443 reject" if cfg.quic_block else ""
@@ -152,12 +191,12 @@ table inet openbox-oss {{
             elements = {{
                 {b4}
             }}
-        }}{v6_chain}{bypass_terminals}{direct_set}
+        }}{v6_chain}{bypass_terminals}{whitelist_set}{direct_set}
 
     chain prerouting {{
         type filter hook prerouting priority mangle; policy accept;
         iifname != "{cfg.lan_iface}" accept
-        ip daddr @bypass4 accept{tbypass_rule}{direct_rule}
+        ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}
         tcp dport 53 accept
         udp dport 53 accept{port_rule}{quic_rule}{mss_rule}
         meta l4proto tcp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept

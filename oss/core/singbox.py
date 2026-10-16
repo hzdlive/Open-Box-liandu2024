@@ -285,6 +285,23 @@ def build_route_rules(cfg: AppConfig,
         [t.ident for t in cfg.terminals if t.policy == "direct"])
     if direct_terms:
         route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
+    # Terminal rules (1:1): proxy policy -> source_ip_cidr to specified outbound.
+    # Evaluated before site sets. MAC targets resolve to current ARP IPs.
+    # direct/whitelist policies are handled at nftables level (see transparent.py).
+    for tr in getattr(cfg, "terminal_rules", []) or []:
+        if tr.policy != "proxy" or not tr.outbound:
+            continue
+        cidrs = []
+        if tr.match_by == "mac":
+            cidrs = _arp.expand_terminal_idents(tr.targets)
+        else:
+            for t in tr.targets:
+                t = str(t).strip()
+                if t:
+                    # Normalize to CIDR if plain IP
+                    cidrs.append(t if "/" in t else f"{t}/32")
+        if cidrs:
+            route_rules.append({"source_ip_cidr": cidrs, "outbound": tr.outbound})
     # Front custom routing: user domain -> target mappings, evaluated before
     # every site set. Target is a group name, node tag, "direct" or "reject".
     for fr in cfg.front_rules or []:

@@ -876,7 +876,7 @@ def delete_device(conn: sqlite3.Connection, did: int) -> bool:
 
 def load_app_config(conn: sqlite3.Connection):
     from core.models import (AppConfig, Chain, DnsConfig, DnsRewrite, Group, Node,
-                             SiteSet, TerminalPolicy)
+                             SiteSet, TerminalPolicy, TerminalRule)
     from core.ruleset import parse_ruleset_text
     nodes = [
         Node(tag=r[0], protocol=r[1], server=r[2], server_port=r[3],
@@ -975,9 +975,25 @@ def load_app_config(conn: sqlite3.Connection):
     terminals = [
         TerminalPolicy(id=r[0], ident=r[1], name=r[2], policy=r[3])
         for r in conn.execute("SELECT id, ident, name, policy FROM terminal_policies ORDER BY ident")]
+    terminal_rules = []
+    try:
+        for r in conn.execute(
+                "SELECT id, name, match_by, targets, policy, outbound, enabled, position"
+                " FROM terminal_rules WHERE enabled=1 ORDER BY position, id"):
+            try:
+                targets = json.loads(r[3]) if r[3] else []
+            except Exception:
+                targets = []
+            terminal_rules.append(TerminalRule(
+                id=r[0], name=r[1] or "", match_by=r[2] or "ip",
+                targets=targets if isinstance(targets, list) else [],
+                policy=r[4] or "proxy", outbound=r[5] or "",
+                enabled=bool(r[6]), position=r[7] or 0))
+    except Exception:
+        pass
     return AppConfig(
         nodes=nodes, site_sets=site_sets, groups=groups, chains=chains, dns=dns,
-        dns_rewrites=rewrites, terminals=terminals,
+        dns_rewrites=rewrites, terminals=terminals, terminal_rules=terminal_rules,
         front_rules=[r for r in list_front_rules(conn) if r["enabled"]],
         final_outbound=get_setting(conn, "final_outbound", "所有-自动"),
         routing_fallback=get_setting(conn, "routing_fallback", "direct"),
