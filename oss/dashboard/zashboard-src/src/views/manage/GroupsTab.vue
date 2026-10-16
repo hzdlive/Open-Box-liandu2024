@@ -35,7 +35,7 @@
         :key="g.id"
         class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
         :class="{ 'opacity-60': !g.enabled && !g.builtin, 'ring-2 ring-primary': dragOver === gi }"
-        :draggable="!g.builtin"
+        draggable="true"
         @dragstart="onDragStart(gi)"
         @dragover.prevent="onDragOver(gi)"
         @dragleave="dragOver = -1"
@@ -43,7 +43,6 @@
         @dragend="dragOver = -1"
       >
         <span
-          v-if="!g.builtin"
           class="cursor-move opacity-40"
           title="拖拽排序"
         >≡</span>
@@ -836,14 +835,13 @@ async function toggle(g: Group) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
 }
 
-// 拖拽排序（1:1 对标原版；内置组不可拖动）
+// 拖拽排序（1:1 对标原版；内置组也可拖动）
 const dragFrom = ref(-1)
 const dragOver = ref(-1)
 function onDragStart(i: number) {
   dragFrom.value = i
 }
 function onDragOver(i: number) {
-  if (groups.value[i]?.builtin) return
   dragOver.value = i
 }
 async function onDrop(i: number) {
@@ -851,19 +849,12 @@ async function onDrop(i: number) {
   dragFrom.value = -1
   dragOver.value = -1
   if (from < 0 || from === i) return
-  if (groups.value[from]?.builtin || groups.value[i]?.builtin) return
-  // 只对非内置组做排序
-  const editable = groups.value.filter((g) => !g.builtin)
-  const fromIdx = editable.findIndex((g) => g.id === groups.value[from].id)
-  const toIdx = editable.findIndex((g) => g.id === groups.value[i].id)
-  if (fromIdx < 0 || toIdx < 0) return
-  const [moved] = editable.splice(fromIdx, 1)
-  editable.splice(toIdx, 0, moved)
-  // 重建完整列表：直连 + 排序后的用户组 + 拒绝
-  const head = groups.value.filter((g) => g.builtin && g.id === 0)
-  const tail = groups.value.filter((g) => g.builtin && g.id === -1)
-  groups.value = [...head, ...editable, ...tail]
-  const ids = editable.map((g) => g.id)
+  const list = [...groups.value]
+  const [moved] = list.splice(from, 1)
+  list.splice(i, 0, moved)
+  groups.value = list
+  // 完整顺序（含内置组 id）发给后端
+  const ids = list.map((g) => g.id)
   try {
     await obxPost('/api/groups/reorder', { ids })
   } catch (e) {

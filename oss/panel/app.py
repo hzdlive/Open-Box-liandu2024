@@ -897,6 +897,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         ids = d.get("ids") or []
         if not isinstance(ids, list) or not all(isinstance(x, int) for x in ids):
             return jsonify({"error": "ids must be a list of ints"}), 400
+        # 1:1 对标原版：ids 包含内置组（0=直连, -1=拒绝），完整顺序存 setting
         dbmod.reorder_groups(db(), ids)
         return jsonify({"ok": True})
 

@@ -1115,16 +1115,45 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
             any(m in ("*nodes*", "*all*") for m in (g["members"] or []))
         out.append(g)
     # built-in groups: 直连 first (原版默认排第一个), 拒绝 last
-    out.insert(0, {"id": 0, "name": "direct", "type": "builtin", "members": [],
+    # 1:1 对标原版：内置组也可拖拽排序，顺序持久化在 group_order setting
+    # （0=直连, -1=拒绝, 正数=用户组 id）
+    builtin_direct = {"id": 0, "name": "direct", "type": "builtin", "members": [],
                 "dynamic_keywords": [], "position": -1, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
                 "dynamic": False, "builtin": True, "desc": "直连",
-                "detail": "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。"})
-    out.append({"id": -1, "name": "block", "type": "builtin", "members": [],
+                "detail": "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。"}
+    builtin_block = {"id": -1, "name": "block", "type": "builtin", "members": [],
                 "dynamic_keywords": [], "position": 9999, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
                 "dynamic": False, "builtin": True, "desc": "拒绝",
-                "detail": "命中的流量直接丢弃。"})
+                "detail": "命中的流量直接丢弃。"}
+    # 按 group_order setting 排序（包含内置组）
+    try:
+        order = json.loads(get_setting(conn, "group_order", "") or "[]")
+    except ValueError:
+        order = []
+    if order:
+        by_id = {g["id"]: g for g in out}
+        by_id[0] = builtin_direct
+        by_id[-1] = builtin_block
+        ordered = []
+        seen = set()
+        for gid in order:
+            if gid in by_id and gid not in seen:
+                ordered.append(by_id[gid])
+                seen.add(gid)
+        # 新组追加到末尾（拒绝之前）
+        for g in out:
+            if g["id"] not in seen:
+                ordered.append(g)
+                seen.add(g["id"])
+        if 0 not in seen:
+            ordered.insert(0, builtin_direct)
+        if -1 not in seen:
+            ordered.append(builtin_block)
+        return ordered
+    out.insert(0, builtin_direct)
+    out.append(builtin_block)
     return out
 
 
@@ -1263,9 +1292,19 @@ def delete_group(conn: sqlite3.Connection, gid: int) -> bool:
 
 
 def reorder_groups(conn: sqlite3.Connection, ordered_ids: list[int]) -> None:
-    """Set group positions from an ordered list of group ids."""
-    for pos, gid in enumerate(ordered_ids):
-        conn.execute("UPDATE groups SET position=? WHERE id=?", (pos, gid))
+    """Set group positions from an ordered list of group ids.
+
+    1:1 对标原版：ordered_ids 包含内置组（0=直连, -1=拒绝）。
+    用户组按 position 排序，完整顺序（含内置组）存入 group_order setting。
+    """
+    # 用户组：按传入顺序更新 position
+    pos = 0
+    for gid in ordered_ids:
+        if gid > 0:  # 只更新真实存在的用户组
+            conn.execute("UPDATE groups SET position=? WHERE id=?", (pos, gid))
+            pos += 1
+    # 完整顺序存 setting（含内置组）
+    set_setting(conn, "group_order", json.dumps(ordered_ids, ensure_ascii=False))
     conn.commit()
     bump_rev(conn)
 
