@@ -265,15 +265,23 @@
               >
                 <button
                   class="input input-bordered input-sm flex w-full items-center justify-between"
-                  @click="toggleGeoDrop(ri, r.type)"
+                  type="button"
+                  @click="toggleGeoDrop(ri, r.type, $event)"
                 >
                   <span class="truncate">{{ r.value || rulePh(r.type) }}</span>
                   <span>▾</span>
                 </button>
-                <div
-                  v-if="geoOpen === `${ri}`"
-                  class="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
-                >
+                <Teleport to="body">
+                  <div
+                    v-if="geoOpen === '' + ri"
+                    class="fixed inset-0 z-[99]"
+                    @click="geoOpen = ''"
+                  ></div>
+                  <div
+                    v-if="geoOpen === '' + ri"
+                    class="fixed z-[100] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+                    :style="geoPos"
+                  >
                   <div class="flex items-center gap-1 border-b border-base-300 p-2">
                     <input
                       v-model="geoSearch"
@@ -306,8 +314,9 @@
                       <span class="text-sm font-medium">{{ item.code }}</span>
                       <span class="text-xs opacity-60">{{ item.desc }}</span>
                     </button>
+                    </div>
                   </div>
-                </div>
+                </Teleport>
               </div>
               <input
                 v-else
@@ -424,15 +433,23 @@
             >
               <button
                 class="input input-bordered input-sm flex w-full items-center justify-between"
-                @click="toggleGeoDrop(`f${fri}`, r.type)"
+                type="button"
+                @click="toggleGeoDrop('f' + fri, r.type, $event)"
               >
                 <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : rulePh(r.type) }}</span>
                 <span>▾</span>
               </button>
-              <div
-                v-if="geoOpen === `f${fri}`"
-                class="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
-              >
+              <Teleport to="body">
+                <div
+                  v-if="geoOpen === 'f' + fri"
+                  class="fixed inset-0 z-[99]"
+                  @click="geoOpen = ''"
+                ></div>
+                <div
+                  v-if="geoOpen === 'f' + fri"
+                  class="fixed z-[100] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+                  :style="geoPos"
+                >
                 <div class="flex items-center gap-1 border-b border-base-300 p-2">
                   <input
                     v-model="geoSearch"
@@ -459,6 +476,7 @@
                   </button>
                 </div>
               </div>
+                </Teleport>
             </div>
             <input
               v-else
@@ -735,13 +753,23 @@ function rulePh(type: string) {
 const geoOpen = ref<string>('')
 const geoSearch = ref('')
 const geoFilter = ref('all')
-function toggleGeoDrop(ri: number | string, type: string) {
-  const key = `${ri}`
+const geoPos = ref({ left: '0px', top: '0px' })
+function toggleGeoDrop(ri: number | string, type: string, ev?: Event) {
+  const key = String(ri)
   if (geoOpen.value === key) {
     geoOpen.value = ''
   } else {
     geoOpen.value = key
     geoSearch.value = ''
+    // 计算下拉位置（Teleport 到 body，用 fixed 定位）
+    if (ev && ev.currentTarget) {
+      const el = ev.currentTarget as HTMLElement
+      const rect = el.getBoundingClientRect()
+      geoPos.value = {
+        left: `${rect.left}px`,
+        top: `${rect.bottom + 4}px`,
+      }
+    }
   }
 }
 function onGeoSearch() {
