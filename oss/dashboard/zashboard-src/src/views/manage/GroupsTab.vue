@@ -270,6 +270,7 @@
             class="mt-4 flex gap-2"
           >
             <button
+              type="button"
               class="btn btn-sm"
               :class="dlg.mode === 'dynamic' ? 'btn-success' : 'btn-ghost'"
               @click="dlg.mode = 'dynamic'"
@@ -277,6 +278,7 @@
               {{ $t('obx.dynamicGroup') }}
             </button>
             <button
+              type="button"
               class="btn btn-sm"
               :class="dlg.mode === 'static' ? 'btn-success' : 'btn-ghost'"
               @click="dlg.mode = 'static'"
@@ -812,8 +814,10 @@ async function save() {
         body.members = []
         body.dynamic_keywords = []
       } else if (d.mode === 'dynamic') {
-        body.dynamic_keywords = d.keywords.split(',').map((s: string) => s.trim()).filter(Boolean)
-        body.members = []
+        const kws = d.keywords.split(',').map((s: string) => s.trim()).filter(Boolean)
+        body.dynamic_keywords = kws
+        // 动态组无关键词时用 *all* 标记，避免回显时被误判为静态组
+        body.members = kws.length ? [] : ['*all*']
       } else {
         body.members = d.members
         body.dynamic_keywords = []
