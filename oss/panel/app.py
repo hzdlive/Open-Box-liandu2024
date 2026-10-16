@@ -598,6 +598,19 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.put("/api/sitesets/order")
+    def siteset_order():
+        d = request.get_json(force=True, silent=True) or {}
+        order = d.get("order") or d.get("ids") or []
+        c = db()
+        for i, sid in enumerate(order):
+            try:
+                c.execute("UPDATE site_sets SET position=? WHERE id=?", (i, int(sid)))
+            except (TypeError, ValueError):
+                continue
+        c.commit()
+        return jsonify({"ok": True})
+
     # ---- front custom routing (evaluated before all site sets) ----
     @app.get("/api/front-rules")
     def front_rules_list():

@@ -1,12 +1,11 @@
-<!-- Open-Box 二开：管理中心。订阅管理已完整移植，其余模块按优先级逐步从旧版 UI 移植；
-     过渡期可通过 /legacy/ 使用旧版完整管理界面。 -->
+<!-- Open-Box 二开：管理中心。各模块由旧版自研 UI 移植；过渡期 /legacy/ 仍可用。 -->
 <template>
   <div class="mx-auto max-w-6xl p-4">
-    <div class="tabs tabs-boxed mb-4 w-fit">
+    <div class="tabs tabs-boxed mb-4 w-fit max-w-full flex-wrap">
       <a
         v-for="t in tabs"
         :key="t.key"
-        class="tab"
+        class="tab whitespace-nowrap"
         :class="{ 'tab-active': active === t.key }"
         @click="active = t.key"
       >
@@ -15,37 +14,36 @@
     </div>
 
     <SubsTab v-if="active === 'subs'" />
-
-    <div
-      v-else
-      class="alert"
-    >
-      <span>
-        「{{ currentLabel }}」正在从旧版 UI 移植中，过渡期请使用
-        <a
-          href="/legacy/"
-          class="link link-primary"
-        >旧版管理界面</a>。
-      </span>
-    </div>
+    <GroupsTab v-else-if="active === 'groups'" />
+    <SitesTab v-else-if="active === 'sites'" />
+    <DnsTab v-else-if="active === 'dns'" />
+    <TerminalsTab v-else-if="active === 'terminals'" />
+    <ChainsTab v-else-if="active === 'chains'" />
+    <SettingsTab v-else-if="active === 'settings'" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { computed, ref } from 'vue'
+import ChainsTab from './ChainsTab.vue'
+import DnsTab from './DnsTab.vue'
+import GroupsTab from './GroupsTab.vue'
+import SettingsTab from './SettingsTab.vue'
+import SitesTab from './SitesTab.vue'
 import SubsTab from './SubsTab.vue'
+import TerminalsTab from './TerminalsTab.vue'
 
 const { t } = useI18n()
 const active = ref('subs')
 
 const tabs = computed(() => [
   { key: 'subs', label: t('obx.subscriptions') },
+  { key: 'groups', label: t('obx.groups') },
   { key: 'sites', label: t('obx.siteSets') },
   { key: 'dns', label: t('obx.dns') },
-  { key: 'groups', label: t('obx.groups') },
+  { key: 'terminals', label: t('obx.terminals') },
+  { key: 'chains', label: t('obx.chains') },
   { key: 'settings', label: t('obx.panelSettings') },
 ])
-
-const currentLabel = computed(() => tabs.value.find((x) => x.key === active.value)?.label ?? '')
 </script>

@@ -85,9 +85,8 @@ const hard = computed(() => {
   const singbox = !!activeBackend.value && channel.value === Channel.Singbox
 
   return {
-    // 弃用公告要覆盖两种 sing-box 用法:原生 gRPC 通道同步可知；Clash 兼容
-    // 通道则等版本探测确认内核后再提示。
-    singboxDeprecationNotice: singbox || core.value === Core.Singbox,
+    // Open-Box 二开：本分支自行维护 sing-box 支持，不跟进上游弃用决定，公告永久关闭。
+    singboxDeprecationNotice: false,
     rules: clash,
     dnsQuery: clash,
     dnsFlush: clash,
