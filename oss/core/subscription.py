@@ -198,8 +198,68 @@ def _parse_anytls(link: str, seen: set) -> Node | None:
     )
 
 
+def looks_like_singbox_json(text: str) -> bool:
+    """Detect sing-box JSON config (has outbounds array)."""
+    head = text.lstrip()[:500]
+    if not head.startswith("{"):
+        return False
+    try:
+        import json
+        d = json.loads(text[:50000])
+        return isinstance(d.get("outbounds"), list)
+    except Exception:
+        return False
+
+
+def parse_singbox_json(text: str) -> list[Node]:
+    """Parse sing-box JSON config outbounds into Nodes. Skips selector/urltest/direct/block."""
+    import json
+    try:
+        d = json.loads(text)
+    except Exception:
+        return []
+    nodes: list[Node] = []
+    seen: set = set()
+    skip_types = {"selector", "urltest", "direct", "block", "dns", "wireguard"}
+    # wireguard 需要私钥等复杂配置，暂跳过
+    for ob in d.get("outbounds", []):
+        if not isinstance(ob, dict):
+            continue
+        t = str(ob.get("type", "")).lower()
+        if t in skip_types or not t:
+            continue
+        tag = str(ob.get("tag", "") or t)
+        server = str(ob.get("server", "") or "")
+        try:
+            port = int(ob.get("server_port") or 0)
+        except (TypeError, ValueError):
+            port = 0
+        if not server or not port:
+            continue
+        # 协议名映射到内部协议
+        proto_map = {
+            "vless": "vless", "vmess": "vmess", "trojan": "trojan",
+            "shadowsocks": "shadowsocks", "ss": "shadowsocks",
+            "tuic": "tuic", "hysteria2": "hysteria2", "hy2": "hysteria2",
+            "anytls": "anytls", "socks": "socks", "http": "http",
+        }
+        protocol = proto_map.get(t, t)
+        # 提取 params（保留原始 outbound 字段供配置生成用）
+        params = {k: v for k, v in ob.items() if k not in ("type", "tag", "server", "server_port")}
+        node = Node(
+            tag=_unique_tag(tag, seen),
+            protocol=protocol, server=server, server_port=port,
+            params=params,
+        )
+        nodes.append(node)
+    return nodes
+
+
 def parse_subscription(text: str) -> list[Node]:
     """Parse subscription text into a list of Nodes. Unknown lines are skipped."""
+    # sing-box JSON 配置
+    if looks_like_singbox_json(text):
+        return parse_singbox_json(text)
     nodes: list[Node] = []
     seen: set = set()
     for raw in _maybe_b64_body(text).splitlines():
