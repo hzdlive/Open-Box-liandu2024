@@ -1114,9 +1114,9 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
         g["dynamic"] = bool(g["dynamic_keywords"]) or \
             any(m in ("*nodes*", "*all*") for m in (g["members"] or []))
         out.append(g)
-    # built-in groups
-    out.append({"id": 0, "name": "direct", "type": "builtin", "members": [],
-                "dynamic_keywords": [], "position": 9998, "enabled": True,
+    # built-in groups: 直连 first (原版默认排第一个), 拒绝 last
+    out.insert(0, {"id": 0, "name": "direct", "type": "builtin", "members": [],
+                "dynamic_keywords": [], "position": -1, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
                 "dynamic": False, "builtin": True, "desc": "直连",
                 "detail": "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。"})
