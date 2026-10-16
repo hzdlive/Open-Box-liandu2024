@@ -743,6 +743,42 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.get("/api/status")
     def status():
         c = db()
+        # 内核版本与运行状态
+        kernel_version = ""
+        kernel_running = False
+        try:
+            from core import service as _svc
+            km = _svc.KernelManager()
+            v = km.version()
+            if v:
+                kernel_version = f"sing-box version {v}"
+            kernel_running = km.is_running()
+        except Exception:
+            pass
+        # Geo 数据统计
+        geosite_n = geoip_n = 0
+        geodata_time = ""
+        try:
+            from core import geodata as _gd
+            files = _gd.list_local()
+            for f_ in files:
+                if f_["kind"] == "geosite":
+                    geosite_n += 1
+                elif f_["kind"] == "geoip":
+                    geoip_n += 1
+            if files:
+                # 用最新的更新时间
+                times = [f_["updated_at"] for f_ in files if f_.get("updated_at")]
+                if times:
+                    geodata_time = sorted(times)[-1]
+        except Exception:
+            pass
+        # 开机自启
+        autostart = False
+        try:
+            autostart = bool(int(dbmod.get_setting(c, "autostart", "0")))
+        except Exception:
+            pass
         return jsonify({
             "version": VERSION,
             "subscriptions": len(dbmod.list_subscriptions(c)),
@@ -752,6 +788,12 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "chains": len(dbmod.list_chains(c)),
             "rule_sets": len(dbmod.list_rule_sets(c)),
             "singbox": "not-installed",
+            "kernel_version": kernel_version,
+            "kernel_running": kernel_running,
+            "geosite_count": geosite_n,
+            "geoip_count": geoip_n,
+            "geodata_time": geodata_time,
+            "autostart": autostart,
         })
 
     # ---- rule sets ----

@@ -14,7 +14,7 @@
         <span class="opacity-60">🗺 GeoSite {{ geoSite }} 份</span>
         <span class="opacity-60">💾 GeoIP {{ geoIp }} 份</span>
         <span class="font-mono text-xs opacity-60">{{ geoTime }}</span>
-        <a href="https://github.com/SagerNet/sing-geosite" target="_blank" class="link link-primary text-xs">Geo 数据 GitHub ↗</a>
+        <a href="https://github.com/MetaCubeX/meta-rules-dat/tree/sing/geo" target="_blank" class="link link-primary text-xs">Geo 数据 GitHub ↗</a>
       </div>
 
       <div class="mb-2 flex flex-wrap items-center gap-3 text-sm">
@@ -267,9 +267,12 @@ async function load() {
     portInput.value = portTab.value === 'white' ? (d.bypass_ports_white || '') : (d.bypass_ports || '')
     try {
       const st = await obxGet<any>('/api/status')
-      kernelVer.value = st.kernel_version || st.singbox_version || ''
+      kernelVer.value = st.kernel_version || ''
       kernelRunning.value = !!st.kernel_running
       autostart.value = !!st.autostart
+      geoSite.value = st.geosite_count ?? ''
+      geoIp.value = st.geoip_count ?? ''
+      geoTime.value = st.geodata_time || ''
     } catch { /* ignore */ }
     try {
       const tzd = await obxGet<any>('/api/system/timezone')
