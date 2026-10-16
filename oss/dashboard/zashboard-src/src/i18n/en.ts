@@ -45,7 +45,7 @@ const en = {
     delSiteSetConfirm: 'Delete site set "{name}"?',
     clearFrontConfirm: 'Clear front rules?',
     dns: 'DNS',
-    groups: 'Outbound Groups',
+    groups: 'Outbound Nodes',
     panelSettings: 'Panel Settings',
     name: 'Name',
     updatedAt: 'Updated',

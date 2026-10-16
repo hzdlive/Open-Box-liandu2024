@@ -47,7 +47,7 @@ const zhTW: LANG_MESSAGE = {
     delSiteSetConfirm: '確定刪除站點集「{name}」嗎？',
     clearFrontConfirm: '確定清空前置自定義分流嗎？',
     dns: 'DNS 設置',
-    groups: '出站節點組',
+    groups: '出站節點',
     panelSettings: '面板設置',
     name: '名稱',
     updatedAt: '更新時間',

@@ -47,7 +47,7 @@ const zh: LANG_MESSAGE = {
     delSiteSetConfirm: '确定删除站点集「{name}」吗？',
     clearFrontConfirm: '确定清空前置自定义分流吗？',
     dns: 'DNS 设置',
-    groups: '出站节点组',
+    groups: '出站节点',
     panelSettings: '面板设置',
     name: '名称',
     updatedAt: '更新时间',
