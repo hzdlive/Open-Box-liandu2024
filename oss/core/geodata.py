@@ -156,8 +156,15 @@ def get_rule_set_detail(name: str) -> dict:
            "geoip" if name.startswith("geoip-") else "other"
     code = name.split("-", 1)[1] if "-" in name else name
 
-    # 找 .srs 文件
+    # 找 .srs 文件（先查实例目录，再查默认共享目录）
     srs_path = os.path.join(geodata_dir(), f"{name}.srs")
+    if not os.path.exists(srs_path):
+        # 回退到默认位置（VPS 上 8080 主实例的 geodata）
+        for alt in ("/root/.openbox-oss/geodata", os.path.expanduser("~/.openbox-oss/geodata")):
+            cand = os.path.join(alt, f"{name}.srs")
+            if os.path.exists(cand):
+                srs_path = cand
+                break
     if not os.path.exists(srs_path):
         return {
             "name": name, "kind": kind, "code": code, "title": code,
