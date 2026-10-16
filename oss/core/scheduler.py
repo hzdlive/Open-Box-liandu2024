@@ -1,7 +1,7 @@
 """Background scheduler for periodic panel jobs.
 
 Runs as a daemon thread inside the Flask process:
-- subscription auto-update (per-subscription interval in hours)
+- subscription auto-update (per-subscription: every N days at H:00)
 - DNS filter list auto-update (daily at a configured time)
 
 Jobs are best-effort and never raise out of the loop. The thread is started
@@ -26,17 +26,32 @@ def _open_db(dsn: str, uri: bool) -> sqlite3.Connection:
 
 
 def _due_subscriptions(conn: sqlite3.Connection) -> list[int]:
+    # 1:1 with the original panel: each subscription refreshes every N days
+    # at H:00 (auto_update {enabled, days, hour}).
     now = time.time()
+    now_lt = time.localtime(now)
     out = []
-    for sid, auh, updated in conn.execute(
-            "SELECT id, auto_update_hours, updated_at FROM subscriptions"
-            " WHERE enabled=1 AND url IS NOT NULL AND url != ''"
-            " AND auto_update_hours > 0"):
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}
+    if "auto_update_enabled" in cols:
+        q = ("SELECT id, auto_update_enabled, auto_update_days, auto_update_hour,"
+             " updated_at FROM subscriptions"
+             " WHERE enabled=1 AND url IS NOT NULL AND url != ''"
+             " AND auto_update_enabled = 1")
+        rows = [(sid, 1, days or 1, hour if hour is not None else 4, updated)
+                for sid, _en, days, hour, updated in conn.execute(q)]
+    else:  # legacy DB without the migration: fall back to hours column
+        rows = [(sid, 1, max(1, round((auh or 0) / 24)), 4, updated)
+                for sid, auh, updated in conn.execute(
+                    "SELECT id, auto_update_hours, updated_at FROM subscriptions"
+                    " WHERE enabled=1 AND url IS NOT NULL AND url != ''"
+                    " AND auto_update_hours > 0")]
+    for sid, _en, days, hour, updated in rows:
         due = True
         if updated:
             try:
                 ts = time.mktime(time.strptime(updated, "%Y-%m-%dT%H:%M:%S"))
-                due = (now - ts) >= auh * 3600
+                # must be at/after the scheduled hour and N days past last run
+                due = (now - ts) >= (days or 1) * 86400 and now_lt.tm_hour >= (hour or 0)
             except ValueError:
                 due = True
         if due:

@@ -37,7 +37,7 @@
           >
             <td class="font-medium">{{ s.name }}</td>
             <td>{{ s.node_count }}/{{ s.node_total }}</td>
-            <td>{{ s.auto_update_hours ? `${s.auto_update_hours}h` : '—' }}</td>
+            <td>{{ s.auto_update?.enabled ? `每${s.auto_update.days}天 ${s.auto_update.hour}点` : '—' }}</td>
             <td class="text-sm opacity-70">{{ fmtTime(s.updated_at) }}</td>
             <td>
               <input
@@ -83,6 +83,56 @@
       </table>
     </div>
 
+    <!-- 订阅分享 -->
+    <div class="mb-3 mt-6 flex items-center justify-between">
+      <h3 class="font-bold">{{ $t('obx.subShare') }}</h3>
+      <button
+        class="btn btn-ghost btn-sm"
+        @click="openShareAdd"
+      >
+        {{ $t('obx.add') }}
+      </button>
+    </div>
+    <p class="mb-2 text-sm opacity-60">{{ $t('obx.subShareHint') }}</p>
+    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>{{ $t('obx.name') }}</th>
+            <th>{{ $t('obx.shareLink') }}</th>
+            <th class="text-right">{{ $t('obx.actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="sh in shares"
+            :key="sh.id"
+          >
+            <td class="font-medium">{{ sh.name }}</td>
+            <td class="max-w-md truncate font-mono text-xs">{{ shareUrl(sh.token) }}</td>
+            <td class="text-right">
+              <div class="join">
+                <button
+                  class="btn btn-ghost btn-xs join-item"
+                  @click="copyLink(sh)"
+                >{{ $t('obx.copy') }}</button>
+                <button
+                  class="btn btn-ghost btn-xs join-item text-error"
+                  @click="delShare(sh)"
+                >{{ $t('obx.delete') }}</button>
+              </div>
+            </td>
+          </tr>
+          <tr v-if="!shares.length">
+            <td
+              colspan="3"
+              class="text-center opacity-60"
+            >{{ $t('obx.noSubShare') }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
     <!-- 新增 / 编辑弹窗 -->
     <div
       v-if="dlg"
@@ -108,15 +158,40 @@
             placeholder="https://…（每行一个）"
           />
         </label>
-        <label class="form-control mb-4">
-          <span class="label-text mb-1">{{ $t('obx.autoUpdateHours') }}</span>
-          <input
-            v-model.number="dlg.autoUpdateHours"
-            type="number"
-            min="0"
-            class="input input-bordered w-full"
-          />
-        </label>
+        <div class="mb-4 rounded-box border border-base-300/30 p-3">
+          <label class="flex cursor-pointer items-center gap-2">
+            <input
+              v-model="dlg.auEnabled"
+              type="checkbox"
+              class="toggle toggle-sm"
+            />
+            <span class="label-text">{{ $t('obx.autoUpdate') }}</span>
+          </label>
+          <div
+            v-if="dlg.auEnabled"
+            class="mt-2 grid grid-cols-2 gap-2"
+          >
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.everyDays') }}</span>
+              <input
+                v-model.number="dlg.auDays"
+                type="number"
+                min="1"
+                class="input input-bordered w-full"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.atHour') }}</span>
+              <input
+                v-model.number="dlg.auHour"
+                type="number"
+                min="0"
+                max="23"
+                class="input input-bordered w-full"
+              />
+            </label>
+          </div>
+        </div>
         <p
           v-if="dlgErr"
           class="mb-3 text-sm text-error"
@@ -155,6 +230,7 @@ type Sub = {
   node_total: number
   enabled: boolean
   auto_update_hours: number
+  auto_update: { enabled: boolean; days: number; hour: number }
   updated_at: string
 }
 
@@ -162,7 +238,7 @@ const subs = ref<Sub[]>([])
 const loading = ref(false)
 const err = ref('')
 const busyId = ref<number | null>(null)
-const dlg = ref<{ id: number | null; name: string; urlsText: string; autoUpdateHours: number } | null>(null)
+const dlg = ref<{ id: number | null; name: string; urlsText: string; auEnabled: boolean; auDays: number; auHour: number } | null>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
 
@@ -185,12 +261,13 @@ async function load() {
 
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', urlsText: '', autoUpdateHours: 0 }
+  dlg.value = { id: null, name: '', urlsText: '', auEnabled: false, auDays: 1, auHour: 4 }
 }
 
 function openEdit(s: Sub) {
   dlgErr.value = ''
-  dlg.value = { id: s.id, name: s.name, urlsText: (s.urls || []).join('\n'), autoUpdateHours: s.auto_update_hours || 0 }
+  const au = s.auto_update || { enabled: false, days: 1, hour: 4 }
+  dlg.value = { id: s.id, name: s.name, urlsText: (s.urls || []).join('\n'), auEnabled: !!au.enabled, auDays: au.days || 1, auHour: au.hour ?? 4 }
 }
 
 async function save() {
@@ -203,17 +280,18 @@ async function save() {
   dlgBusy.value = true
   dlgErr.value = ''
   try {
+    const au = { enabled: dlg.value.auEnabled, days: dlg.value.auDays, hour: dlg.value.auHour }
     if (dlg.value.id) {
       await obxPut(`/api/subscriptions/${dlg.value.id}`, {
         name: dlg.value.name.trim(),
         urls,
-        auto_update_hours: dlg.value.autoUpdateHours,
+        auto_update: au,
       })
     } else {
       await obxPost('/api/subscriptions', {
         name: dlg.value.name.trim(),
         urls,
-        auto_update_hours: dlg.value.autoUpdateHours,
+        auto_update: au,
       })
     }
     dlg.value = null
@@ -257,5 +335,34 @@ async function remove(s: Sub) {
   }
 }
 
-onMounted(load)
+// ---- 订阅分享 ----
+type Share = { id: number; name: string; token: string; node_filter: string; created_at: string }
+const shares = ref<Share[]>([])
+
+function shareUrl(token: string) {
+  return `${location.origin}/sub/${token}`
+}
+async function loadShares() {
+  try { shares.value = await obxGet<Share[]>('/api/subscription-shares') }
+  catch { shares.value = [] }
+}
+async function openShareAdd() {
+  const name = prompt('分享名称：')
+  if (!name?.trim()) return
+  try {
+    await obxPost('/api/subscription-shares', { name: name.trim() })
+    await loadShares()
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '创建失败' }
+}
+async function copyLink(sh: Share) {
+  try { await navigator.clipboard.writeText(shareUrl(sh.token)) }
+  catch { /* clipboard unavailable */ }
+}
+async function delShare(sh: Share) {
+  if (!confirm(`确定删除分享「${sh.name}」吗？`)) return
+  try { await obxDel(`/api/subscription-shares/${sh.id}`); await loadShares() }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
+}
+
+onMounted(() => { load(); loadShares() })
 </script>

@@ -249,11 +249,16 @@ def create_app(db_path: str = ":memory:") -> Flask:
         # URL mode: create empty subscription then refresh from URLs
         if urls and not d.get("content"):
             c = db()
+            au = d.get("auto_update") if isinstance(d.get("auto_update"), dict) else {}
             cur = c.execute(
-                "INSERT INTO subscriptions(name, source, urls, url, created_at)"
-                " VALUES (?, 'manual', ?, ?, ?)",
+                "INSERT INTO subscriptions(name, source, urls, url, created_at,"
+                " auto_update_enabled, auto_update_days, auto_update_hour)"
+                " VALUES (?, 'manual', ?, ?, ?, ?, ?, ?)",
                 (d["name"], _json.dumps(urls, ensure_ascii=False), urls[0],
-                 time.strftime("%Y-%m-%dT%H:%M:%S")))
+                 time.strftime("%Y-%m-%dT%H:%M:%S"),
+                 1 if au.get("enabled") else 0,
+                 max(1, int(au.get("days", 1) or 1)),
+                 min(23, max(0, int(au.get("hour", 4) if au.get("hour") is not None else 4)))))
             sid = cur.lastrowid
             c.commit()
             try:
@@ -292,12 +297,27 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if "enabled" in d:
             c.execute("UPDATE subscriptions SET enabled=? WHERE id=?",
                       (1 if d["enabled"] else 0, sid))
-        if "auto_update_hours" in d:
+        if "auto_update" in d and isinstance(d["auto_update"], dict):
+            au = d["auto_update"]
+            try:
+                au_en = 1 if au.get("enabled") else 0
+                au_days = max(1, int(au.get("days", 1)))
+                au_hour = min(23, max(0, int(au.get("hour", 4))))
+            except (TypeError, ValueError):
+                return jsonify({"error": "auto_update must be {enabled, days>=1, hour 0-23}"}), 400
+            c.execute("UPDATE subscriptions SET auto_update_enabled=?,"
+                      " auto_update_days=?, auto_update_hour=? WHERE id=?",
+                      (au_en, au_days, au_hour, sid))
+        elif "auto_update_hours" in d:
+            # legacy: convert per-N-hours to the {enabled, days, hour} model
             try:
                 auh = max(0, int(d["auto_update_hours"]))
             except (TypeError, ValueError):
                 return jsonify({"error": "auto_update_hours must be an integer >= 0"}), 400
-            c.execute("UPDATE subscriptions SET auto_update_hours=? WHERE id=?", (auh, sid))
+            c.execute("UPDATE subscriptions SET auto_update_hours=?,"
+                      " auto_update_enabled=?, auto_update_days=?,"
+                      " auto_update_hour=4 WHERE id=?",
+                      (auh, 1 if auh > 0 else 0, max(1, round(auh / 24)), sid))
         if "name" in d and str(d["name"]).strip():
             c.execute("UPDATE subscriptions SET name=? WHERE id=?",
                       (str(d["name"]).strip(), sid))

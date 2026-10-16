@@ -297,9 +297,24 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("rename_fallback", "TEXT NOT NULL DEFAULT '其他'"),
                      ("rename_features", "TEXT NOT NULL DEFAULT ''"),
                      ("rename_filter", "TEXT NOT NULL DEFAULT ''"),
-                     ("dns_resolve", "TEXT NOT NULL DEFAULT 'auto'")):
+                     ("dns_resolve", "TEXT NOT NULL DEFAULT 'auto'"),
+                     ("auto_update_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                     ("auto_update_days", "INTEGER NOT NULL DEFAULT 1"),
+                     ("auto_update_hour", "INTEGER NOT NULL DEFAULT 4")):
         if col not in scols:
             conn.execute(f"ALTER TABLE subscriptions ADD COLUMN {col} {ddl}")
+    # Migrate legacy auto_update_hours (per-N-hours) to the new
+    # {enabled, days, hour} model (1:1 with the original panel).
+    if "auto_update_hours" in scols and "auto_update_enabled" in {
+            r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}:
+        for sid, hours in conn.execute(
+                "SELECT id, auto_update_hours FROM subscriptions"
+                " WHERE auto_update_hours > 0 AND auto_update_enabled = 0"):
+            days = max(1, round(hours / 24))
+            conn.execute("UPDATE subscriptions SET auto_update_enabled=1,"
+                         " auto_update_days=?, auto_update_hour=4 WHERE id=?",
+                         (days, sid))
+        conn.commit()
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     for col, ddl in (("enabled", "INTEGER NOT NULL DEFAULT 1"),
                      ("interval_s", "INTEGER NOT NULL DEFAULT 300"),
@@ -423,14 +438,23 @@ def add_subscription(conn: sqlite3.Connection, name: str, content: str,
 
 def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
     out = []
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}
+    au_cols = ""
+    if "auto_update_enabled" in cols:
+        au_cols = ", auto_update_enabled, auto_update_days, auto_update_hour"
     for r in conn.execute(
             "SELECT id, name, source, url, created_at, enabled, auto_update_hours,"
             " updated_at, userinfo, urls, rename_enabled, rename_prefix, rename_order,"
             " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
-            " rename_filter, dns_resolve FROM subscriptions ORDER BY id"):
+            f" rename_filter, dns_resolve{au_cols} FROM subscriptions ORDER BY id"):
         (sid, name, source, url, created, enabled, auh, updated, userinfo,
          urls, rn_en, rn_prefix, rn_order, rn_digits, rn_regions,
-         rn_fallback, rn_features, rn_filter, dns_resolve) = r
+         rn_fallback, rn_features, rn_filter, dns_resolve, *au_rest) = r
+        if len(au_rest) == 3:
+            au_en, au_days, au_hour = au_rest
+        else:
+            au_en, au_days, au_hour = (1 if (auh or 0) > 0 else 0,
+                                      max(1, round((auh or 0) / 24)), 4)
         n = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=? AND disabled=0",
                          (sid,)).fetchone()[0]
         total = conn.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?",
@@ -457,7 +481,11 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
                     "urls": url_list,
                     "created_at": created, "node_count": n, "node_total": total,
                     "enabled": bool(enabled),
-                    "auto_update_hours": auh or 0, "updated_at": updated,
+                    "auto_update_hours": auh or 0,
+                    "auto_update": {"enabled": bool(au_en),
+                                    "days": au_days or 1,
+                                    "hour": au_hour if au_hour is not None else 4},
+                    "updated_at": updated,
                     "userinfo": ui, "dns_resolve": dns_resolve or "auto",
                     "rename": {"enabled": bool(rn_en), "prefix": bool(rn_prefix),
                                "order": order, "seq_digits": rn_digits or 2,
