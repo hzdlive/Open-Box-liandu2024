@@ -387,6 +387,8 @@ const zh: LANG_MESSAGE = {
     diagSafe: '已去掉密码、密钥、节点和订阅网址。可以直接贴到公开的 issue 里。',
     close: '关闭',
     startKernel: '启动内核',
+    smartLong: '智能选择',
+    loadbalanceLong: '负载均衡',
   },
 
   // 后端类型

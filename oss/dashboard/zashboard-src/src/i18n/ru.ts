@@ -387,6 +387,8 @@ const ru: LANG_MESSAGE = {
     diagSafe: '',
     close: '',
     startKernel: '',
+    smartLong: '',
+    loadbalanceLong: '',
   },
 
   // Backend type

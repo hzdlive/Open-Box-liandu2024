@@ -211,6 +211,16 @@ CREATE TABLE IF NOT EXISTS subscription_shares(
   node_filter TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ob_subscription_shares(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  host TEXT NOT NULL DEFAULT '',
+  protocol TEXT NOT NULL DEFAULT 'clash',
+  token TEXT NOT NULL DEFAULT '',
+  subscription_ids TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS share_servers(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL DEFAULT '',
@@ -1235,8 +1245,8 @@ def _validate_failover(members, dynamic_keywords, lanes) -> None:
 
 
 def create_group(conn: sqlite3.Connection, d: dict) -> dict:
-    if d.get("type", "urltest") not in ("urltest", "selector", "failover"):
-        raise ValueError("type must be urltest|selector|failover")
+    if d.get("type", "urltest") not in ("urltest", "selector", "failover", "smart", "loadbalance"):
+        raise ValueError("type must be urltest|selector|failover|smart|loadbalance")
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM groups").fetchone()[0]
     lanes = _normalize_lanes(d.get("lanes"))
     if d.get("type") == "failover":
@@ -1282,7 +1292,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
                      ("icon", "icon"), ("icon_scale", "icon_scale")):
         if key in d:
             if key == "type" and d[key] not in ("urltest", "selector", "failover"):
-                raise ValueError("type must be urltest|selector|failover")
+                raise ValueError("type must be urltest|selector|failover|smart|loadbalance")
             fields.append(f"{col}=?")
             v = d[key]
             if key == "enabled" and not v:

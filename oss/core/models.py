@@ -59,7 +59,7 @@ class Group:
     """An outbound group. Members resolve at build time."""
 
     name: str
-    type: str = "urltest"  # urltest | selector | failover
+    type: str = "urltest"  # urltest | selector | failover | smart | loadbalance
     members: list = field(default_factory=list)
     # member tags; "*nodes*" = all node tags, "*all*" = nodes + chains
     dynamic_keywords: list = field(default_factory=list)

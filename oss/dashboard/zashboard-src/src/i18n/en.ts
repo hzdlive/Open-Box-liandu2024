@@ -385,6 +385,8 @@ const en = {
     diagSafe: '',
     close: 'Close',
     startKernel: 'Start Kernel',
+    smartLong: 'Smart',
+    loadbalanceLong: 'Load Balance',
   },
 
   // Backend type

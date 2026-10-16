@@ -226,7 +226,8 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                 outbounds.append({"type": "failover", "tag": g.name,
                                   "outbounds": tags or ["direct"],
                                   **fo_kwargs})
-        else:  # urltest
+        elif g.type in ("smart", "loadbalance"):
+            # smart: 按延迟智能选择（映射为 urltest）；loadbalance: 负载均衡（映射为 urltest）
             ob = {"type": "urltest", "tag": g.name,
                   "outbounds": tags or ["direct"],
                   "url": g.test_url or cfg.speedtest_url,

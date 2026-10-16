@@ -387,6 +387,8 @@ const zhTW: LANG_MESSAGE = {
     diagSafe: '',
     close: '關閉',
     startKernel: '啟動內核',
+    smartLong: '智能選擇',
+    loadbalanceLong: '負載均衡',
   },
 
   // 後端類型

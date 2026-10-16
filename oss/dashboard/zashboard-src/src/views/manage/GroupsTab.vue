@@ -219,6 +219,8 @@
                 <option value="urltest">{{ $t('obx.urltestLong') }}</option>
                 <option value="selector">{{ $t('obx.selectorLong') }}</option>
                 <option value="failover">{{ $t('obx.failoverLong') }}</option>
+                <option value="smart">{{ $t('obx.smartLong') }}</option>
+                <option value="loadbalance">{{ $t('obx.loadbalanceLong') }}</option>
               </select>
             </label>
             <label class="form-control">
