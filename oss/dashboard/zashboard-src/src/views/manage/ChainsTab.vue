@@ -1,13 +1,13 @@
-<!-- Open-Box 二开：链式代理（由旧版自研 UI 移植） -->
+<!-- Open-Box 二开：链式代理（1:1 对标原版添加/编辑模态框） -->
 <template>
   <div>
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.chains') }}</h2>
       <button
         class="btn btn-primary btn-sm"
-        @click="openAdd"
+        @click="openAdd()"
       >
-        {{ $t('obx.addChain') }}
+        + {{ $t('obx.addChain') }}
       </button>
     </div>
 
@@ -18,113 +18,298 @@
       <span>{{ err }}</span>
     </div>
 
-    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{{ $t('obx.name') }}</th>
-            <th>{{ $t('obx.exitProtocol') }}</th>
-            <th>{{ $t('obx.server') }}</th>
-            <th>{{ $t('obx.front') }}</th>
-            <th class="text-right">{{ $t('obx.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="c in chains"
-            :key="c.id"
-          >
-            <td class="font-medium">{{ c.name }}</td>
-            <td>{{ c.exit_protocol }}</td>
-            <td class="font-mono">{{ c.server }}:{{ c.port }}</td>
-            <td>{{ Array.isArray(c.front) ? c.front.join(', ') : c.front }}</td>
-            <td class="text-right">
-              <div class="join">
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="openEdit(c)"
-                >{{ $t('obx.edit') }}</button>
-                <button
-                  class="btn btn-ghost btn-xs join-item text-error"
-                  @click="remove(c)"
-                >{{ $t('obx.delete') }}</button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!chains.length">
-            <td
-              colspan="5"
-              class="text-center opacity-60"
-            >{{ $t('obx.noChains') }}</td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 链式代理列表 -->
+    <div class="flex flex-col gap-2">
+      <div
+        v-for="c in chains"
+        :key="c.id"
+        class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 p-3"
+        :class="{ 'opacity-60': !c.enabled }"
+      >
+        <span class="cursor-move opacity-40">≡</span>
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ c.name }}</span>
+            <span class="badge badge-ghost badge-sm">{{ $t('obx.via') }} {{ c.front }}</span>
+          </div>
+          <div class="text-xs opacity-60 font-mono">
+            {{ c.exit_protocol }} · {{ c.server }}:{{ c.port }}
+          </div>
+        </div>
+        <button
+          class="btn btn-ghost btn-sm btn-square"
+          :class="c.enabled ? 'text-success' : 'opacity-40'"
+          :title="c.enabled ? $t('obx.disable') : $t('obx.enable')"
+          @click="toggleEnabled(c)"
+        >
+          ⏻
+        </button>
+        <button
+          class="btn btn-ghost btn-sm btn-square"
+          :title="$t('obx.speedTest')"
+          @click="testSpeed(c)"
+        >
+          ⚡
+        </button>
+        <button
+          class="btn btn-ghost btn-sm btn-square"
+          :title="$t('obx.edit')"
+          @click="openEdit(c)"
+        >
+          ✎
+        </button>
+        <button
+          class="btn btn-ghost btn-sm btn-square text-error"
+          :title="$t('obx.delete')"
+          @click="remove(c)"
+        >
+          🗑
+        </button>
+      </div>
+      <div
+        v-if="!chains.length"
+        class="rounded-box border border-base-300/30 bg-base-100 p-6 text-center opacity-60"
+      >
+        {{ $t('obx.noChains') }}
+      </div>
     </div>
 
+    <!-- 添加/编辑模态框 -->
     <div
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box">
-        <h3 class="mb-4 text-lg font-bold">{{ dlg.id ? $t('obx.editChain') : $t('obx.addChain') }}</h3>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.name') }}</span>
-            <input
-              v-model="dlg.name"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.exitProtocol') }}</span>
-            <select
-              v-model="dlg.exit_protocol"
-              class="select select-bordered w-full"
-            >
-              <option value="socks">socks</option>
-              <option value="http">http</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.server') }}</span>
-            <input
-              v-model="dlg.server"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.port') }}</span>
-            <input
-              v-model.number="dlg.port"
-              type="number"
-              min="1"
-              max="65535"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control col-span-2">
-            <span class="label-text mb-1">{{ $t('obx.front') }}</span>
-            <input
-              v-model="dlg.front"
-              class="input input-bordered w-full"
-              placeholder="所有-自动"
-            />
-          </label>
+      <div class="modal-box max-w-2xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">
+            {{ dlg.id ? $t('obx.editChain') : $t('obx.addChain') }}
+          </h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="dlg = null"
+          >
+            ✕
+          </button>
         </div>
-        <p
+
+        <!-- 名称 -->
+        <div class="mb-4">
+          <label class="mb-1 block text-sm font-medium">{{ $t('obx.name') }}</label>
+          <input
+            v-model="dlg.name"
+            class="input input-bordered w-full"
+            :placeholder="$t('obx.chainNamePh')"
+          />
+        </div>
+
+        <!-- 节点 -->
+        <div class="mb-4">
+          <div class="mb-2 flex items-center justify-between">
+            <label class="text-sm font-medium">{{ $t('obx.node') }}</label>
+            <div class="flex gap-1 rounded-full bg-base-200 p-1">
+              <button
+                type="button"
+                class="btn btn-xs rounded-full"
+                :class="dlg.inputMode === 'link' ? 'btn-success' : 'btn-ghost'"
+                @click="dlg.inputMode = 'link'"
+              >
+                {{ $t('obx.link') }}
+              </button>
+              <button
+                type="button"
+                class="btn btn-xs rounded-full"
+                :class="dlg.inputMode === 'fields' ? 'btn-success' : 'btn-ghost'"
+                @click="dlg.inputMode = 'fields'"
+              >
+                {{ $t('obx.fields') }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 链接模式 -->
+          <div v-if="dlg.inputMode === 'link'">
+            <textarea
+              v-model="dlg.link"
+              class="textarea textarea-bordered w-full font-mono text-sm"
+              rows="4"
+              :placeholder="$t('obx.chainLinkPh')"
+            ></textarea>
+            <p class="mt-1 text-xs opacity-60">{{ $t('obx.chainLinkDesc') }}</p>
+          </div>
+
+          <!-- 字段模式 -->
+          <div v-else>
+            <div class="mb-2 flex gap-2">
+              <select
+                v-model="dlg.protocol"
+                class="select select-bordered w-28"
+              >
+                <option value="http">HTTP</option>
+                <option value="https">HTTPS</option>
+                <option value="socks5">SOCKS5</option>
+              </select>
+              <input
+                v-model="dlg.server"
+                class="input input-bordered flex-1"
+                :placeholder="$t('obx.hostPh')"
+              />
+              <input
+                v-model.number="dlg.port"
+                type="number"
+                min="1"
+                max="65535"
+                class="input input-bordered w-24"
+                :placeholder="$t('obx.port')"
+              />
+            </div>
+            <div class="flex gap-2">
+              <input
+                v-model="dlg.username"
+                class="input input-bordered flex-1"
+                :placeholder="$t('obx.username')"
+              />
+              <input
+                v-model="dlg.password"
+                type="password"
+                class="input input-bordered flex-1"
+                :placeholder="$t('obx.password')"
+              />
+            </div>
+            <p class="mt-1 text-xs opacity-60">{{ $t('obx.chainFieldsDesc') }}</p>
+          </div>
+        </div>
+
+        <!-- 上游 -->
+        <div class="mb-4">
+          <label class="mb-1 block text-sm font-medium">{{ $t('obx.upstream') }}</label>
+          <button
+            type="button"
+            class="input input-bordered relative w-full pr-8 text-left"
+            @click="openObSel()"
+          >
+            <span class="block truncate">{{ dlg.front || $t('obx.selectOutbound') }}</span>
+            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-60">▾</span>
+          </button>
+          <p class="mt-1 text-xs opacity-60">{{ $t('obx.chainUpstreamDesc') }}</p>
+        </div>
+
+        <!-- 测速 -->
+        <div class="mb-4 rounded-box bg-base-200/50 p-3">
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm mb-1"
+            :disabled="testing"
+            @click="testDlgSpeed()"
+          >
+            <span v-if="testing" class="loading loading-spinner loading-xs"></span>
+            <span v-else>⚡</span>
+            {{ $t('obx.speedTest') }}
+            <span v-if="testResult" class="ml-2" :class="testResult.ok ? 'text-success' : 'text-error'">
+              {{ testResult.latency != null ? `${testResult.latency}ms` : $t('obx.failed') }}
+            </span>
+          </button>
+          <p class="text-xs opacity-60">{{ $t('obx.chainTestDesc') }}</p>
+        </div>
+
+        <div
           v-if="dlgErr"
-          class="mt-3 text-sm text-error"
-        >{{ dlgErr }}</p>
+          class="alert alert-error mb-3"
+        >
+          <span>{{ dlgErr }}</span>
+        </div>
+
         <div class="modal-action">
           <button
             class="btn btn-ghost"
             @click="dlg = null"
-          >{{ $t('obx.cancel') }}</button>
+          >
+            {{ $t('obx.cancel') }}
+          </button>
           <button
-            class="btn btn-primary"
+            class="btn btn-success"
             :disabled="dlgBusy"
-            @click="save"
-          >{{ $t('obx.save') }}</button>
+            @click="save()"
+          >
+            {{ $t('obx.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 上游选择器 -->
+    <div
+      v-if="obSel.show"
+      class="modal modal-open"
+    >
+      <div class="modal-box max-w-lg">
+        <div class="mb-3 flex items-center justify-between">
+          <h3 class="text-lg font-bold">{{ $t('obx.selectOutbound') }}</h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="obSel.show = false"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="mb-3 flex gap-2">
+          <button
+            type="button"
+            class="btn btn-sm"
+            :class="obSel.tab === 'nodes' ? 'btn-success' : 'btn-ghost'"
+            @click="obSel.tab = 'nodes'; obSel.search = ''"
+          >
+            {{ $t('obx.nodes') }} ({{ obSel.nodes.length }})
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            :class="obSel.tab === 'groups' ? 'btn-success' : 'btn-ghost'"
+            @click="obSel.tab = 'groups'; obSel.search = ''"
+          >
+            {{ $t('obx.nodeGroups') }} ({{ obSel.groups.length }})
+          </button>
+          <div class="relative flex-1">
+            <input
+              v-model="obSel.search"
+              class="input input-bordered input-sm w-full pr-8"
+              :placeholder="$t('obx.search')"
+            />
+            <button
+              v-if="obSel.search"
+              class="btn btn-ghost btn-xs absolute right-1 top-1/2 -translate-y-1/2"
+              @click="obSel.search = ''"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="obSel.tab === 'nodes'"
+          class="max-h-96 overflow-y-auto"
+        >
+          <button
+            v-for="n in filteredObNodes"
+            :key="n.id || n.tag"
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
+            @click="selectOb(n.tag || n.name)"
+          >
+            <span class="truncate">{{ n.name || n.tag }}</span>
+          </button>
+        </div>
+        <div
+          v-else
+          class="max-h-96 overflow-y-auto"
+        >
+          <button
+            v-for="g in filteredObGroups"
+            :key="g.id"
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
+            @click="selectOb(g.name)"
+          >
+            <span class="truncate">{{ g.name }}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -133,45 +318,189 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
-type Chain = { id: number; name: string; exit_protocol: string; server: string; port: number; front: string | string[] }
+const { t } = useI18n()
+
+type Chain = {
+  id: number; name: string; exit_protocol: string; server: string; port: number
+  params: any; front: string; enabled: boolean
+}
 
 const chains = ref<Chain[]>([])
 const err = ref('')
 const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
+const testing = ref(false)
+const testResult = ref<{ ok: boolean; latency: number | null } | null>(null)
+
+const obSel = ref({
+  show: false,
+  tab: 'nodes' as 'nodes' | 'groups',
+  search: '',
+  nodes: [] as any[],
+  groups: [] as any[],
+})
 
 async function load() {
   err.value = ''
   try { chains.value = await obxGet<Chain[]>('/api/chains') }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载失败' }
 }
+
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', exit_protocol: 'socks', server: '', port: 1080, front: '所有-自动' }
+  testResult.value = null
+  dlg.value = {
+    id: null, name: '', inputMode: 'link', link: '',
+    protocol: 'http', server: '', port: 8080, username: '', password: '',
+    front: '',
+  }
 }
+
 function openEdit(c: Chain) {
   dlgErr.value = ''
-  dlg.value = { id: c.id, name: c.name, exit_protocol: c.exit_protocol, server: c.server, port: c.port, front: Array.isArray(c.front) ? c.front.join(', ') : c.front }
+  testResult.value = null
+  const p = c.params || {}
+  // 如果有原始链接，用链接模式；否则用字段模式
+  const hasLink = !!p.link
+  dlg.value = {
+    id: c.id, name: c.name,
+    inputMode: hasLink ? 'link' : 'fields',
+    link: p.link || '',
+    protocol: c.exit_protocol || 'http',
+    server: c.server || '', port: c.port || 8080,
+    username: p.username || '', password: p.password || '',
+    front: c.front || '',
+  }
 }
-async function save() {
-  if (!dlg.value?.name.trim()) { dlgErr.value = '名称不能为空'; return }
-  const body = { name: dlg.value.name.trim(), exit_protocol: dlg.value.exit_protocol, server: dlg.value.server.trim(), port: dlg.value.port, front: dlg.value.front }
-  dlgBusy.value = true; dlgErr.value = ''
+
+// 解析分享链接，提取协议/host/端口/认证
+function parseLink(link: string): { protocol: string; server: string; port: number; username: string; password: string } | null {
+  const s = link.trim()
   try {
-    if (dlg.value.id) await obxPut(`/api/chains/${dlg.value.id}`, body)
-    else await obxPost('/api/chains', body)
-    dlg.value = null; await load()
-  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '保存失败' }
-  finally { dlgBusy.value = false }
+    // socks5://user:pass@host:port, http://, https://, ss://, vless://, trojan://
+    const m = s.match(/^([a-z0-9+.-]+):\/\/(?:([^:@/]+)(?::([^@/]*))?@)?([^:/]+)(?::(\d+))?/i)
+    if (!m) {
+      // 尝试 主机:端口:用户名:密码 格式
+      const m2 = s.match(/^([^:]+):(\d+):([^:]+):(.+)$/)
+      if (m2) {
+        return { protocol: 'http', server: m2[1], port: parseInt(m2[2]), username: m2[3], password: m2[4] }
+      }
+      return null
+    }
+    let proto = m[1].toLowerCase()
+    if (proto === 'socks5' || proto === 'socks') proto = 'socks5'
+    else if (proto === 'https') proto = 'https'
+    else proto = 'http' // ss/vless/trojan 等暂按 http 处理，由后端细化
+    return {
+      protocol: proto,
+      server: m[4] || '',
+      port: m[5] ? parseInt(m[5]) : (proto === 'https' ? 443 : 80),
+      username: m[2] ? decodeURIComponent(m[2]) : '',
+      password: m[3] ? decodeURIComponent(m[3]) : '',
+    }
+  } catch { return null }
 }
+
+async function save() {
+  if (!dlg.value) return
+  dlgErr.value = ''
+  const d = dlg.value
+  if (!d.name.trim()) { dlgErr.value = t('obx.chainNameRequired'); return }
+  if (!d.front) { dlgErr.value = t('obx.chainUpstreamRequired'); return }
+
+  let protocol = d.protocol, server = d.server.trim(), port = d.port
+  let username = d.username, password = d.password, link = ''
+  if (d.inputMode === 'link') {
+    link = d.link.trim()
+    if (!link) { dlgErr.value = t('obx.chainLinkRequired'); return }
+    const parsed = parseLink(link)
+    if (!parsed) { dlgErr.value = t('obx.chainLinkInvalid'); return }
+    protocol = parsed.protocol; server = parsed.server; port = parsed.port
+    username = parsed.username; password = parsed.password
+  } else {
+    if (!server) { dlgErr.value = t('obx.chainHostRequired'); return }
+    if (!port || port < 1 || port > 65535) { dlgErr.value = t('obx.chainPortInvalid'); return }
+  }
+
+  dlgBusy.value = true
+  try {
+    const body = {
+      name: d.name.trim(), exit_protocol: protocol, server, port,
+      params: { username, password, link: d.inputMode === 'link' ? link : '' },
+      front: d.front,
+    }
+    if (d.id) await obxPut(`/api/chains/${d.id}`, body)
+    else await obxPost('/api/chains', body)
+    dlg.value = null
+    await load()
+  } catch (e) {
+    dlgErr.value = e instanceof ObxApiError ? e.message : t('obx.saveFailed')
+  } finally {
+    dlgBusy.value = false
+  }
+}
+
+async function toggleEnabled(c: Chain) {
+  try {
+    await obxPut(`/api/chains/${c.id}`, { enabled: !c.enabled })
+    await load()
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }
+}
+
 async function remove(c: Chain) {
-  if (!confirm(`确定删除链式代理「${c.name}」吗？`)) return
+  if (!confirm(t('obx.deleteConfirm'))) return
   try { await obxDel(`/api/chains/${c.id}`); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
 }
+
+async function testSpeed(c: Chain) {
+  // TODO: 后端实现链式代理测速
+  err.value = t('obx.notImplemented')
+}
+
+async function testDlgSpeed() {
+  // TODO: 模态框内测速（不保存，经上游测一次）
+  testResult.value = { ok: false, latency: null }
+}
+
+// 上游选择器
+async function openObSel() {
+  obSel.value.show = true
+  obSel.value.search = ''
+  obSel.value.tab = 'nodes'
+  try {
+    const [nodes, groups] = await Promise.all([
+      obxGet<any[]>('/api/nodes'),
+      obxGet<any[]>('/api/groups'),
+    ])
+    obSel.value.nodes = nodes || []
+    obSel.value.groups = (groups || []).filter(
+      (g: any) => g.name !== 'direct' && g.name !== 'block',
+    )
+  } catch (e) { /* 忽略 */ }
+}
+
+function selectOb(v: string) {
+  if (dlg.value) dlg.value.front = v
+  obSel.value.show = false
+}
+
+const filteredObNodes = computed(() => {
+  const q = obSel.value.search.trim().toLowerCase()
+  let list = obSel.value.nodes
+  if (q) list = list.filter((n: any) => (n.name || n.tag || '').toLowerCase().includes(q))
+  return list
+})
+const filteredObGroups = computed(() => {
+  const q = obSel.value.search.trim().toLowerCase()
+  let list = obSel.value.groups
+  if (q) list = list.filter((g: any) => (g.name || '').toLowerCase().includes(q))
+  return list
+})
 
 onMounted(load)
 </script>

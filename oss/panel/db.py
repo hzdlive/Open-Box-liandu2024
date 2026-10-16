@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS chains(
   server TEXT NOT NULL DEFAULT '',
   port INTEGER NOT NULL DEFAULT 0,
   params TEXT NOT NULL DEFAULT '{}',
-  front TEXT NOT NULL DEFAULT 'auto'
+  front TEXT NOT NULL DEFAULT 'auto',
+  enabled INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE IF NOT EXISTS groups(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -376,6 +377,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.execute(
         "INSERT OR IGNORE INTO groups(name, type, members, dynamic_keywords, position)"
         " VALUES ('所有-手动', 'selector', '[\"*all*\"]', '[]', 1)")
+    _migrate_chains_enabled(conn)
     conn.commit()
     # migrate old default names (auto/manual) to the new ones, fixing references
     _migrate_default_groups(conn)
@@ -1043,19 +1045,26 @@ def refresh_rule_set(conn: sqlite3.Connection, rid: int, timeout: int = 15) -> d
 
 
 # ---- chains ----
+def _migrate_chains_enabled(conn: sqlite3.Connection):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(chains)")]
+    if "enabled" not in cols:
+        conn.execute("ALTER TABLE chains ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+
+
 def _chain_row(r) -> dict:
     return {"id": r[0], "name": r[1], "exit_protocol": r[2], "server": r[3],
-            "port": r[4], "params": json.loads(r[5]), "front": r[6]}
+            "port": r[4], "params": json.loads(r[5]), "front": r[6],
+            "enabled": bool(r[7]) if len(r) > 7 else True}
 
 
 def list_chains(conn: sqlite3.Connection) -> list[dict]:
     return [_chain_row(r) for r in conn.execute(
-        "SELECT id, name, exit_protocol, server, port, params, front FROM chains ORDER BY id")]
+        "SELECT id, name, exit_protocol, server, port, params, front, enabled FROM chains ORDER BY id")]
 
 
 def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
-    if d.get("exit_protocol", "socks") not in ("socks", "http"):
-        raise ValueError("exit_protocol must be socks|http")
+    if d.get("exit_protocol", "socks") not in ("socks", "socks5", "http", "https"):
+        raise ValueError("exit_protocol must be socks|socks5|http|https")
     front = d.get("front", "所有-自动")
     if isinstance(front, list):
         front = front[0] if front else "所有-自动"
@@ -1068,7 +1077,7 @@ def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
     conn.commit()
     bump_rev(conn)
     return _chain_row(conn.execute(
-        "SELECT id, name, exit_protocol, server, port, params, front FROM chains WHERE id=?",
+        "SELECT id, name, exit_protocol, server, port, params, front, enabled FROM chains WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -1078,10 +1087,11 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
         return None
     fields, vals = [], []
     for col, key in (("name", "name"), ("exit_protocol", "exit_protocol"),
-                     ("server", "server"), ("port", "port"), ("front", "front")):
+                     ("server", "server"), ("port", "port"), ("front", "front"),
+                     ("enabled", "enabled")):
         if key in d:
             if key == "exit_protocol" and d[key] not in ("socks", "http"):
-                raise ValueError("exit_protocol must be socks|http")
+                raise ValueError("exit_protocol must be socks|socks5|http|https")
             v = d[key]
             if key == "front" and isinstance(v, list):
                 v = v[0] if v else "所有-自动"
@@ -1095,7 +1105,7 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
         conn.execute(f"UPDATE chains SET {', '.join(fields)} WHERE id=?", vals)
         conn.commit()
     return _chain_row(conn.execute(
-        "SELECT id, name, exit_protocol, server, port, params, front FROM chains WHERE id=?",
+        "SELECT id, name, exit_protocol, server, port, params, front, enabled FROM chains WHERE id=?",
         (cid,)).fetchone())
 
 
