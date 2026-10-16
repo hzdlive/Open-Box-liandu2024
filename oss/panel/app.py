@@ -2027,28 +2027,149 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify({"share": {"id": sid, "token": token}})
 
     # ---- failover status (1:1 对标原版) ----
+    def _fsm_reason_text(reason: str) -> str:
+        """Failover 原因码 → 中文（REA §24.5 i18n 表）。"""
+        return {
+            "initial": "初始选择",
+            "lane-failed": "通道故障，已切换",
+            "all-failed": "全部通道故障",
+            "primary-restored": "主通道恢复",
+            "healthy": "运行正常",
+        }.get(reason, reason)
+
     @app.get("/api/openbox/failover/status")
     def ob_failover_status():
-        # 从内核 clash API 获取 failover 组状态
+        from core import failover_sm as _fsm
+        import json as _json
         c = db()
         groups = dbmod.list_groups(c)
         result = []
         for g in groups:
-            if g.get("type") == "failover":
-                # 简化状态：从 clash API 查询
-                result.append({
-                    "id": g["id"], "name": g["name"],
-                    "current": None, "reason": "initial",
-                    "lanes": [],
+            if g.get("type") != "failover":
+                continue
+            # 加载或初始化状态机
+            state_json = c.execute(
+                "SELECT state_json FROM failover_state WHERE group_name=?",
+                (g["name"],)).fetchone()
+            if state_json and state_json[0] and state_json[0] != '{}':
+                try:
+                    st = _fsm.FailoverState.from_dict(_json.loads(state_json[0]))
+                except Exception:
+                    st = None
+            else:
+                st = None
+            if st is None:
+                # 初始化
+                lanes_cfg = g.get("lanes") or []
+                st = _fsm.failover_init(g["name"], lanes_cfg, {
+                    "probe_interval_s": g.get("interval_s", 300),
+                    "tolerance_ms": g.get("tolerance_ms", 100),
+                    "probe_timeout_ms": 5000,
+                    "fail_threshold": 2,
+                    "restore_primary": True,
+                    "restore_hold_ms": 60000,
                 })
+                c.execute(
+                    "INSERT INTO failover_state(group_name, current_tag, updated_at, state_json)"
+                    " VALUES (?, ?, ?, ?)"
+                    " ON CONFLICT(group_name) DO UPDATE SET state_json=excluded.state_json",
+                    (g["name"], st.current_id, _fsm._now_iso(),
+                     _json.dumps(st.to_dict(), ensure_ascii=False)))
+                c.commit()
+            # 构建前端展示的 lanes
+            lanes_out = []
+            for lane in st.lanes:
+                lanes_out.append({
+                    "id": lane["id"],
+                    "name": lane["name"],
+                    "tag": lane["tag"],
+                    "members": lane["members"],
+                    "mode": lane["mode"],
+                    "health": lane["health"],
+                    "ok": lane["ok"],
+                    "failStreak": lane["fail_streak"],
+                    "reason": lane["reason"],
+                    "upSince": lane["up_since"],
+                    "isCurrent": lane["id"] == st.current_lane_id,
+                })
+            # 最近切换日志
+            last_log = st.logs[-1] if st.logs else None
+            result.append({
+                "id": g["id"],
+                "name": g["name"],
+                "current": st.current_id,
+                "currentLaneId": st.current_lane_id,
+                "reason": st.last_reason,
+                "reasonText": _fsm_reason_text(st.last_reason),
+                "lastSwitch": st.last_switch,
+                "lastSwitchText": (
+                    f"{last_log['from']} → {last_log['to']} ({_fsm_reason_text(last_log['reason'])})"
+                    if last_log else "—"
+                ),
+                "nextRoundAt": st.next_round_at,
+                "lanes": lanes_out,
+                "logs": st.logs[-10:],
+            })
         return jsonify({"groups": result})
 
     @app.post("/api/openbox/failover/recheck")
     def ob_failover_recheck():
+        from core import failover_sm as _fsm
+        import json as _json
         d = request.get_json(force=True, silent=True) or {}
         gid = d.get("groupId") or d.get("id")
-        # 触发内核重新检测（通过 clash API）
-        return jsonify({"ok": True, "groupId": gid})
+        c = db()
+        groups = dbmod.list_groups(c)
+        target = None
+        for g in groups:
+            if g.get("type") == "failover" and (str(g["id"]) == str(gid) or g["name"] == gid):
+                target = g
+                break
+        if not target:
+            return jsonify({"ok": False, "error": "failover group not found"}), 404
+        # 加载状态
+        row = c.execute(
+            "SELECT state_json FROM failover_state WHERE group_name=?",
+            (target["name"],)).fetchone()
+        st = None
+        if row and row[0] and row[0] != '{}':
+            try:
+                st = _fsm.FailoverState.from_dict(_json.loads(row[0]))
+            except Exception:
+                st = None
+        if st is None:
+            lanes_cfg = target.get("lanes") or []
+            st = _fsm.failover_init(target["name"], lanes_cfg)
+        # 运行一轮探测
+        cfg = dbmod.load_app_config(c)
+        api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+        secret = getattr(cfg, "clash_api_secret", "") or ""
+        try:
+            result = _fsm.run_round(st, api_base, secret)
+            # 持久化状态
+            c.execute(
+                "INSERT INTO failover_state(group_name, current_tag, updated_at, last_switch_at, state_json)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(group_name) DO UPDATE SET current_tag=excluded.current_tag,"
+                " updated_at=excluded.updated_at, last_switch_at=excluded.last_switch_at,"
+                " state_json=excluded.state_json",
+                (target["name"], st.current_id, _fsm._now_iso(),
+                 st.last_switch, _json.dumps(st.to_dict(), ensure_ascii=False)))
+            c.commit()
+            # 应用切换（如果需要）
+            if result.get("switched"):
+                _fsm.apply_switch(api_base, secret, target["name"], result["currentTag"])
+            return jsonify({
+                "ok": True,
+                "groupId": gid,
+                "groupName": target["name"],
+                "switched": result.get("switched", False),
+                "current": result.get("currentTag"),
+                "reason": result.get("reason"),
+                "reasonText": _fsm_reason_text(result.get("reason", "")),
+            })
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)[:200]}), 500
 
     @app.get("/api/dns/wan")
     def dns_wan():

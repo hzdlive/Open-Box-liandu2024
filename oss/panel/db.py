@@ -183,7 +183,9 @@ CREATE TABLE IF NOT EXISTS failover_state(
   group_name TEXT PRIMARY KEY,
   current_tag TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
-  last_switch_at TEXT
+  last_switch_at TEXT,
+  -- REA 24.4 完整状态机字段
+  state_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS latency_history(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
