@@ -1450,6 +1450,39 @@ def set_dns_rewrite_enabled(conn: sqlite3.Connection, rid: int, enabled: bool) -
     return cur.rowcount > 0
 
 
+def update_dns_rewrite(conn: sqlite3.Connection, rid: int, domain: str, target: str) -> dict | None:
+    domain = (domain or "").strip().lower()
+    target = (target or "").strip()
+    if not domain or not target:
+        raise ValueError("domain and target are required")
+    cur = conn.execute("UPDATE dns_rewrite SET domain=?, target=? WHERE id=?",
+                       (domain, target, rid))
+    conn.commit()
+    if not cur.rowcount:
+        return None
+    bump_rev(conn)
+    r = conn.execute("SELECT id, domain, target, enabled FROM dns_rewrite WHERE id=?",
+                     (rid,)).fetchone()
+    return {"id": r[0], "domain": r[1], "target": r[2], "enabled": bool(r[3])}
+
+
+def reset_dns_rewrites(conn: sqlite3.Connection) -> int:
+    """Reset to default rewrites (the 2 built-in ones). Returns count."""
+    conn.execute("DELETE FROM dns_rewrite")
+    # Default rewrites from original panel
+    defaults = [
+        ("services.googleapis.cn", "services.googleapis.com"),
+        ("developers.google.cn", "developers.google.com"),
+    ]
+    for domain, target in defaults:
+        conn.execute(
+            "INSERT INTO dns_rewrite(domain, target, enabled) VALUES (?, ?, 1)",
+            (domain, target))
+    conn.commit()
+    bump_rev(conn)
+    return len(defaults)
+
+
 def delete_dns_rewrite(conn: sqlite3.Connection, rid: int) -> bool:
     cur = conn.execute("DELETE FROM dns_rewrite WHERE id=?", (rid,))
     conn.commit()

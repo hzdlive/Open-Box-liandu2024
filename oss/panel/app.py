@@ -1796,11 +1796,26 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.put("/api/dns/rewrite/<int:rid>")
     def dns_rewrite_put(rid: int):
         d = request.get_json(force=True, silent=True) or {}
+        if "domain" in d or "target" in d:
+            # Edit domain/target
+            try:
+                row = dbmod.update_dns_rewrite(
+                    db(), rid, d.get("domain", ""), d.get("target", ""))
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            if not row:
+                return jsonify({"error": "not found"}), 404
+            return jsonify(row)
         if "enabled" not in d:
             return jsonify({"error": "enabled is required"}), 400
         if not dbmod.set_dns_rewrite_enabled(db(), rid, bool(d["enabled"])):
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True, "enabled": bool(d["enabled"])})
+
+    @app.post("/api/dns/rewrite/reset")
+    def dns_rewrite_reset():
+        count = dbmod.reset_dns_rewrites(db())
+        return jsonify({"ok": True, "count": count})
 
     def _df_workdir() -> str:
         from core.service import manager_from_env

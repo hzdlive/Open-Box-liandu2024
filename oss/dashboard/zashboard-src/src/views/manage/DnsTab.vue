@@ -223,6 +223,54 @@
       </div>
     </div>
   </div>
+
+  <!-- DNS 重写添加/编辑 -->
+  <div v-if="rewriteDlg" class="modal modal-open">
+    <div class="modal-box">
+      <h3 class="mb-3 text-lg font-bold">{{ rewriteDlg.id ? '编辑' : '添加' }} DNS 重写</h3>
+      <div class="flex flex-col gap-3">
+        <label class="form-control">
+          <span class="label-text mb-1">域名</span>
+          <input v-model="rewriteDlg.domain" class="input input-bordered w-full font-mono" placeholder="例如 services.googleapis.cn" />
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">目标</span>
+          <input v-model="rewriteDlg.target" class="input input-bordered w-full font-mono" placeholder="例如 services.googleapis.com" />
+        </label>
+        <p v-if="rewriteDlgErr" class="text-sm text-error">{{ rewriteDlgErr }}</p>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" @click="rewriteDlg = null">取消</button>
+        <button class="btn btn-success" @click="saveRewrite()">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 域名过滤添加/编辑 -->
+  <div v-if="filterDlg" class="modal modal-open">
+    <div class="modal-box">
+      <h3 class="mb-3 text-lg font-bold">{{ filterDlg.idx >= 0 ? '编辑' : '添加' }}过滤列表</h3>
+      <div class="flex flex-col gap-3">
+        <label class="form-control">
+          <span class="label-text mb-1">名称</span>
+          <input v-model="filterDlg.name" class="input input-bordered w-full" placeholder="例如 AdGuard DNS" />
+        </label>
+        <label class="form-control">
+          <span class="label-text mb-1">URL</span>
+          <input v-model="filterDlg.url" class="input input-bordered w-full font-mono" placeholder="https://..." />
+        </label>
+        <label class="flex cursor-pointer items-center gap-2">
+          <input v-model="filterDlg.enabled" type="checkbox" class="toggle toggle-success toggle-sm" />
+          <span class="text-sm">启用</span>
+        </label>
+        <p v-if="filterDlgErr" class="text-sm text-error">{{ filterDlgErr }}</p>
+      </div>
+      <div class="modal-action">
+        <button class="btn btn-ghost" @click="filterDlg = null">取消</button>
+        <button class="btn btn-success" @click="saveFilter()">保存</button>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -286,6 +334,8 @@ function fmtUpstream(u: any): string {
 // 重写
 const rewrites = ref<any[]>([])
 const rewriteEnabled = ref(true)
+const rewriteDlg = ref<any>(null)
+const rewriteDlgErr = ref('')
 
 // 过滤
 const filters = ref<any[]>([])
@@ -419,9 +469,41 @@ async function delRewrite(r: any) {
   try { await obxDel(`/api/dns/rewrite/${r.id}`); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
 }
-function openRewriteAdd() { /* TODO */ }
-function openRewriteEdit(r: any) { /* TODO */ }
-function resetRewrite() { /* TODO */ }
+function openRewriteAdd() {
+  rewriteDlg.value = { id: null, domain: '', target: '' }
+  rewriteDlgErr.value = ''
+}
+function openRewriteEdit(r: any) {
+  rewriteDlg.value = { id: r.id, domain: r.domain, target: r.target }
+  rewriteDlgErr.value = ''
+}
+async function saveRewrite() {
+  const d = rewriteDlg.value
+  if (!d || !d.domain.trim() || !d.target.trim()) {
+    rewriteDlgErr.value = '域名和目标不能为空'
+    return
+  }
+  try {
+    if (d.id) {
+      await obxPut(`/api/dns/rewrite/${d.id}`, { domain: d.domain.trim(), target: d.target.trim() })
+    } else {
+      await obxPost('/api/dns/rewrite', { domain: d.domain.trim(), target: d.target.trim() })
+    }
+    rewriteDlg.value = null
+    await load()
+  } catch (e) {
+    rewriteDlgErr.value = e instanceof ObxApiError ? e.message : '保存失败'
+  }
+}
+async function resetRewrite() {
+  if (!confirm('确定要重置为默认重写规则吗？')) return
+  try {
+    await obxPost('/api/dns/rewrite/reset', {})
+    await load()
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '重置失败'
+  }
+}
 
 // 过滤
 async function loadFilter() {
@@ -435,12 +517,61 @@ async function saveFilterEnabled() {
   try { await obxPut('/api/dns/filter', { enabled: filterEnabled.value }) }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }
 }
-function toggleFilter(fl: any) { /* TODO */ }
-function previewFilter(fl: any) { /* TODO */ }
-function refreshFilter(fl: any) { /* TODO */ }
-function openFilterAdd() { /* TODO */ }
-function openFilterEdit(fl: any) { /* TODO */ }
-function delFilter(fl: any) { /* TODO */ }
+const filterDlg = ref<any>(null)
+const filterDlgErr = ref('')
+
+async function saveFilterLists() {
+  try {
+    await obxPut('/api/dns/filter', { enabled: filterEnabled.value, lists: filters.value })
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '保存失败'
+  }
+}
+async function toggleFilter(fl: any) {
+  fl.enabled = !fl.enabled
+  await saveFilterLists()
+}
+function previewFilter(fl: any) {
+  // 在新窗口预览规则列表内容
+  if (fl.url) window.open(fl.url, '_blank')
+}
+async function refreshFilter(fl: any) {
+  // 触发后端重新编译（通过保存触发）
+  await saveFilterLists()
+  await loadFilter()
+}
+function openFilterAdd() {
+  filterDlg.value = { idx: -1, name: '', url: '', enabled: true }
+  filterDlgErr.value = ''
+}
+function openFilterEdit(fl: any) {
+  const idx = filters.value.indexOf(fl)
+  filterDlg.value = { idx, name: fl.name, url: fl.url, enabled: !!fl.enabled }
+  filterDlgErr.value = ''
+}
+async function saveFilter() {
+  const d = filterDlg.value
+  if (!d || !d.name.trim() || !d.url.trim()) {
+    filterDlgErr.value = '名称和 URL 不能为空'
+    return
+  }
+  const item = { name: d.name.trim(), url: d.url.trim(), enabled: !!d.enabled }
+  if (d.idx >= 0) {
+    filters.value[d.idx] = item
+  } else {
+    filters.value.push(item)
+  }
+  filterDlg.value = null
+  await saveFilterLists()
+}
+async function delFilter(fl: any) {
+  if (!confirm('确定删除该过滤列表吗？')) return
+  const idx = filters.value.indexOf(fl)
+  if (idx >= 0) {
+    filters.value.splice(idx, 1)
+    await saveFilterLists()
+  }
+}
 
 // 查询日志
 async function loadQueryLog() {
