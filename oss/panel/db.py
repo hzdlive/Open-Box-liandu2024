@@ -587,6 +587,7 @@ def _rules_blob(d: dict) -> str:
         "domain_keyword": pick("domain_keyword"),
         "ip_cidr": pick("ip_cidr"),
         "rule_sets": list(rules.get("rule_sets", d.get("rule_sets", []))),
+        "ruleset_urls": pick("ruleset_urls"),
     }, ensure_ascii=False)
 
 

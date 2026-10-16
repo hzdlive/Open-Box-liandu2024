@@ -256,8 +256,61 @@
                 <option value="ip_cidr">{{ $t('obx.ipCidr') }}</option>
                 <option value="geosite">{{ $t('obx.geosite') }}</option>
                 <option value="geoip">{{ $t('obx.geoip') }}</option>
+                <option value="ruleset_url">{{ $t('obx.rulesetUrl') }}</option>
               </select>
+              <!-- geosite/geoip 可搜索下拉 -->
+              <div
+                v-if="r.type === 'geosite' || r.type === 'geoip'"
+                class="relative flex-1"
+              >
+                <button
+                  class="input input-bordered input-sm flex w-full items-center justify-between"
+                  @click="toggleGeoDrop(ri, r.type)"
+                >
+                  <span class="truncate">{{ r.value || rulePh(r.type) }}</span>
+                  <span>▾</span>
+                </button>
+                <div
+                  v-if="geoOpen === `${ri}`"
+                  class="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+                >
+                  <div class="flex items-center gap-1 border-b border-base-300 p-2">
+                    <input
+                      v-model="geoSearch"
+                      class="input input-bordered input-sm flex-1"
+                      :placeholder="$t('obx.geoSearchPh')"
+                      @input="onGeoSearch"
+                    />
+                    <button
+                      v-if="geoSearch"
+                      class="btn btn-ghost btn-xs"
+                      @click="geoSearch = ''"
+                    >
+                      ✕
+                    </button>
+                    <select
+                      v-if="r.type === 'geoip'"
+                      v-model="geoFilter"
+                      class="select select-bordered select-sm w-20"
+                    >
+                      <option value="all">{{ $t('obx.all') }}</option>
+                    </select>
+                  </div>
+                  <div class="max-h-48 overflow-y-auto">
+                    <button
+                      v-for="item in filteredGeoList(r.type)"
+                      :key="item.code"
+                      class="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-base-200"
+                      @click="selectGeoItem(r, item.code)"
+                    >
+                      <span class="text-sm font-medium">{{ item.code }}</span>
+                      <span class="text-xs opacity-60">{{ item.desc }}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
               <input
+                v-else
                 v-model="r.value"
                 class="input input-bordered input-sm flex-1"
                 :placeholder="rulePh(r.type)"
@@ -494,6 +547,7 @@
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { GEOSITE_CATEGORIES, GEOIP_COUNTRIES } from './geodata'
 
 const { t } = useI18n()
 
@@ -564,7 +618,41 @@ const frontSummary = computed(() => {
 })
 
 function rulePh(type: string) {
-  return { domain_suffix: 'google.com', domain: 'www.google.com', domain_keyword: 'google', ip_cidr: '1.1.1.0/24', geosite: 'youtube', geoip: 'cn' }[type] || ''
+  return {
+    domain_suffix: 'google.com', domain: 'www.google.com', domain_keyword: 'google',
+    ip_cidr: '1.1.1.0/24', geosite: 'youtube', geoip: 'cn',
+    ruleset_url: 'https://例子/rules.list · 支持 .list / .mrs / .srs',
+  }[type] || ''
+}
+
+// geosite/geoip 可搜索下拉
+const geoOpen = ref<string>('')
+const geoSearch = ref('')
+const geoFilter = ref('all')
+function toggleGeoDrop(ri: number | string, type: string) {
+  const key = `${ri}`
+  if (geoOpen.value === key) {
+    geoOpen.value = ''
+  } else {
+    geoOpen.value = key
+    geoSearch.value = ''
+  }
+}
+function onGeoSearch() {
+  // 搜索时保持下拉打开
+}
+function filteredGeoList(type: string) {
+  const list = type === 'geosite' ? GEOSITE_CATEGORIES : GEOIP_COUNTRIES
+  const q = geoSearch.value.trim().toLowerCase()
+  if (!q) return list.slice(0, 100)
+  return list.filter((item) =>
+    item.code.toLowerCase().includes(q) || item.desc.toLowerCase().includes(q),
+  ).slice(0, 100)
+}
+function selectGeoItem(r: any, code: string) {
+  r.value = code
+  geoOpen.value = ''
+  geoSearch.value = ''
 }
 function ruleCount(r: any) {
   // TODO: 从 rule_sets API 获取实际数量
@@ -602,6 +690,7 @@ function rulesToList(rules: any): any[] {
     const [kind, name] = v.split('-', 2)
     out.push({ type: kind === 'geosite' ? 'geosite' : 'geoip', value: name || v, note: '' })
   }
+  for (const v of (r.ruleset_urls || [])) out.push({ type: 'ruleset_url', value: v, note: '' })
   return out
 }
 function listToRules(list: any[]): any {
@@ -614,6 +703,10 @@ function listToRules(list: any[]): any {
     else if (r.type === 'ip_cidr') out.ip_cidr.push(r.value.trim())
     else if (r.type === 'geosite') out.rule_sets.push(`geosite-${r.value.trim()}`)
     else if (r.type === 'geoip') out.rule_sets.push(`geoip-${r.value.trim()}`)
+    else if (r.type === 'ruleset_url') {
+      if (!out.ruleset_urls) out.ruleset_urls = []
+      out.ruleset_urls.push(r.value.trim())
+    }
   }
   return out
 }
