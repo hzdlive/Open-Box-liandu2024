@@ -327,6 +327,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     if "idle_timeout" not in gcols:
         conn.execute("ALTER TABLE groups ADD COLUMN idle_timeout TEXT NOT NULL DEFAULT '12h'")
+    # failover_state.state_json (REA §24 状态机)
+    fcols = {r[1] for r in conn.execute("PRAGMA table_info(failover_state)")}
+    if "state_json" not in fcols:
+        conn.execute("ALTER TABLE failover_state ADD COLUMN state_json TEXT NOT NULL DEFAULT '{}'")
     scols = {r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")}
     if "url" not in scols:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN url TEXT")
