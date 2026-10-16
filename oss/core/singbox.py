@@ -363,12 +363,28 @@ def _wan_dns_servers() -> list[str]:
     return system_upstreams()
 
 
+def _strip_upstream_label(addr: str) -> str:
+    """Strip the frontend display label "上游 DNS [addr]".
+
+    The DNS UI shows system/upstream DNS as "上游 DNS" (alone) or
+    "上游 DNS 1.2.3.4"; the backend only understands bare addresses
+    or "wan". A bare label (no address after it) means system DNS.
+    """
+    a = (addr or "").strip()
+    if "上游 DNS" in a:
+        a = a.split("上游 DNS", 1)[1].strip()
+        return a or "wan"
+    return a
+
+
 def _dns_servers(tag: str, addrs: str, detour: str,
                  latency: dict | None = None) -> list:
     """One entry per comma-separated upstream; the first keeps the canonical
     tag so dns rules / final keep working.
 
     addrs == "wan" resolves to the system/WAN DNS servers (original parity).
+    Frontend display labels like "上游 DNS 1.2.3.4" are stripped to the bare
+    address here (a bare "上游 DNS" label resolves to system DNS).
 
     Primary/backup: when latency measurements exist, the fastest upstream
     goes first (primary), the rest are backups.
@@ -377,10 +393,20 @@ def _dns_servers(tag: str, addrs: str, detour: str,
     if raw.lower() == "wan":
         parts = _wan_dns_servers()
     else:
-        parts = [x.strip() for x in raw.split(",") if x.strip()]
+        parts = []
+        for x in raw.split(","):
+            x = _strip_upstream_label(x)
+            if not x:
+                continue
+            if x.lower() == "wan":
+                parts.extend(_wan_dns_servers())
+            else:
+                parts.append(x)
     if not parts:
         parts = ["223.5.5.5"]
     if latency:
+        # Latency keys may be stored in labeled frontend form; normalize.
+        latency = {_strip_upstream_label(k): v for k, v in latency.items()}
         parts = sorted(parts, key=lambda a: (latency.get(a, float("inf")), parts.index(a)))
     return [_dns_server(tag if i == 0 else f"{tag}-{i}", a, detour)
             for i, a in enumerate(parts)]
@@ -401,6 +427,11 @@ def build_config(cfg: AppConfig,
         dns_rules = [{**r, "server": "proxy-dns"} if r.get("server") == "direct-dns" else r
                      for r in dns_rules]
         dns_final = "proxy-dns"
+    # Effective region (same formula as db.load_app_config). Outside mainland
+    # there is no GFW, so proxy DNS goes direct instead of through the proxy.
+    _eff_region = (cfg.dns.region if cfg.dns.region != "auto"
+                   else (cfg.dns.region_detected or "cn"))
+    _proxy_detour = "direct" if _eff_region == "outside" else "所有-自动"
     from core import geodata as _gd
     rule_set_decls = [
         {"type": "local", "tag": name, "format": "binary",
@@ -417,7 +448,7 @@ def build_config(cfg: AppConfig,
                 if cfg.dns.enable_fakeip else []
             ) + (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct",
                              cfg.dns.upstream_latency)
-                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, "所有-自动",
+                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, _proxy_detour,
                                 cfg.dns.upstream_latency)),
             "rules": dns_rules,
             "final": dns_final,
