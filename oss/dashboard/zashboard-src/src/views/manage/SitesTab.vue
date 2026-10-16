@@ -274,12 +274,12 @@
                 <Teleport to="body">
                   <div
                     v-if="geoOpen === '' + ri"
-                    class="fixed inset-0 z-[99]"
+                    class="fixed inset-0 z-[9998]"
                     @click="geoOpen = ''"
                   ></div>
                   <div
                     v-if="geoOpen === '' + ri"
-                    class="fixed z-[100] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+                    class="fixed z-[9999] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
                     :style="geoPos"
                   >
                   <div class="flex items-center gap-1 border-b border-base-300 p-2">
@@ -442,12 +442,12 @@
               <Teleport to="body">
                 <div
                   v-if="geoOpen === 'f' + fri"
-                  class="fixed inset-0 z-[99]"
+                  class="fixed inset-0 z-[9998]"
                   @click="geoOpen = ''"
                 ></div>
                 <div
                   v-if="geoOpen === 'f' + fri"
-                  class="fixed z-[100] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+                  class="fixed z-[9999] max-h-64 w-96 overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
                   :style="geoPos"
                 >
                 <div class="flex items-center gap-1 border-b border-base-300 p-2">
