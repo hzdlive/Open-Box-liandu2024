@@ -29,7 +29,7 @@ const ru: LANG_MESSAGE = {
     note: 'Заметка',
     noRules: 'Нет правил',
     editFrontRules: 'Изменить front-правила',
-    frontRulesDesc: 'Высший приоритет.',
+    frontRulesDesc: 'Одна строка — один выход. Высший приоритет.',
     editFallback: 'Изменить fallback',
     fallbackRenameHint: 'Имя — это имя outbound.',
     systemFallback: 'Fallback',

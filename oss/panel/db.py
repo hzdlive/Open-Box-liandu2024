@@ -588,6 +588,7 @@ def _rules_blob(d: dict) -> str:
         "ip_cidr": pick("ip_cidr"),
         "rule_sets": list(rules.get("rule_sets", d.get("rule_sets", []))),
         "ruleset_urls": pick("ruleset_urls"),
+        "ports": pick("ports"),
     }, ensure_ascii=False)
 
 

@@ -29,7 +29,7 @@ const zhTW: LANG_MESSAGE = {
     note: '備註',
     noRules: '暫無規則',
     editFrontRules: '修改前置自定義分流',
-    frontRulesDesc: '一行一條,優先級最高。',
+    frontRulesDesc: '一行一條,每行自己選出口。優先級最高。',
     editFallback: '修改兜底站點集',
     fallbackRenameHint: '名字就是內核裡的出站名。',
     systemFallback: '系統兜底',

@@ -29,7 +29,7 @@ const zh: LANG_MESSAGE = {
     note: '备注',
     noRules: '暂无规则，点击右上角添加',
     editFrontRules: '修改前置自定义分流',
-    frontRulesDesc: '一行一条,每行自己选出口（可直接选节点）。优先级最高,排在所有站点集之前,从上到下先命中先生效。IP 只管 IP、域名只管域名/IP 段 / geoip 行为直接按 IP 发起的连接,按域名访问更写域名名。',
+    frontRulesDesc: '一行一条,每行自己选出口（可直接选节点）。优先级最高,排在所有站点集之前,从上到下先命中先生效。IP 只管 IP、域名只管域名/IP 段 / geoip 行只管直接按 IP 发起的连接,按域名访问更写域名名。',
     editFallback: '修改兜底站点集',
     fallbackRenameHint: '名字就是内核里的出站名,改名后代理页上原来选的线路要重新选一次。',
     systemFallback: '系统兜底',

@@ -408,9 +408,14 @@
               v-model="r.type"
               class="select select-bordered select-sm w-32"
             >
-              <option value="geosite">{{ $t('obx.geosite') }}</option>
+              <option value="domain_suffix">{{ $t('obx.domainSuffix') }}</option>
               <option value="domain">{{ $t('obx.domainExact') }}</option>
+              <option value="domain_keyword">{{ $t('obx.domainKeyword') }}</option>
+              <option value="ip_cidr">{{ $t('obx.ipCidr') }}</option>
+              <option value="geosite">{{ $t('obx.geosite') }}</option>
               <option value="geoip">{{ $t('obx.geoip') }}</option>
+              <option value="ruleset_url">{{ $t('obx.rulesetUrl') }}</option>
+              <option value="port">{{ $t('obx.port') }}</option>
             </select>
             <input
               v-model="r.value"
@@ -622,6 +627,7 @@ function rulePh(type: string) {
     domain_suffix: 'google.com', domain: 'www.google.com', domain_keyword: 'google',
     ip_cidr: '1.1.1.0/24', geosite: 'youtube', geoip: 'cn',
     ruleset_url: 'https://例子/rules.list · 支持 .list / .mrs / .srs',
+    port: '80, 443',
   }[type] || ''
 }
 
@@ -691,6 +697,7 @@ function rulesToList(rules: any): any[] {
     out.push({ type: kind === 'geosite' ? 'geosite' : 'geoip', value: name || v, note: '' })
   }
   for (const v of (r.ruleset_urls || [])) out.push({ type: 'ruleset_url', value: v, note: '' })
+  for (const v of (r.ports || [])) out.push({ type: 'port', value: v, note: '' })
   return out
 }
 function listToRules(list: any[]): any {
@@ -706,6 +713,10 @@ function listToRules(list: any[]): any {
     else if (r.type === 'ruleset_url') {
       if (!out.ruleset_urls) out.ruleset_urls = []
       out.ruleset_urls.push(r.value.trim())
+    }
+    else if (r.type === 'port') {
+      if (!out.ports) out.ports = []
+      out.ports.push(r.value.trim())
     }
   }
   return out
