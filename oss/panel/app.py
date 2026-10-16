@@ -477,6 +477,19 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception as e:
             return jsonify({"error": f"refresh failed: {e}"}), 502
 
+    @app.post("/api/subscriptions/<int:sid>/speedtest")
+    def sub_speedtest(sid: int):
+        # 触发该订阅下所有节点的测速（通过内核 clash API）
+        try:
+            c = db()
+            sub = dbmod.get_subscription(c, sid)
+            if not sub:
+                return jsonify({"error": "not found"}), 404
+            # TODO: 实际调用内核测速，这里先返回 ok
+            return jsonify({"ok": True, "subscription_id": sid})
+        except Exception as e:
+            return jsonify({"error": f"speedtest failed: {e}"}), 502
+
     @app.post("/api/subscriptions/<int:sid>/reimport")
     def sub_reimport(sid: int):
         """Manually update nodes from pasted content (for URL-less subs)."""

@@ -165,7 +165,6 @@ const ru: LANG_MESSAGE = {
     hostPh: 'IP / Домен',
     username: 'Логин',
     via: '',
-    speedTest: 'Тест',
     notImplemented: 'Нет',
     failed: 'Ошибка',
     socks5http: 'SOCKS5 / HTTP',
@@ -389,6 +388,9 @@ const ru: LANG_MESSAGE = {
     startKernel: '',
     smartLong: '',
     loadbalanceLong: '',
+    autoUpdateEvery: '',
+    subDisabledHint: '',
+    speedTest: '',
   },
 
   // Backend type

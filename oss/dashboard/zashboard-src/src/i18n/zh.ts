@@ -165,7 +165,6 @@ const zh: LANG_MESSAGE = {
     hostPh: 'IP / 域名',
     username: '用户名',
     via: '经',
-    speedTest: '测速',
     notImplemented: '暂未实现',
     failed: '失败',
     socks5http: 'SOCKS5 / HTTP',
@@ -389,6 +388,9 @@ const zh: LANG_MESSAGE = {
     startKernel: '启动内核',
     smartLong: '智能选择',
     loadbalanceLong: '负载均衡',
+    autoUpdateEvery: '每 {n} 小时自动更新',
+    subDisabledHint: '内核里没有这条订阅的节点（内核没在跑,或节点都被禁用了）',
+    speedTest: '测速',
   },
 
   // 后端类型

@@ -165,7 +165,6 @@ const zhTW: LANG_MESSAGE = {
     hostPh: 'IP / 域名',
     username: '用戶名',
     via: '經',
-    speedTest: '測速',
     notImplemented: '暫未實現',
     failed: '失敗',
     socks5http: 'SOCKS5 / HTTP',
@@ -389,6 +388,9 @@ const zhTW: LANG_MESSAGE = {
     startKernel: '啟動內核',
     smartLong: '智能選擇',
     loadbalanceLong: '負載均衡',
+    autoUpdateEvery: '每 {n} 小時自動更新',
+    subDisabledHint: '內核裡沒有這條訂閱的節點',
+    speedTest: '測速',
   },
 
   // 後端類型

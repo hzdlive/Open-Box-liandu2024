@@ -18,119 +18,75 @@
       <span>{{ err }}</span>
     </div>
 
-    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{{ $t('obx.name') }}</th>
-            <th>{{ $t('obx.nodes') }}</th>
-            <th>{{ $t('obx.autoUpdate') }}</th>
-            <th>{{ $t('obx.updatedAt') }}</th>
-            <th>{{ $t('obx.enabled') }}</th>
-            <th class="text-right">{{ $t('obx.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="s in subs"
-            :key="s.id"
-          >
-            <td class="font-medium">{{ s.name }}</td>
-            <td>{{ s.node_count }}/{{ s.node_total }}</td>
-            <td>{{ s.auto_update?.enabled ? `每${s.auto_update.days}天 ${s.auto_update.hour}点` : '—' }}</td>
-            <td class="text-sm opacity-70">{{ fmtTime(s.updated_at) }}</td>
-            <td>
-              <input
-                type="checkbox"
-                class="toggle toggle-sm"
-                :checked="s.enabled"
-                @change="toggleEnabled(s)"
-              />
-            </td>
-            <td class="text-right">
-              <div class="join">
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  :disabled="busyId === s.id"
-                  @click="refresh(s)"
-                >
-                  {{ $t('obx.refresh') }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="openEdit(s)"
-                >
-                  {{ $t('obx.edit') }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs join-item text-error"
-                  @click="remove(s)"
-                >
-                  {{ $t('obx.delete') }}
-                </button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!subs.length && !loading">
-            <td
-              colspan="6"
-              class="text-center opacity-60"
-            >
-              {{ $t('obx.noSubscriptions') }}
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- 订阅分享 -->
+    <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
+      <div class="flex items-center justify-between">
+        <button class="flex items-center gap-2 font-bold" @click="shareCollapsed = !shareCollapsed">
+          <span>{{ shareCollapsed ? '▶' : '▼' }}</span>
+          {{ $t('obx.subShare') }}
+        </button>
+        <button class="btn btn-success btn-sm btn-circle" @click="openShareAdd">+</button>
+      </div>
+      <p v-if="!shareCollapsed" class="mt-1 text-xs opacity-60">{{ $t('obx.subShareHint') }}</p>
+      <div v-if="!shareCollapsed && shares.length" class="mt-2 flex flex-col gap-2">
+        <div v-for="sh in shares" :key="sh.id" class="flex items-center gap-2 rounded-box border border-base-200 p-2">
+          <span class="flex-1 truncate text-sm">{{ sh.name }}</span>
+          <span class="max-w-xs truncate font-mono text-xs opacity-60">{{ shareUrl(sh.token) }}</span>
+          <button class="btn btn-ghost btn-xs" @click="copyLink(sh)">{{ $t('obx.copy') }}</button>
+          <button class="btn btn-ghost btn-xs text-error" @click="delShare(sh)">{{ $t('obx.delete') }}</button>
+        </div>
+      </div>
     </div>
 
-    <!-- 订阅分享 -->
-    <div class="mb-3 mt-6 flex items-center justify-between">
-      <h3 class="font-bold">{{ $t('obx.subShare') }}</h3>
-      <button
-        class="btn btn-ghost btn-sm"
-        @click="openShareAdd"
+    <!-- 订阅卡片 -->
+    <div class="flex flex-col gap-3">
+      <div
+        v-for="s in subs"
+        :key="s.id"
+        class="rounded-box border border-base-300/30 bg-base-100 p-4"
+        :class="{ 'opacity-70': !s.enabled }"
       >
-        {{ $t('obx.add') }}
-      </button>
-    </div>
-    <p class="mb-2 text-sm opacity-60">{{ $t('obx.subShareHint') }}</p>
-    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{{ $t('obx.name') }}</th>
-            <th>{{ $t('obx.shareLink') }}</th>
-            <th class="text-right">{{ $t('obx.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="sh in shares"
-            :key="sh.id"
-          >
-            <td class="font-medium">{{ sh.name }}</td>
-            <td class="max-w-md truncate font-mono text-xs">{{ shareUrl(sh.token) }}</td>
-            <td class="text-right">
-              <div class="join">
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="copyLink(sh)"
-                >{{ $t('obx.copy') }}</button>
-                <button
-                  class="btn btn-ghost btn-xs join-item text-error"
-                  @click="delShare(sh)"
-                >{{ $t('obx.delete') }}</button>
-              </div>
-            </td>
-          </tr>
-          <tr v-if="!shares.length">
-            <td
-              colspan="3"
-              class="text-center opacity-60"
-            >{{ $t('obx.noSubShare') }}</td>
-          </tr>
-        </tbody>
-      </table>
+        <!-- 卡片头 -->
+        <div class="mb-2 flex items-center gap-2">
+          <span class="cursor-move opacity-40">≡</span>
+          <span class="font-bold">{{ s.name }}</span>
+          <span class="text-sm opacity-60">({{ s.node_count }}/{{ s.node_total }})</span>
+          <span v-if="!s.enabled" class="badge badge-ghost badge-sm">{{ $t('obx.disabled') }}</span>
+          <div class="flex-1" />
+          <button class="btn btn-ghost btn-sm btn-square" :class="s.enabled ? 'text-success' : 'opacity-40'" :title="$t('obx.enable')+'/'+$t('obx.disable')" @click="toggleEnabled(s)">⏻</button>
+          <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.speedTest')" @click="speedTest(s)">⚡</button>
+          <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.refresh')" :disabled="busyId === s.id" @click="refresh(s)">↻</button>
+          <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.edit')" @click="openEdit(s)">✎</button>
+          <button class="btn btn-ghost btn-sm btn-square text-error" :title="$t('obx.delete')" @click="remove(s)">🗑</button>
+        </div>
+        <!-- 更新信息 -->
+        <div class="mb-2 flex items-center justify-between text-xs opacity-60">
+          <span>{{ $t('obx.updatedAt') }} {{ fmtTime(s.updated_at) }}<span v-if="s.auto_update?.enabled"> · {{ $t('obx.autoUpdateEvery', { n: s.auto_update_hours || s.auto_update.days * 24 }) }}</span></span>
+          <span v-if="s.traffic_used">{{ s.traffic_used }}</span>
+        </div>
+        <!-- 流量条 -->
+        <div v-if="s.traffic_total" class="mb-2">
+          <div class="h-1 w-full rounded-full bg-base-300">
+            <div class="h-1 rounded-full bg-success" :style="{ width: s.traffic_percent + '%' }" />
+          </div>
+        </div>
+        <!-- 节点状态点 -->
+        <div v-if="s.node_dots?.length" class="flex flex-wrap gap-1">
+          <span
+            v-for="(d, i) in s.node_dots"
+            :key="i"
+            class="h-3 w-3 rounded-full"
+            :class="d === 'g' ? 'bg-success' : d === 'y' ? 'bg-warning' : d === 'r' ? 'bg-error' : 'bg-base-300'"
+            :title="d"
+          />
+        </div>
+        <div v-else-if="!s.enabled" class="text-xs opacity-60">
+          {{ $t('obx.subDisabledHint') }}
+        </div>
+      </div>
+      <div v-if="!subs.length && !loading" class="rounded-box border border-base-300/30 bg-base-100 p-6 text-center opacity-60">
+        {{ $t('obx.noSubscriptions') }}
+      </div>
     </div>
 
     <!-- 新增 / 编辑弹窗（三 tab：订阅 / 规则 / 节点） -->
@@ -568,10 +524,15 @@ type Sub = {
   updated_at: string
   dns_resolve?: string
   rename?: any
+  traffic_used?: string
+  traffic_total?: string
+  traffic_percent?: number
+  node_dots?: string[]
 }
 
 const subs = ref<Sub[]>([])
 const loading = ref(false)
+const shareCollapsed = ref(true)
 const err = ref('')
 const busyId = ref<number | null>(null)
 const dlg = ref<any>(null)
@@ -738,6 +699,19 @@ async function toggleEnabled(s: Sub) {
     s.enabled = !s.enabled
   } catch (e) {
     err.value = e instanceof ObxApiError ? e.message : '操作失败'
+  }
+}
+
+async function speedTest(s: Sub) {
+  busyId.value = s.id
+  err.value = ''
+  try {
+    await obxPost(`/api/subscriptions/${s.id}/speedtest`, {})
+    await load()
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '测速失败'
+  } finally {
+    busyId.value = null
   }
 }
 

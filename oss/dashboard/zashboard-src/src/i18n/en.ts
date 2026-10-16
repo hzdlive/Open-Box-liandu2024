@@ -163,7 +163,6 @@ const en = {
     hostPh: 'IP / Domain',
     username: 'Username',
     via: 'via',
-    speedTest: 'Speed Test',
     notImplemented: 'Not implemented',
     failed: 'Failed',
     socks5http: 'SOCKS5 / HTTP',
@@ -387,6 +386,9 @@ const en = {
     startKernel: 'Start Kernel',
     smartLong: 'Smart',
     loadbalanceLong: 'Load Balance',
+    autoUpdateEvery: 'Auto-update every {n}h',
+    subDisabledHint: 'No nodes from this subscription in kernel',
+    speedTest: 'Speed Test',
   },
 
   // Backend type
