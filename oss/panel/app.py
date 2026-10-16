@@ -1964,6 +1964,36 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 conflicts.append(f"端口 {port} 与{ name}服务冲突")
         return jsonify({"port": port, "ok": not conflicts, "conflicts": conflicts})
 
+    # ---- share servers (1:1 original: LAN shadowsocks inbounds) ----
+    @app.get("/api/share-servers")
+    def share_servers_list():
+        return jsonify(dbmod.list_share_servers(db()))
+
+    @app.post("/api/share-servers")
+    def share_server_create():
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            return jsonify(dbmod.create_share_server(db(), d)), 201
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+
+    @app.put("/api/share-servers/<int:sid>")
+    def share_server_update(sid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            row = dbmod.update_share_server(db(), sid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(row)
+
+    @app.delete("/api/share-servers/<int:sid>")
+    def share_server_delete(sid: int):
+        if not dbmod.delete_share_server(db(), sid):
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"ok": True})
+
     # ---- system timezone ----
     @app.get("/api/system/timezone")
     def system_timezone_get():

@@ -196,6 +196,17 @@ CREATE TABLE IF NOT EXISTS subscription_shares(
   node_filter TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS share_servers(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '',
+  protocol TEXT NOT NULL DEFAULT 'shadowsocks',
+  address TEXT NOT NULL DEFAULT '127.0.0.1',
+  port INTEGER NOT NULL DEFAULT 8388,
+  method TEXT NOT NULL DEFAULT 'aes-256-gcm',
+  password TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS node_info_cache(
   tag TEXT PRIMARY KEY,
   data TEXT NOT NULL,
@@ -924,6 +935,7 @@ def load_app_config(conn: sqlite3.Connection):
         clash_api_secret=get_setting(conn, "clash_api_secret", ""),
         share_lan_enabled=get_setting(conn, "share_lan_enabled", "0") == "1",
         share_lan_port=int(get_setting(conn, "share_lan_port", "8088") or 8088),
+        share_servers=[s for s in list_share_servers(conn) if s["enabled"]],
         sub_node_direct=get_setting(conn, "sub_node_direct", "0") == "1",
         sub_domains=list(dict.fromkeys(sub_domains)),
         speedtest_url=get_setting(conn, "speedtest_url",
@@ -1632,6 +1644,100 @@ def find_sub_share(conn: sqlite3.Connection, token: str) -> dict | None:
         " FROM subscription_shares WHERE token=?", (token,)).fetchone()
     return ({"id": r[0], "name": r[1], "token": r[2], "node_filter": r[3],
              "created_at": r[4]} if r else None)
+
+
+# -- share servers (1:1 original: profile.servers[]; LAN inbound proxies) ----
+SS_METHODS = ("aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305",
+              "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm")
+
+
+def _share_row(r) -> dict:
+    return {"id": r[0], "name": r[1], "protocol": r[2], "address": r[3],
+            "port": r[4], "method": r[5], "password": r[6],
+            "enabled": bool(r[7]), "created_at": r[8]}
+
+
+def list_share_servers(conn: sqlite3.Connection) -> list[dict]:
+    return [_share_row(r) for r in conn.execute(
+        "SELECT id, name, protocol, address, port, method, password,"
+        " enabled, created_at FROM share_servers ORDER BY id")]
+
+
+def create_share_server(conn: sqlite3.Connection, d: dict) -> dict:
+    import secrets as _secrets
+    protocol = d.get("protocol", "shadowsocks")
+    if protocol != "shadowsocks":
+        raise ValueError("protocol must be shadowsocks")
+    method = d.get("method", "aes-256-gcm")
+    if method not in SS_METHODS:
+        raise ValueError(f"method must be one of {', '.join(SS_METHODS)}")
+    port = int(d.get("port", 8388))
+    if not 1024 <= port <= 65535:
+        raise ValueError("port must be 1024-65535")
+    if conn.execute("SELECT id FROM share_servers WHERE port=?",
+                    (port,)).fetchone():
+        raise ValueError(f"port {port} already in use")
+    password = (d.get("password") or "").strip() or _secrets.token_urlsafe(16)
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    cur = conn.execute(
+        "INSERT INTO share_servers(name, protocol, address, port, method,"
+        " password, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (str(d.get("name") or "").strip(), protocol,
+         str(d.get("address") or "127.0.0.1").strip(), port, method, password,
+         0 if d.get("enabled") is False else 1, now))
+    conn.commit()
+    bump_rev(conn)
+    return _share_row(conn.execute(
+        "SELECT id, name, protocol, address, port, method, password,"
+        " enabled, created_at FROM share_servers WHERE id=?",
+        (cur.lastrowid,)).fetchone())
+
+
+def update_share_server(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
+    if not conn.execute("SELECT id FROM share_servers WHERE id=?",
+                        (sid,)).fetchone():
+        return None
+    fields, vals = [], []
+    for col, key in (("name", "name"), ("protocol", "protocol"),
+                     ("address", "address"), ("port", "port"),
+                     ("method", "method"), ("password", "password"),
+                     ("enabled", "enabled")):
+        if key in d:
+            v = d[key]
+            if key == "protocol" and v != "shadowsocks":
+                raise ValueError("protocol must be shadowsocks")
+            if key == "method" and v not in SS_METHODS:
+                raise ValueError(f"method must be one of {', '.join(SS_METHODS)}")
+            if key == "port":
+                v = int(v)
+                if not 1024 <= v <= 65535:
+                    raise ValueError("port must be 1024-65535")
+                if conn.execute("SELECT id FROM share_servers WHERE port=? AND id!=?",
+                                (v, sid)).fetchone():
+                    raise ValueError(f"port {v} already in use")
+            if key == "enabled":
+                v = 0 if not v else 1
+            if isinstance(v, str):
+                v = v.strip()
+            fields.append(f"{col}=?")
+            vals.append(v)
+    if fields:
+        vals.append(sid)
+        conn.execute(f"UPDATE share_servers SET {', '.join(fields)} WHERE id=?", vals)
+        conn.commit()
+    bump_rev(conn)
+    return _share_row(conn.execute(
+        "SELECT id, name, protocol, address, port, method, password,"
+        " enabled, created_at FROM share_servers WHERE id=?",
+        (sid,)).fetchone())
+
+
+def delete_share_server(conn: sqlite3.Connection, sid: int) -> bool:
+    cur = conn.execute("DELETE FROM share_servers WHERE id=?", (sid,))
+    conn.commit()
+    if cur.rowcount:
+        bump_rev(conn)
+    return cur.rowcount > 0
 
 
 # ---- node exit-info cache ----

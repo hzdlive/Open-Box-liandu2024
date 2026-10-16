@@ -413,7 +413,12 @@ def build_config(cfg: AppConfig,
             {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080},
         ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",
                "listen_port": cfg.share_lan_port}]
-             if cfg.share_lan_enabled else []),
+             if cfg.share_lan_enabled else []) + [
+            {"type": "shadowsocks", "tag": f"share-{s['id']}",
+             "listen": "0.0.0.0", "listen_port": s["port"],
+             "method": s["method"], "password": s["password"]}
+            for s in (cfg.share_servers or [])
+        ],
         "outbounds": outbounds,
         "route": {
             # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol

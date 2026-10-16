@@ -19,6 +19,7 @@
     <DnsTab v-else-if="active === 'dns'" />
     <TerminalsTab v-else-if="active === 'terminals'" />
     <ChainsTab v-else-if="active === 'chains'" />
+    <ShareTab v-else-if="active === 'share'" />
     <SettingsTab v-else-if="active === 'settings'" />
   </div>
 </template>
@@ -30,6 +31,7 @@ import ChainsTab from './ChainsTab.vue'
 import DnsTab from './DnsTab.vue'
 import GroupsTab from './GroupsTab.vue'
 import SettingsTab from './SettingsTab.vue'
+import ShareTab from './ShareTab.vue'
 import SitesTab from './SitesTab.vue'
 import SubsTab from './SubsTab.vue'
 import TerminalsTab from './TerminalsTab.vue'
@@ -44,6 +46,7 @@ const tabs = computed(() => [
   { key: 'dns', label: t('obx.dns') },
   { key: 'terminals', label: t('obx.terminals') },
   { key: 'chains', label: t('obx.chains') },
+  { key: 'share', label: t('obx.shareNetwork') },
   { key: 'settings', label: t('obx.panelSettings') },
 ])
 </script>

@@ -25,31 +25,6 @@
       <span>{{ ok }}</span>
     </div>
 
-    <h3 class="mb-2 font-bold">{{ $t('obx.shareNetwork') }}</h3>
-    <div class="mb-5 grid max-w-3xl grid-cols-1 gap-3 md:grid-cols-2">
-      <label class="flex cursor-pointer items-center gap-3 rounded-box border border-base-300/30 bg-base-100 p-3">
-        <input
-          v-model="share.enabled"
-          type="checkbox"
-          class="toggle"
-        />
-        <span>
-          <span class="block font-medium">{{ $t('obx.shareLan') }}</span>
-          <span class="text-sm opacity-60">{{ $t('obx.shareLanHint') }}</span>
-        </span>
-      </label>
-      <label class="form-control">
-        <span class="label-text mb-1">{{ $t('obx.sharePort') }}</span>
-        <input
-          v-model.number="share.port"
-          type="number"
-          min="1024"
-          max="65535"
-          class="input input-bordered w-full"
-        />
-      </label>
-    </div>
-
     <h3 class="mb-2 font-bold">{{ $t('obx.transparent') }}</h3>
     <div class="mb-5 grid max-w-3xl grid-cols-1 gap-3 md:grid-cols-2">
       <label class="form-control">
@@ -135,7 +110,6 @@ import { ObxApiError, obxGet, obxPut } from '@/openbox/api'
 import { onMounted, ref } from 'vue'
 
 const s = ref<Record<string, string>>({})
-const share = ref({ enabled: false, port: 8088 })
 const quic = ref(true)
 const bypassKernel = ref(false)
 const err = ref('')
@@ -148,8 +122,6 @@ async function load() {
     s.value = await obxGet<Record<string, string>>('/api/settings')
     quic.value = s.value.quic_block === '1'
     bypassKernel.value = s.value.direct_bypass_kernel === '1'
-    const sh = await obxGet<{ enabled: boolean; port: number }>('/api/share-network')
-    share.value = { enabled: !!sh.enabled, port: sh.port || 8088 }
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载失败' }
 }
 
@@ -163,7 +135,6 @@ async function save() {
       quic_block: quic.value ? '1' : '0', direct_bypass_kernel: bypassKernel.value ? '1' : '0',
     }
     await obxPut('/api/settings', body)
-    await obxPut('/api/share-network', { enabled: share.value.enabled, port: share.value.port })
     ok.value = '已保存（网络相关项下次应用内核配置后生效）'
     await load()
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }

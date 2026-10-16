@@ -144,8 +144,10 @@ class AppConfig:
     clash_api_port: int = 9090
     clash_api_listen: str = "127.0.0.1"  # dashboard 二开分支：浏览器直连 clash API 时需改为 0.0.0.0
     clash_api_secret: str = ""           # clash API secret，为空表示不设密码
-    share_lan_enabled: bool = False  # expose mixed inbound on LAN (shared network)
+    share_lan_enabled: bool = False  # legacy: expose mixed inbound on LAN
     share_lan_port: int = 8088
+    share_servers: list = field(default_factory=list)
+    # 1:1 original: LAN shadowsocks inbounds [{name, address, port, method, password, enabled}]
     front_rules: list = field(default_factory=list)  # list[dict], before site sets
     speedtest_url: str = "http://www.gstatic.com/generate_204"
     sub_node_direct: bool = False  # subscription/node server domains go direct
