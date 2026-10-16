@@ -781,6 +781,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         ok, missing = _gd.ensure([n for n in names if isinstance(n, str)])
         return jsonify({"downloaded": ok, "missing": missing})
 
+    @app.get("/api/geodata/detail/<name>")
+    def geodata_detail(name: str):
+        """返回 geosite/geoip 分类的详细条目（1:1 对标原版详情弹窗）。"""
+        from core import geodata as _gd
+        # name 格式: geosite-115 或 geoip-cn
+        detail = _gd.get_rule_set_detail(name)
+        return jsonify(detail)
+
     @app.post("/api/rulesets")
     def ruleset_create():
         d = request.get_json(force=True, silent=True) or {}

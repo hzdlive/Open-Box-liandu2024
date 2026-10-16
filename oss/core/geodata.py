@@ -139,3 +139,26 @@ def list_local(db_path: str | None = None) -> list[dict]:
                     "updated_at": time.strftime("%Y-%m-%d %H:%M:%S",
                                                 time.localtime(st.st_mtime))})
     return out
+
+
+def get_rule_set_detail(name: str) -> dict:
+    """获取规则集的详细条目（1:1 对标原版详情弹窗）。
+    
+    返回格式: {"name": "geosite-115", "title": "115 网盘云存储服务域名",
+               "items": [{"type": "域名后缀", "value": "115.com"}, ...],
+               "total": 14}
+    """
+    # TODO: 解析 .srs 二进制文件获取真实数据
+    # 目前返回空列表，前端显示"暂无数据"
+    kind = "geosite" if name.startswith("geosite-") else \
+           "geoip" if name.startswith("geoip-") else "other"
+    code = name.split("-", 1)[1] if "-" in name else name
+    return {
+        "name": name,
+        "kind": kind,
+        "code": code,
+        "title": code,
+        "items": [],
+        "total": 0,
+        "message": "数据解析尚未实现",
+    }

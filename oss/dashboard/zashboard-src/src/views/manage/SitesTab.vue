@@ -417,12 +417,56 @@
               <option value="ruleset_url">{{ $t('obx.rulesetUrl') }}</option>
               <option value="port">{{ $t('obx.port') }}</option>
             </select>
+            <!-- geosite/geoip 可搜索下拉（前置规则） -->
+            <div
+              v-if="r.type === 'geosite' || r.type === 'geoip'"
+              class="relative flex-1"
+            >
+              <button
+                class="input input-bordered input-sm flex w-full items-center justify-between"
+                @click="toggleGeoDrop(`f${fri}`, r.type)"
+              >
+                <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : rulePh(r.type) }}</span>
+                <span>▾</span>
+              </button>
+              <div
+                v-if="geoOpen === `f${fri}`"
+                class="absolute z-50 mt-1 max-h-64 w-full overflow-hidden rounded-box border border-base-300 bg-base-100 shadow-lg"
+              >
+                <div class="flex items-center gap-1 border-b border-base-300 p-2">
+                  <input
+                    v-model="geoSearch"
+                    class="input input-bordered input-sm flex-1"
+                    :placeholder="$t('obx.geoSearchPh')"
+                  />
+                  <button
+                    v-if="geoSearch"
+                    class="btn btn-ghost btn-xs"
+                    @click="geoSearch = ''"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div class="max-h-48 overflow-y-auto">
+                  <button
+                    v-for="item in filteredGeoList(r.type)"
+                    :key="item.code"
+                    class="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-base-200"
+                    @click="selectGeoItem(r, item.code)"
+                  >
+                    <span class="text-sm font-medium">{{ item.code }}</span>
+                    <span class="text-xs opacity-60">{{ item.desc }}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
             <input
+              v-else
               v-model="r.value"
               class="input input-bordered input-sm flex-1"
             />
             <button
-              v-if="r.type !== 'domain'"
+              v-if="r.type === 'geosite' || r.type === 'geoip'"
               class="btn btn-ghost btn-xs"
               @click="showRuleDetail(r)"
             >
@@ -545,6 +589,62 @@
         </div>
       </div>
     </div>
+
+    <!-- 规则详情弹窗（geosite/geoip） -->
+    <div
+      v-if="detailDlg.show"
+      class="modal modal-open"
+    >
+      <div class="modal-box max-w-2xl">
+        <div class="mb-2 flex items-center justify-between">
+          <h3 class="text-lg font-bold">{{ detailDlg.name }}</h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="detailDlg.show = false"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="mb-3 text-sm opacity-70">{{ detailDlg.title }}</p>
+        <div class="relative mb-2">
+          <input
+            v-model="detailDlg.search"
+            class="input input-bordered w-full pr-8"
+            :placeholder="$t('obx.detailSearchPh')"
+          />
+          <button
+            v-if="detailDlg.search"
+            class="btn btn-ghost btn-xs absolute right-2 top-1/2 -translate-y-1/2"
+            @click="detailDlg.search = ''"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="mb-2 text-sm opacity-60">{{ $t('obx.totalItems', { n: detailDlg.total }) }}</p>
+        <div class="max-h-96 overflow-y-auto rounded-box border border-base-300">
+          <div
+            v-if="detailDlg.loading"
+            class="p-4 text-center opacity-60"
+          >
+            {{ $t('obx.loading') }}
+          </div>
+          <div
+            v-else-if="filteredDetailItems.length === 0"
+            class="p-4 text-center opacity-60"
+          >
+            {{ $t('obx.noData') }}
+          </div>
+          <div
+            v-for="(it, idx) in filteredDetailItems"
+            :key="idx"
+            class="flex items-center gap-4 border-b border-base-200 px-4 py-2 last:border-0"
+          >
+            <span class="w-16 text-xs opacity-60">{{ it.type }}</span>
+            <span class="font-mono text-sm">{{ it.value }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -660,13 +760,54 @@ function selectGeoItem(r: any, code: string) {
   geoOpen.value = ''
   geoSearch.value = ''
 }
+function geoDisplay(type: string, code: string) {
+  const list = type === 'geosite' ? GEOSITE_CATEGORIES : GEOIP_COUNTRIES
+  const item = list.find((x) => x.code === code)
+  return item ? `${item.code} ${item.desc}` : code
+}
 function ruleCount(r: any) {
   // TODO: 从 rule_sets API 获取实际数量
   return '...'
 }
+// 规则详情弹窗
+const detailDlg = ref({
+  show: false,
+  name: '',
+  title: '',
+  search: '',
+  items: [] as { type: string; value: string }[],
+  total: 0,
+  loading: false,
+})
 function showRuleDetail(r: any) {
-  // TODO: 显示规则详情弹窗
+  const name = `${r.type}-${r.value.trim()}`
+  const title = geoDisplay(r.type, r.value.trim())
+  detailDlg.value = {
+    show: true,
+    name,
+    title,
+    search: '',
+    items: [],
+    total: 0,
+    loading: true,
+  }
+  obxGet(`/api/geodata/detail/${name}`)
+    .then((d: any) => {
+      detailDlg.value.items = d.items || []
+      detailDlg.value.total = d.total || 0
+      detailDlg.value.loading = false
+    })
+    .catch(() => {
+      detailDlg.value.loading = false
+    })
 }
+const filteredDetailItems = computed(() => {
+  const q = detailDlg.value.search.trim().toLowerCase()
+  if (!q) return detailDlg.value.items
+  return detailDlg.value.items.filter((it) =>
+    it.value.toLowerCase().includes(q),
+  )
+})
 
 // 站点集 CRUD
 async function load() {
