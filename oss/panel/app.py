@@ -1043,6 +1043,50 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    @app.post("/api/chains/<int:cid>/speedtest")
+    def chain_speedtest(cid: int):
+        """Real chain proxy speedtest: reports latency, exit IP and country."""
+        from core import chain_test as _ct
+        from core.singbox import node_to_outbound
+        c = db()
+        chains = dbmod.list_chains(c)
+        chain = next((x for x in chains if x["id"] == cid), None)
+        if not chain:
+            return jsonify({"error": "not found"}), 404
+        # Resolve front outbound (node or group)
+        front_ob = None
+        front_tag = chain.get("front", "")
+        if front_tag and front_tag not in ("direct", "block"):
+            # Try as node tag
+            cfg = dbmod.load_app_config(c)
+            for n in cfg.nodes:
+                if n.tag == front_tag:
+                    front_ob = node_to_outbound(n)
+                    break
+        result = _ct.test_chain(chain, front_ob)
+        return jsonify(result)
+
+    @app.post("/api/chains/speedtest")
+    def chain_speedtest_adhoc():
+        """Speedtest for unsaved chain config (from modal)."""
+        from core import chain_test as _ct
+        from core.singbox import node_to_outbound
+        d = request.get_json(force=True, silent=True) or {}
+        if not d.get("server"):
+            return jsonify({"error": "server is required"}), 400
+        c = db()
+        # Resolve front if specified
+        front_ob = None
+        front_tag = d.get("front", "")
+        if front_tag and front_tag not in ("direct", "block"):
+            cfg = dbmod.load_app_config(c)
+            for n in cfg.nodes:
+                if n.tag == front_tag:
+                    front_ob = node_to_outbound(n)
+                    break
+        result = _ct.test_chain(d, front_ob)
+        return jsonify(result)
+
     # ---- groups ----
     @app.get("/api/groups")
     def group_list():

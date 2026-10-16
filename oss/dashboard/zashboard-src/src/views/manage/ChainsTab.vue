@@ -35,6 +35,13 @@
           <div class="text-xs opacity-60 font-mono">
             {{ c.exit_protocol }} · {{ c.server }}:{{ c.port }}
           </div>
+          <div v-if="chainResults[c.id]" class="text-xs mt-1">
+            <span v-if="chainResults[c.id].ok" class="text-success">
+              {{ chainResults[c.id].latency_ms }}ms · {{ chainResults[c.id].exit_ip }} · {{ chainResults[c.id].country }}
+            </span>
+            <span v-else class="text-error">{{ chainResults[c.id].error }}</span>
+          </div>
+          <div v-else-if="testingId === c.id" class="text-xs mt-1 opacity-60">测速中…</div>
         </div>
         <button
           class="btn btn-ghost btn-sm btn-square"
@@ -205,7 +212,10 @@
             <span v-else>⚡</span>
             {{ $t('obx.speedTest') }}
             <span v-if="testResult" class="ml-2" :class="testResult.ok ? 'text-success' : 'text-error'">
-              {{ testResult.latency != null ? `${testResult.latency}ms` : $t('obx.failed') }}
+              <template v-if="testResult.ok">
+                {{ testResult.latency_ms }}ms · {{ testResult.exit_ip }} · {{ testResult.country }}
+              </template>
+              <template v-else>{{ testResult.error || $t('obx.failed') }}</template>
             </span>
           </button>
           <p class="text-xs opacity-60">{{ $t('obx.chainTestDesc') }}</p>
@@ -334,7 +344,7 @@ const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
 const testing = ref(false)
-const testResult = ref<{ ok: boolean; latency: number | null } | null>(null)
+const testResult = ref<{ ok: boolean; latency_ms?: number | null; latency?: number | null; exit_ip?: string | null; country?: string | null; error?: string } | null>(null)
 
 const obSel = ref({
   show: false,
@@ -457,14 +467,42 @@ async function remove(c: Chain) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
 }
 
+const testingId = ref<number | null>(null)
+const chainResults = ref<Record<number, any>>({})
+
 async function testSpeed(c: Chain) {
-  // TODO: 后端实现链式代理测速
-  err.value = t('obx.notImplemented')
+  if (!c.id) return
+  testingId.value = c.id
+  try {
+    const r = await obxPost<any>(`/api/chains/${c.id}/speedtest`, {})
+    chainResults.value[c.id] = r
+    if (!r.ok) err.value = r.error || t('obx.testFailed')
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '测速失败'
+  } finally {
+    testingId.value = null
+  }
 }
 
 async function testDlgSpeed() {
-  // TODO: 模态框内测速（不保存，经上游测一次）
-  testResult.value = { ok: false, latency: null }
+  if (!dlg.value?.server) return
+  testing.value = true
+  testResult.value = null
+  try {
+    const r = await obxPost<any>('/api/chains/speedtest', {
+      name: dlg.value.name || 'test',
+      exit_protocol: dlg.value.exit_protocol || 'socks',
+      server: dlg.value.server,
+      server_port: dlg.value.server_port,
+      params: { username: dlg.value.username, password: dlg.value.password },
+      front: dlg.value.front,
+    })
+    testResult.value = r
+  } catch (e) {
+    testResult.value = { ok: false, error: e instanceof ObxApiError ? e.message : '测速失败' }
+  } finally {
+    testing.value = false
+  }
 }
 
 // 上游选择器
