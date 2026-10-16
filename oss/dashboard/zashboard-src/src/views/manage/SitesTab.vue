@@ -268,7 +268,7 @@
                   type="button"
                   @click="toggleGeoDrop(ri, r.type, $event)"
                 >
-                  <span class="truncate">{{ r.value || rulePh(r.type) }}</span>
+                  <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
                   <span>▾</span>
                 </button>
                 <Teleport to="body">
@@ -436,7 +436,7 @@
                 type="button"
                 @click="toggleGeoDrop('f' + fri, r.type, $event)"
               >
-                <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : rulePh(r.type) }}</span>
+                <span class="truncate">{{ r.value ? geoDisplay(r.type, r.value) : "" }}</span>
                 <span>▾</span>
               </button>
               <Teleport to="body">
