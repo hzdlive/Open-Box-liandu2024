@@ -3,12 +3,24 @@
   <div>
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.siteSets') }}</h2>
-      <button
-        class="btn btn-primary btn-sm"
-        @click="openAdd"
-      >
-        {{ $t('obx.addSiteSet') }}
-      </button>
+      <div class="flex items-center gap-2">
+        <span class="text-sm opacity-60">{{ $t('obx.fallback') }}</span>
+        <select
+          v-model="fallback"
+          class="select select-bordered select-sm"
+          @change="saveFallback"
+        >
+          <option value="direct">{{ $t('obx.actDirect') }}</option>
+          <option value="proxy">{{ $t('obx.actProxy') }}</option>
+          <option value="reject">{{ $t('obx.actReject') }}</option>
+        </select>
+        <button
+          class="btn btn-primary btn-sm"
+          @click="openAdd"
+        >
+          {{ $t('obx.addSiteSet') }}
+        </button>
+      </div>
     </div>
 
     <div
@@ -16,6 +28,64 @@
       class="alert alert-error mb-3"
     >
       <span>{{ err }}</span>
+    </div>
+
+    <!-- 前置自定义分流（最高优先级） -->
+    <div class="mb-4 rounded-box border border-base-300/30 bg-base-100 p-3">
+      <div class="mb-2 flex items-center justify-between">
+        <h3 class="font-bold">{{ $t('obx.frontRules') }}</h3>
+        <span class="text-xs opacity-60">{{ $t('obx.frontRulesHint') }}</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <tbody>
+            <tr
+              v-for="r in frontRules"
+              :key="r.id"
+            >
+              <td class="font-mono">{{ r.domain }}</td>
+              <td>→</td>
+              <td>{{ r.target }}</td>
+              <td>
+                <input
+                  type="checkbox"
+                  class="toggle toggle-xs"
+                  :checked="!!r.enabled"
+                  @change="toggleFront(r)"
+                />
+              </td>
+              <td class="text-right">
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  @click="delFront(r)"
+                >{{ $t('obx.delete') }}</button>
+              </td>
+            </tr>
+            <tr v-if="!frontRules.length">
+              <td
+                colspan="5"
+                class="text-center opacity-60"
+              >{{ $t('obx.noFrontRules') }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          v-model="ff.domain"
+          class="input input-bordered input-sm"
+          :placeholder="$t('obx.domain')"
+        />
+        <input
+          v-model="ff.target"
+          class="input input-bordered input-sm"
+          :placeholder="$t('obx.frontTargetPh')"
+        />
+        <button
+          class="btn btn-ghost btn-sm"
+          @click="addFront"
+        >{{ $t('obx.add') }}</button>
+      </div>
     </div>
 
     <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
@@ -261,5 +331,42 @@ async function flip(s: SiteSet, to: string) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '切换失败' }
 }
 
-onMounted(load)
+// ---- 前置自定义分流 ----
+type FrontRule = { id: number; domain: string; target: string; enabled: number }
+const frontRules = ref<FrontRule[]>([])
+const ff = ref({ domain: '', target: '' })
+async function loadFront() {
+  try { frontRules.value = await obxGet<FrontRule[]>('/api/front-rules') }
+  catch { frontRules.value = [] }
+}
+async function addFront() {
+  if (!ff.value.domain.trim() || !ff.value.target.trim()) return
+  try {
+    await obxPost('/api/front-rules', { domain: ff.value.domain.trim(), target: ff.value.target.trim() })
+    ff.value = { domain: '', target: '' }
+    await loadFront()
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '添加失败' }
+}
+async function toggleFront(r: FrontRule) {
+  try { await obxPut(`/api/front-rules/${r.id}`, { enabled: r.enabled ? 0 : 1 }); await loadFront() }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
+}
+async function delFront(r: FrontRule) {
+  try { await obxDel(`/api/front-rules/${r.id}`); await loadFront() }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
+}
+
+const fallback = ref('direct')
+async function loadFallback() {
+  try {
+    const s = await obxGet<Record<string, string>>('/api/settings')
+    fallback.value = s.routing_fallback || 'direct'
+  } catch { /* keep default */ }
+}
+async function saveFallback() {
+  try { await obxPut('/api/settings', { routing_fallback: fallback.value }) }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }
+}
+
+onMounted(() => { load(); loadFront(); loadFallback() })
 </script>

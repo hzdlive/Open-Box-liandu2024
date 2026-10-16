@@ -210,6 +210,7 @@ DEFAULT_SETTINGS = {
     "dns_region": "auto",           # auto | cn | outside
     "dns_region_detected": "",
     "final_outbound": "所有-自动",
+    "routing_fallback": "direct",  # 1:1 original: unmatched traffic -> direct
     "tun_stack": "mixed",
     "tun_mtu": "9000",
     "tun_address": "172.19.0.1/30",
@@ -913,6 +914,7 @@ def load_app_config(conn: sqlite3.Connection):
         dns_rewrites=rewrites, terminals=terminals,
         front_rules=[r for r in list_front_rules(conn) if r["enabled"]],
         final_outbound=get_setting(conn, "final_outbound", "所有-自动"),
+        routing_fallback=get_setting(conn, "routing_fallback", "direct"),
         tun_stack=get_setting(conn, "tun_stack", "mixed"),
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         tun_address=get_setting(conn, "tun_address", "172.19.0.1/30"),

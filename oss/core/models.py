@@ -136,6 +136,7 @@ class AppConfig:
     dns_rewrites: list = field(default_factory=list)  # list[DnsRewrite]
     terminals: list = field(default_factory=list)     # list[TerminalPolicy]
     final_outbound: str = "所有-自动"  # fallback route
+    routing_fallback: str = "direct"  # 1:1 original: unmatched -> direct
     tun_stack: str = "mixed"     # mixed | gvisor | system
     tun_mtu: int = 9000
     tun_address: str = "172.19.0.1/30"  # TUN interface address (sing-box >= 1.14 requires it)

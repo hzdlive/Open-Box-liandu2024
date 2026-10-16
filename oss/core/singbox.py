@@ -420,7 +420,7 @@ def build_config(cfg: AppConfig,
             # traffic is handed to the DNS module via the hijack-dns action.
             "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "action": "hijack-dns"}],
             **({"rule_set": rule_set_decls} if rule_set_decls else {}),
-            "final": cfg.final_outbound,
+            "final": cfg.routing_fallback or cfg.final_outbound,
             "auto_detect_interface": True,
             # sing-box >= 1.12 requires an explicit resolver for outbound
             # server domain names (was implicit, removed in 1.14).

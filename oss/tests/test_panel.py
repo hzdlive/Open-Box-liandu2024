@@ -59,7 +59,8 @@ def main() -> int:
     # Just check flips count matches site sets with proxy action
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) >= 2 and all(o["type"] == "selector" for o in flips), flips
-    assert conf["route"]["final"] == "所有-自动"
+    # 1:1 original: unmatched traffic falls back to direct by default
+    assert conf["route"]["final"] == "direct"
 
     # settings round-trip
     r = c.put("/api/settings", json={"dns_direct": "114.114.114.114"})
