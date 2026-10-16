@@ -1,26 +1,15 @@
-<!-- Open-Box 二开：目标分流（站点集，自上而下首命中；由旧版自研 UI 移植） -->
+<!-- Open-Box 二开：目标分流（1:1 对标原版 v0.1.331） -->
 <template>
   <div>
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.siteSets') }}</h2>
-      <div class="flex items-center gap-2">
-        <span class="text-sm opacity-60">{{ $t('obx.fallback') }}</span>
-        <select
-          v-model="fallback"
-          class="select select-bordered select-sm"
-          @change="saveFallback"
-        >
-          <option value="direct">{{ $t('obx.actDirect') }}</option>
-          <option value="proxy">{{ $t('obx.actProxy') }}</option>
-          <option value="reject">{{ $t('obx.actReject') }}</option>
-        </select>
-        <button
-          class="btn btn-primary btn-sm"
-          @click="openAdd"
-        >
-          {{ $t('obx.addSiteSet') }}
-        </button>
-      </div>
+      <button
+        class="btn btn-primary btn-sm btn-square"
+        :title="$t('obx.addSiteSet')"
+        @click="openAdd"
+      >
+        +
+      </button>
     </div>
 
     <div
@@ -30,224 +19,471 @@
       <span>{{ err }}</span>
     </div>
 
-    <!-- 前置自定义分流（最高优先级） -->
-    <div class="mb-4 rounded-box border border-base-300/30 bg-base-100 p-3">
-      <div class="mb-2 flex items-center justify-between">
-        <h3 class="font-bold">{{ $t('obx.frontRules') }}</h3>
-        <span class="text-xs opacity-60">{{ $t('obx.frontRulesHint') }}</span>
-      </div>
-      <div class="overflow-x-auto">
-        <table class="table table-sm">
-          <tbody>
-            <tr
-              v-for="r in frontRules"
-              :key="r.id"
-            >
-              <td class="font-mono">{{ r.domain }}</td>
-              <td>→</td>
-              <td>{{ r.target }}</td>
-              <td>
-                <input
-                  type="checkbox"
-                  class="toggle toggle-xs"
-                  :checked="!!r.enabled"
-                  @change="toggleFront(r)"
-                />
-              </td>
-              <td class="text-right">
-                <button
-                  class="btn btn-ghost btn-xs text-error"
-                  @click="delFront(r)"
-                >{{ $t('obx.delete') }}</button>
-              </td>
-            </tr>
-            <tr v-if="!frontRules.length">
-              <td
-                colspan="5"
-                class="text-center opacity-60"
-              >{{ $t('obx.noFrontRules') }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div class="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          v-model="ff.domain"
-          class="input input-bordered input-sm"
-          :placeholder="$t('obx.domain')"
-        />
-        <input
-          v-model="ff.target"
-          class="input input-bordered input-sm"
-          :placeholder="$t('obx.frontTargetPh')"
-        />
-        <button
-          class="btn btn-ghost btn-sm"
-          @click="addFront"
-        >{{ $t('obx.add') }}</button>
-      </div>
-    </div>
-
-    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{{ $t('obx.name') }}</th>
-            <th>{{ $t('obx.action') }}</th>
-            <th>{{ $t('obx.group') }}</th>
-            <th>{{ $t('obx.rules') }}</th>
-            <th>{{ $t('obx.hotSwitch') }}</th>
-            <th class="text-right">{{ $t('obx.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="s in sites"
-            :key="s.id"
+    <!-- 卡片列表（对标原版） -->
+    <div class="flex flex-col gap-2">
+      <!-- 前置自定义分流（固定顶部） -->
+      <div
+        class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
+        :class="{ 'opacity-60': !frontEnabled }"
+        title="固定位置,不能拖动排序"
+      >
+        <span class="opacity-40">≡</span>
+        <span class="text-xl">📌</span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ $t('obx.frontRules') }}</span>
+            <span class="badge badge-ghost badge-xs">{{ $t('obx.frontBadge') }}</span>
+          </div>
+          <div class="truncate text-sm opacity-60">
+            {{ frontSummary }}
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            :class="frontEnabled ? 'text-success' : 'opacity-40'"
+            @click="toggleFrontEnabled"
           >
-            <td class="font-medium">{{ s.name }}</td>
-            <td>
-              <span
-                class="badge badge-sm"
-                :class="actionCls(s.action)"
-              >{{ actionName(s.action) }}</span>
-            </td>
-            <td>{{ s.action === 'proxy' ? s.group : '—' }}</td>
-            <td class="max-w-xs truncate text-sm opacity-70">{{ ruleSummary(s) }}</td>
-            <td>
-              <div class="join">
-                <button
-                  class="btn btn-xs join-item"
-                  :class="s.flip === 'proxy' ? 'btn-primary' : 'btn-ghost'"
-                  @click="flip(s, 'proxy')"
-                >{{ $t('obx.flipProxy') }}</button>
-                <button
-                  class="btn btn-xs join-item"
-                  :class="s.flip === 'direct' ? 'btn-primary' : 'btn-ghost'"
-                  @click="flip(s, 'direct')"
-                >{{ $t('obx.flipDirect') }}</button>
-                <button
-                  v-if="s.flip"
-                  class="btn btn-xs join-item btn-ghost"
-                  @click="flip(s, '')"
-                >✕</button>
-              </div>
-            </td>
-            <td class="text-right">
-              <div class="join">
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="move(s, -1)"
-                >↑</button>
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="move(s, 1)"
-                >↓</button>
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="openEdit(s)"
-                >{{ $t('obx.edit') }}</button>
-                <button
-                  class="btn btn-ghost btn-xs join-item text-error"
-                  @click="remove(s)"
-                >{{ $t('obx.delete') }}</button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            ⏻
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            @click="openFrontEdit"
+          >
+            ✎
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm hover:text-error"
+            @click="clearFront"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+
+      <!-- 站点集卡片（可拖拽） -->
+      <div
+        v-for="(s, si) in sites"
+        :key="s.id"
+        class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
+        :class="{ 'opacity-60': !s.enabled, 'ring-2 ring-primary': dragOver === si }"
+        draggable="true"
+        @dragstart="onDragStart(si)"
+        @dragover.prevent="onDragOver(si)"
+        @dragleave="dragOver = -1"
+        @drop="onDrop(si)"
+        @dragend="dragOver = -1"
+      >
+        <span
+          class="cursor-move opacity-40"
+          title="拖拽排序"
+        >≡</span>
+        <span
+          v-if="s.icon"
+          class="text-xl"
+          :style="s.icon_scale ? `transform: scale(${1 + s.icon_scale * 0.1})` : ''"
+        >{{ iconEmoji(s.icon) }}</span>
+        <div class="min-w-0 flex-1">
+          <div class="font-medium">{{ s.name }}</div>
+          <div class="truncate text-sm opacity-60">
+            {{ ruleSummary(s) }}
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            :class="s.enabled ? 'text-success' : 'opacity-40'"
+            @click="toggleSite(s)"
+          >
+            ⏻
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            @click="openEdit(s)"
+          >
+            ✎
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm hover:text-error"
+            @click="removeSite(s)"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+
+      <!-- 其他（系统兜底，固定底部） -->
+      <div
+        class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
+        title="固定位置,不能拖动排序"
+      >
+        <span class="opacity-40">≡</span>
+        <span class="text-xl">🌍</span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ $t('obx.fallback') }}</span>
+            <span class="badge badge-ghost badge-xs">{{ $t('obx.systemFallback') }}</span>
+          </div>
+          <div class="truncate text-sm opacity-60">
+            {{ $t('obx.fallbackHint') }}
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            class="btn btn-ghost btn-square btn-sm opacity-40"
+            disabled
+          >
+            ⏻
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            @click="openFallbackEdit"
+          >
+            ✎
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm opacity-40"
+            disabled
+          >
+            🗑
+          </button>
+        </div>
+      </div>
     </div>
 
+    <!-- 添加/编辑站点集弹窗 -->
     <div
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-2xl">
-        <h3 class="mb-4 text-lg font-bold">{{ dlg.id ? $t('obx.editSiteSet') : $t('obx.addSiteSet') }}</h3>
-        <div class="grid grid-cols-3 gap-3">
+      <div class="modal-box max-w-3xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">
+            {{ dlg.id ? $t('obx.editSiteSet') : $t('obx.addSiteSet') }}
+          </h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="dlg = null"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="grid grid-cols-3 items-end gap-3">
           <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.name') }}</span>
+            <span class="label-text mb-1">{{ $t('obx.icon') }}</span>
+            <select
+              v-model="dlg.icon"
+              class="select select-bordered w-full"
+            >
+              <option value="">{{ $t('obx.none') }}</option>
+              <option
+                v-for="ic in ICONS"
+                :key="ic.value"
+                :value="ic.value"
+              >
+                {{ ic.label }}
+              </option>
+            </select>
+          </label>
+          <div class="form-control">
+            <span class="label-text mb-1">{{ $t('obx.iconScale') }}</span>
+            <div class="join">
+              <button
+                class="btn btn-bordered join-item"
+                @click="dlg.icon_scale = Math.max(-5, (dlg.icon_scale || 0) - 1)"
+              >−</button>
+              <span class="join-item flex w-10 items-center justify-center border border-base-300">{{ dlg.icon_scale || 0 }}</span>
+              <button
+                class="btn btn-bordered join-item"
+                @click="dlg.icon_scale = Math.min(5, (dlg.icon_scale || 0) + 1)"
+              >+</button>
+              <button
+                class="btn btn-ghost join-item"
+                @click="dlg.icon_scale = 0"
+              >{{ $t('obx.reset') }}</button>
+            </div>
+          </div>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ $t('obx.siteSetName') }}</span>
             <input
               v-model="dlg.name"
               class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.action') }}</span>
-            <select
-              v-model="dlg.action"
-              class="select select-bordered w-full"
-            >
-              <option value="proxy">{{ $t('obx.actProxy') }}</option>
-              <option value="direct">{{ $t('obx.actDirect') }}</option>
-              <option value="reject">{{ $t('obx.actReject') }}</option>
-            </select>
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.group') }}</span>
-            <input
-              v-model="dlg.group"
-              class="input input-bordered w-full"
-              :disabled="dlg.action !== 'proxy'"
-            />
-          </label>
-          <label class="form-control col-span-3">
-            <span class="label-text mb-1">{{ $t('obx.domainSuffix') }}</span>
-            <textarea
-              v-model="dlg.domain_suffix"
-              class="textarea textarea-bordered w-full"
-              rows="2"
-              placeholder="google.com（一行一个）"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.domainExact') }}</span>
-            <textarea
-              v-model="dlg.domains"
-              class="textarea textarea-bordered w-full"
-              rows="2"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.domainKeyword') }}</span>
-            <textarea
-              v-model="dlg.domain_keyword"
-              class="textarea textarea-bordered w-full"
-              rows="2"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.ipCidr') }}</span>
-            <textarea
-              v-model="dlg.ip_cidr"
-              class="textarea textarea-bordered w-full"
-              rows="2"
-              placeholder="1.1.1.0/24（一行一个）"
-            />
-          </label>
-          <label class="form-control col-span-3">
-            <span class="label-text mb-1">{{ $t('obx.ruleSets') }}</span>
-            <input
-              v-model="dlg.rule_sets"
-              class="input input-bordered w-full"
-              placeholder="geosite-youtube, geosite-netflix（逗号分隔）"
+              :placeholder="$t('obx.siteSetNamePh')"
             />
           </label>
         </div>
+
+        <div class="mt-4">
+          <div class="mb-2 flex items-center justify-between">
+            <span class="label-text font-medium">{{ $t('obx.rules') }}</span>
+            <div class="flex gap-2">
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="importRules"
+              >
+                {{ $t('obx.importRules') }}
+              </button>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="addRule"
+              >
+                + {{ $t('obx.addRule') }}
+              </button>
+            </div>
+          </div>
+          <div class="flex max-h-96 flex-col gap-2 overflow-y-auto">
+            <div
+              v-for="(r, ri) in dlg.rules"
+              :key="ri"
+              class="flex items-center gap-2"
+              :class="{ 'ring-2 ring-primary': ruleDragOver === ri }"
+              draggable="true"
+              @dragstart="onRuleDragStart(ri)"
+              @dragover.prevent="onRuleDragOver(ri)"
+              @dragleave="ruleDragOver = -1"
+              @drop="onRuleDrop(ri)"
+              @dragend="ruleDragOver = -1"
+            >
+              <span class="cursor-move opacity-40">≡</span>
+              <select
+                v-model="r.type"
+                class="select select-bordered select-sm w-32"
+              >
+                <option value="domain_suffix">{{ $t('obx.domainSuffix') }}</option>
+                <option value="domain">{{ $t('obx.domainExact') }}</option>
+                <option value="domain_keyword">{{ $t('obx.domainKeyword') }}</option>
+                <option value="ip_cidr">{{ $t('obx.ipCidr') }}</option>
+                <option value="geosite">{{ $t('obx.geosite') }}</option>
+                <option value="geoip">{{ $t('obx.geoip') }}</option>
+              </select>
+              <input
+                v-model="r.value"
+                class="input input-bordered input-sm flex-1"
+                :placeholder="rulePh(r.type)"
+              />
+              <button
+                v-if="r.type === 'geosite' || r.type === 'geoip'"
+                class="btn btn-ghost btn-xs"
+                @click="showRuleDetail(r)"
+              >
+                {{ $t('obx.detail') }} ({{ ruleCount(r) }})
+              </button>
+              <input
+                v-model="r.note"
+                class="input input-bordered input-sm w-24"
+                :placeholder="$t('obx.note')"
+              />
+              <button
+                class="btn btn-ghost btn-sm text-error"
+                @click="dlg.rules.splice(Number(ri), 1)"
+              >
+                🗑
+              </button>
+            </div>
+            <div
+              v-if="!dlg.rules.length"
+              class="py-8 text-center text-sm opacity-60"
+            >
+              {{ $t('obx.noRules') }}
+            </div>
+          </div>
+        </div>
+
         <p
           v-if="dlgErr"
           class="mt-3 text-sm text-error"
-        >{{ dlgErr }}</p>
+        >
+          {{ dlgErr }}
+        </p>
         <div class="modal-action">
           <button
             class="btn btn-ghost"
             @click="dlg = null"
-          >{{ $t('obx.cancel') }}</button>
+          >
+            {{ $t('obx.cancel') }}
+          </button>
           <button
-            class="btn btn-primary"
+            class="btn btn-success"
             :disabled="dlgBusy"
             @click="save"
-          >{{ $t('obx.save') }}</button>
+          >
+            {{ $t('obx.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 前置自定义分流编辑弹窗 -->
+    <div
+      v-if="frontDlg"
+      class="modal modal-open"
+    >
+      <div class="modal-box max-w-4xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">{{ $t('obx.editFrontRules') }}</h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="frontDlg = null"
+          >
+            ✕
+          </button>
+        </div>
+        <p class="mb-3 text-xs opacity-60">{{ $t('obx.frontRulesDesc') }}</p>
+        <div class="mb-2 flex justify-end gap-2">
+          <button
+            class="btn btn-ghost btn-xs"
+            @click="importFrontRules"
+          >
+            {{ $t('obx.importRules') }}
+          </button>
+          <button
+            class="btn btn-ghost btn-xs"
+            @click="addFrontRule"
+          >
+            + {{ $t('obx.addRule') }}
+          </button>
+        </div>
+        <div class="flex max-h-96 flex-col gap-2 overflow-y-auto">
+          <div
+            v-for="(r, fri) in frontDlg.rules"
+            :key="fri"
+            class="flex items-center gap-2"
+          >
+            <span class="cursor-move opacity-40">≡</span>
+            <select
+              v-model="r.type"
+              class="select select-bordered select-sm w-32"
+            >
+              <option value="geosite">{{ $t('obx.geosite') }}</option>
+              <option value="domain">{{ $t('obx.domainExact') }}</option>
+              <option value="geoip">{{ $t('obx.geoip') }}</option>
+            </select>
+            <input
+              v-model="r.value"
+              class="input input-bordered input-sm flex-1"
+            />
+            <button
+              v-if="r.type !== 'domain'"
+              class="btn btn-ghost btn-xs"
+              @click="showRuleDetail(r)"
+            >
+              {{ $t('obx.detail') }} ({{ ruleCount(r) }})
+            </button>
+            <input
+              v-model="r.note"
+              class="input input-bordered input-sm w-24"
+              :placeholder="$t('obx.note')"
+            />
+            <select
+              v-model="r.target"
+              class="select select-bordered select-sm w-32"
+            >
+              <option
+                v-for="g in groupOptions"
+                :key="g"
+                :value="g"
+              >
+                {{ g }}
+              </option>
+            </select>
+            <button
+              class="btn btn-ghost btn-sm text-error"
+              @click="frontDlg.rules.splice(Number(fri), 1)"
+            >
+              🗑
+            </button>
+          </div>
+        </div>
+        <div class="modal-action">
+          <button
+            class="btn btn-ghost"
+            @click="frontDlg = null"
+          >
+            {{ $t('obx.cancel') }}
+          </button>
+          <button
+            class="btn btn-success"
+            @click="saveFront"
+          >
+            {{ $t('obx.save') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 兜底站点集编辑弹窗 -->
+    <div
+      v-if="fallbackDlg"
+      class="modal modal-open"
+    >
+      <div class="modal-box">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">{{ $t('obx.editFallback') }}</h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="fallbackDlg = null"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="grid grid-cols-3 items-end gap-3">
+          <label class="form-control">
+            <span class="label-text mb-1">{{ $t('obx.icon') }}</span>
+            <select
+              v-model="fallbackDlg.icon"
+              class="select select-bordered w-full"
+            >
+              <option value="">{{ $t('obx.none') }}</option>
+              <option
+                v-for="ic in ICONS"
+                :key="ic.value"
+                :value="ic.value"
+              >
+                {{ ic.label }}
+              </option>
+            </select>
+          </label>
+          <div class="form-control">
+            <span class="label-text mb-1">{{ $t('obx.iconScale') }}</span>
+            <div class="join">
+              <button
+                class="btn btn-bordered join-item"
+                @click="fallbackDlg.icon_scale--"
+              >−</button>
+              <span class="join-item flex w-10 items-center justify-center border border-base-300">{{ fallbackDlg.icon_scale || 0 }}</span>
+              <button
+                class="btn btn-bordered join-item"
+                @click="fallbackDlg.icon_scale++"
+              >+</button>
+              <button
+                class="btn btn-ghost join-item"
+                @click="fallbackDlg.icon_scale = 0"
+              >{{ $t('obx.reset') }}</button>
+            </div>
+          </div>
+          <label class="form-control">
+            <span class="label-text mb-1">{{ $t('obx.siteSetName') }}</span>
+            <input
+              v-model="fallbackDlg.name"
+              class="input input-bordered w-full"
+            />
+          </label>
+        </div>
+        <p class="mt-3 text-sm opacity-60">{{ $t('obx.fallbackRenameHint') }}</p>
+        <div class="modal-action">
+          <button
+            class="btn btn-ghost"
+            @click="fallbackDlg = null"
+          >
+            {{ $t('obx.cancel') }}
+          </button>
+          <button
+            class="btn btn-success"
+            @click="saveFallback"
+          >
+            {{ $t('obx.save') }}
+          </button>
         </div>
       </div>
     </div>
@@ -256,15 +492,43 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+const ICONS = [
+  { value: 'misc:stopwatch', label: '⏱ 秒表' },
+  { value: 'brand:openai-light', label: '🤖 AI' },
+  { value: 'brand:youtube', label: '▶ Youtube' },
+  { value: 'brand:tiktok', label: '🎵 TikTok' },
+  { value: 'brand:netflix-mono', label: 'N Netflix' },
+  { value: 'brand:github-mono', label: '🐙 Github' },
+  { value: 'brand:google', label: 'G Google' },
+  { value: 'brand:microsoft', label: '🪟 Microsoft' },
+  { value: 'brand:apple-light', label: '🍎 Apple' },
+  { value: 'misc:game-soft', label: '🎮 Games' },
+  { value: 'globe:earth-americas', label: '🌎 地球·彩色(美洲)' },
+  { value: 'misc:shield', label: '🛡 盾牌' },
+  { value: 'dart', label: '🎯 靶心' },
+  { value: 'globe', label: '🌍 地球' },
+  { value: 'bolt', label: '⚡ 闪电' },
+]
+function iconEmoji(v: string) {
+  const found = ICONS.find((i) => i.value === v)
+  if (found) return found.label.split(' ')[0]
+  return '📦'
+}
+
 type SiteSet = {
-  id: number; name: string; action: string; group: string; flip: string
-  rules: { domains: string[]; domain_suffix: string[]; domain_keyword: string[]; ip_cidr: string[] }
-  rule_sets: string[]
+  id: number
+  name: string
+  action: string
+  group: string
+  enabled: boolean
+  icon: string
+  icon_scale: number
+  rules: any
 }
 
 const sites = ref<SiteSet[]>([])
@@ -272,101 +536,189 @@ const err = ref('')
 const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
+const frontDlg = ref<any>(null)
+const fallbackDlg = ref<any>(null)
+const frontRules = ref<any[]>([])
+const frontEnabled = ref(true)
+const groupOptions = ref<string[]>([])
 
-const actionName = (a: string) => ({ proxy: t('obx.actProxy'), direct: t('obx.actDirect'), reject: t('obx.actReject') }[a] || a)
-const actionCls = (a: string) => ({ proxy: 'badge-primary', direct: 'badge-success', reject: 'badge-error' }[a] || 'badge-ghost')
+// 拖拽
+const dragFrom = ref(-1)
+const dragOver = ref(-1)
+const ruleDragFrom = ref<number | string>(-1)
+const ruleDragOver = ref<number | string>(-1)
+
 function ruleSummary(s: SiteSet) {
   const r = s.rules || {}
   const parts: string[] = []
-  const n = (arr?: string[]) => (arr || []).length
-  if (n(r.domain_suffix)) parts.push(`${n(r.domain_suffix)} 后缀`)
-  if (n(r.domains)) parts.push(`${n(r.domains)} 精确`)
-  if (n(r.domain_keyword)) parts.push(`${n(r.domain_keyword)} 关键词`)
-  if (n(r.ip_cidr)) parts.push(`${n(r.ip_cidr)} IP段`)
-  if ((s.rule_sets || []).length) parts.push(`${s.rule_sets.length} 规则集`)
-  return parts.join(' · ') || '—'
+  const rs = r.rule_sets || r.rulesets || []
+  if (rs.length) parts.push(`${t('obx.ruleSets')}: ${rs.join(', ')}`)
+  const ds = r.domain_suffix || []
+  if (ds.length) parts.push(`${t('obx.domainSuffix')}: ${ds.slice(0, 5).join(', ')}${ds.length > 5 ? '...' : ''}`)
+  return parts.join(' | ') || '—'
 }
-const lines = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean)
 
-async function load() {
-  err.value = ''
-  try { sites.value = await obxGet<SiteSet[]>('/api/sitesets') }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载失败' }
+const frontSummary = computed(() => {
+  if (!frontRules.value.length) return t('obx.noFrontRules')
+  return frontRules.value.slice(0, 3).map((r: any) => `${r.value} → ${r.target}`).join(' · ') + (frontRules.value.length > 3 ? '...' : '')
+})
+
+function rulePh(type: string) {
+  return { domain_suffix: 'google.com', domain: 'www.google.com', domain_keyword: 'google', ip_cidr: '1.1.1.0/24', geosite: 'youtube', geoip: 'cn' }[type] || ''
 }
+function ruleCount(r: any) {
+  // TODO: 从 rule_sets API 获取实际数量
+  return '...'
+}
+function showRuleDetail(r: any) {
+  // TODO: 显示规则详情弹窗
+}
+
+// 站点集 CRUD
+async function load() {
+  try {
+    sites.value = await obxGet<SiteSet[]>('/api/sitesets')
+    const groups = await obxGet<any[]>('/api/groups')
+    groupOptions.value = groups.map((g: any) => g.name)
+  } catch (e) {
+    err.value = e instanceof ObxApiError ? e.message : '加载失败'
+  }
+}
+async function loadFront() {
+  try {
+    frontRules.value = await obxGet<any[]>('/api/front-rules')
+  } catch { frontRules.value = [] }
+}
+
+function rulesToList(rules: any): any[] {
+  // dict -> list
+  const out: any[] = []
+  const r = rules || {}
+  for (const v of (r.domains || [])) out.push({ type: 'domain', value: v, note: '' })
+  for (const v of (r.domain_suffix || [])) out.push({ type: 'domain_suffix', value: v, note: '' })
+  for (const v of (r.domain_keyword || [])) out.push({ type: 'domain_keyword', value: v, note: '' })
+  for (const v of (r.ip_cidr || [])) out.push({ type: 'ip_cidr', value: v, note: '' })
+  for (const v of (r.rule_sets || r.rulesets || [])) {
+    const [kind, name] = v.split('-', 2)
+    out.push({ type: kind === 'geosite' ? 'geosite' : 'geoip', value: name || v, note: '' })
+  }
+  return out
+}
+function listToRules(list: any[]): any {
+  const out: any = { domains: [], domain_suffix: [], domain_keyword: [], ip_cidr: [], rule_sets: [] }
+  for (const r of list) {
+    if (!r.value?.trim()) continue
+    if (r.type === 'domain') out.domains.push(r.value.trim())
+    else if (r.type === 'domain_suffix') out.domain_suffix.push(r.value.trim())
+    else if (r.type === 'domain_keyword') out.domain_keyword.push(r.value.trim())
+    else if (r.type === 'ip_cidr') out.ip_cidr.push(r.value.trim())
+    else if (r.type === 'geosite') out.rule_sets.push(`geosite-${r.value.trim()}`)
+    else if (r.type === 'geoip') out.rule_sets.push(`geoip-${r.value.trim()}`)
+  }
+  return out
+}
+
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', action: 'proxy', group: '所有-自动', domains: '', domain_suffix: '', domain_keyword: '', ip_cidr: '', rule_sets: '' }
+  dlg.value = { id: null, name: '', icon: '', icon_scale: 0, action: 'proxy', group: '所有-自动', rules: [] }
 }
 function openEdit(s: SiteSet) {
-  const r = s.rules || {}
   dlgErr.value = ''
-  dlg.value = { id: s.id, name: s.name, action: s.action, group: s.group, domains: (r.domains || []).join('\n'), domain_suffix: (r.domain_suffix || []).join('\n'), domain_keyword: (r.domain_keyword || []).join('\n'), ip_cidr: (r.ip_cidr || []).join('\n'), rule_sets: (s.rule_sets || []).join(', ') }
+  dlg.value = { id: s.id, name: s.name, icon: s.icon || '', icon_scale: s.icon_scale || 0, action: s.action, group: s.group, rules: rulesToList(s.rules) }
+}
+function addRule() {
+  dlg.value.rules.push({ type: 'domain_suffix', value: '', note: '' })
+}
+function importRules() {
+  // TODO: 导入规则
 }
 async function save() {
-  if (!dlg.value?.name.trim()) { dlgErr.value = '名称不能为空'; return }
-  const body = { name: dlg.value.name.trim(), action: dlg.value.action, group: dlg.value.group, rules: { domains: lines(dlg.value.domains), domain_suffix: lines(dlg.value.domain_suffix), domain_keyword: lines(dlg.value.domain_keyword), ip_cidr: lines(dlg.value.ip_cidr) }, rule_sets: dlg.value.rule_sets.split(',').map((x: string) => x.trim()).filter(Boolean) }
-  dlgBusy.value = true; dlgErr.value = ''
+  if (!dlg.value?.name.trim()) { dlgErr.value = t('obx.nameRequired'); return }
+  dlgBusy.value = true
   try {
+    const body = { name: dlg.value.name.trim(), icon: dlg.value.icon, icon_scale: dlg.value.icon_scale, action: dlg.value.action, group: dlg.value.group, rules: listToRules(dlg.value.rules) }
     if (dlg.value.id) await obxPut(`/api/sitesets/${dlg.value.id}`, body)
     else await obxPost('/api/sitesets', body)
-    dlg.value = null; await load()
-  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '保存失败' }
-  finally { dlgBusy.value = false }
+    dlg.value = null
+    await load()
+  } catch (e) {
+    dlgErr.value = e instanceof ObxApiError ? e.message : t('obx.saveFailed')
+  } finally {
+    dlgBusy.value = false
+  }
 }
-async function remove(s: SiteSet) {
-  if (!confirm(`确定删除站点集「${s.name}」吗？`)) return
+async function toggleSite(s: SiteSet) {
+  try { await obxPut(`/api/sitesets/${s.id}`, { enabled: !s.enabled }); await load() }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
+}
+async function removeSite(s: SiteSet) {
+  if (!confirm(t('obx.delSiteSetConfirm', { name: s.name }))) return
   try { await obxDel(`/api/sitesets/${s.id}`); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
 }
-async function move(s: SiteSet, dir: number) {
-  const ids = sites.value.map((x) => x.id)
-  const i = ids.indexOf(s.id); const j = i + dir
-  if (j < 0 || j >= ids.length) return
-  ;[ids[i], ids[j]] = [ids[j], ids[i]]
-  try { await obxPut('/api/sitesets/order', { order: ids }); await load() }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '排序失败' }
+
+// 拖拽排序
+function onDragStart(i: number) { dragFrom.value = i }
+function onDragOver(i: number) { dragOver.value = i }
+async function onDrop(i: number) {
+  const from = dragFrom.value
+  dragFrom.value = -1; dragOver.value = -1
+  if (from < 0 || from === i) return
+  const list = [...sites.value]
+  const [moved] = list.splice(from, 1)
+  list.splice(i, 0, moved)
+  sites.value = list
+  try { await obxPost('/api/sitesets/reorder', { ids: list.map((s) => s.id) }) }
+  catch (e) { err.value = '排序失败'; await load() }
 }
-async function flip(s: SiteSet, to: string) {
-  try { await obxPost(`/api/sitesets/${s.id}/flip`, { to }); await load() }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '切换失败' }
+function onRuleDragStart(i: number | string) { ruleDragFrom.value = i }
+function onRuleDragOver(i: number | string) { ruleDragOver.value = i }
+function onRuleDrop(i: number | string) {
+  const from = Number(ruleDragFrom.value)
+  const to = Number(i)
+  ruleDragFrom.value = -1; ruleDragOver.value = -1
+  if (from < 0 || from === to || !dlg.value) return
+  const list = [...dlg.value.rules]
+  const [moved] = list.splice(from, 1)
+  list.splice(to, 0, moved)
+  dlg.value.rules = list
 }
 
-// ---- 前置自定义分流 ----
-type FrontRule = { id: number; domain: string; target: string; enabled: number }
-const frontRules = ref<FrontRule[]>([])
-const ff = ref({ domain: '', target: '' })
-async function loadFront() {
-  try { frontRules.value = await obxGet<FrontRule[]>('/api/front-rules') }
-  catch { frontRules.value = [] }
+// 前置规则
+function openFrontEdit() {
+  frontDlg.value = { rules: frontRules.value.map((r: any) => ({ ...r })) }
 }
-async function addFront() {
-  if (!ff.value.domain.trim() || !ff.value.target.trim()) return
+function addFrontRule() {
+  frontDlg.value.rules.push({ type: 'geosite', value: '', note: '', target: groupOptions.value[0] || '' })
+}
+function importFrontRules() {
+  // TODO
+}
+async function saveFront() {
   try {
-    await obxPost('/api/front-rules', { domain: ff.value.domain.trim(), target: ff.value.target.trim() })
-    ff.value = { domain: '', target: '' }
+    await obxPut('/api/front-rules', { rules: frontDlg.value.rules })
+    frontDlg.value = null
     await loadFront()
-  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '添加失败' }
+  } catch (e) { err.value = '保存失败' }
 }
-async function toggleFront(r: FrontRule) {
-  try { await obxPut(`/api/front-rules/${r.id}`, { enabled: r.enabled ? 0 : 1 }); await loadFront() }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
+async function toggleFrontEnabled() {
+  frontEnabled.value = !frontEnabled.value
+  // TODO: 保存到后端
 }
-async function delFront(r: FrontRule) {
-  try { await obxDel(`/api/front-rules/${r.id}`); await loadFront() }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
+async function clearFront() {
+  if (!confirm(t('obx.clearFrontConfirm'))) return
+  frontRules.value = []
+  // TODO: 保存到后端
 }
 
-const fallback = ref('direct')
-async function loadFallback() {
-  try {
-    const s = await obxGet<Record<string, string>>('/api/settings')
-    fallback.value = s.routing_fallback || 'direct'
-  } catch { /* keep default */ }
+// 兜底
+function openFallbackEdit() {
+  fallbackDlg.value = { name: '其他', icon: 'globe', icon_scale: 0 }
 }
 async function saveFallback() {
-  try { await obxPut('/api/settings', { routing_fallback: fallback.value }) }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }
+  // TODO: 保存到后端
+  fallbackDlg.value = null
 }
 
-onMounted(() => { load(); loadFront(); loadFallback() })
+onMounted(() => { load(); loadFront() })
 </script>

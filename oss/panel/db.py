@@ -67,7 +67,11 @@ CREATE TABLE IF NOT EXISTS site_sets(
   action TEXT NOT NULL DEFAULT 'proxy',
   grp TEXT NOT NULL DEFAULT 'auto',
   position INTEGER NOT NULL DEFAULT 0,
-  rules TEXT NOT NULL DEFAULT '{}'
+  rules TEXT NOT NULL DEFAULT '{}',
+  flip TEXT NOT NULL DEFAULT '',
+  icon TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  icon_scale INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS settings(
   key TEXT PRIMARY KEY,
@@ -288,6 +292,10 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE site_sets ADD COLUMN flip TEXT NOT NULL DEFAULT ''")
     if "icon" not in cols:
         conn.execute("ALTER TABLE site_sets ADD COLUMN icon TEXT NOT NULL DEFAULT ''")
+    if "enabled" not in cols:
+        conn.execute("ALTER TABLE site_sets ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+    if "icon_scale" not in cols:
+        conn.execute("ALTER TABLE site_sets ADD COLUMN icon_scale INTEGER NOT NULL DEFAULT 0")
     rwcols = {r[1] for r in conn.execute("PRAGMA table_info(dns_rewrite)")}
     if "enabled" not in rwcols:
         conn.execute("ALTER TABLE dns_rewrite ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
@@ -586,13 +594,15 @@ def _site_set_row(r) -> dict:
     return {"id": r[0], "name": r[1], "action": r[2], "group": r[3],
             "position": r[4], "rules": json.loads(r[5]),
             "flip": r[6] if len(r) > 6 else "",
-            "icon": r[7] if len(r) > 7 else ""}
+            "icon": r[7] if len(r) > 7 else "",
+            "enabled": bool(r[8]) if len(r) > 8 else True,
+            "icon_scale": r[9] if len(r) > 9 else 0}
 
 
 def list_site_sets(conn: sqlite3.Connection) -> list[dict]:
     return [_site_set_row(r) for r in conn.execute(
-        "SELECT id, name, action, grp, position, rules, flip, icon FROM site_sets"
-        " ORDER BY position, id")]
+        "SELECT id, name, action, grp, position, rules, flip, icon, enabled, icon_scale"
+        " FROM site_sets ORDER BY position, id")]
 
 
 def create_site_set(conn: sqlite3.Connection, d: dict) -> dict:
@@ -600,13 +610,16 @@ def create_site_set(conn: sqlite3.Connection, d: dict) -> dict:
         raise ValueError("action must be proxy|direct|reject")
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM site_sets").fetchone()[0]
     cur = conn.execute(
-        "INSERT INTO site_sets(name, action, grp, position, rules) VALUES (?, ?, ?, ?, ?)",
-        (d["name"], d.get("action", "proxy"), d.get("group", "auto"), pos, _rules_blob(d)),
+        "INSERT INTO site_sets(name, action, grp, position, rules, icon, enabled, icon_scale)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (d["name"], d.get("action", "proxy"), d.get("group", "auto"), pos, _rules_blob(d),
+         d.get("icon", ""), 0 if d.get("enabled") is False else 1, int(d.get("icon_scale", 0) or 0)),
     )
     conn.commit()
     bump_rev(conn)
     return _site_set_row(conn.execute(
-        "SELECT id, name, action, grp, position, rules, flip FROM site_sets WHERE id=?",
+        "SELECT id, name, action, grp, position, rules, flip, icon, enabled, icon_scale"
+        " FROM site_sets WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -615,12 +628,16 @@ def update_site_set(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
     if not row:
         return None
     fields, vals = [], []
-    for col, key in (("name", "name"), ("action", "action"), ("grp", "group"), ("position", "position")):
+    for col, key in (("name", "name"), ("action", "action"), ("grp", "group"), ("position", "position"),
+                     ("icon", "icon"), ("icon_scale", "icon_scale")):
         if key in d:
             if key == "action" and d[key] not in ("proxy", "direct", "reject"):
                 raise ValueError("action must be proxy|direct|reject")
             fields.append(f"{col}=?")
             vals.append(d[key])
+    if "enabled" in d:
+        fields.append("enabled=?")
+        vals.append(0 if d["enabled"] is False or d["enabled"] == 0 else 1)
     if "rules" in d:
         fields.append("rules=?")
         vals.append(_rules_blob({"rules": d["rules"]}))
@@ -630,7 +647,8 @@ def update_site_set(conn: sqlite3.Connection, sid: int, d: dict) -> dict | None:
         conn.commit()
     bump_rev(conn)
     return _site_set_row(conn.execute(
-        "SELECT id, name, action, grp, position, rules, flip FROM site_sets WHERE id=?",
+        "SELECT id, name, action, grp, position, rules, flip, icon, enabled, icon_scale"
+        " FROM site_sets WHERE id=?",
         (sid,)).fetchone())
 
 
