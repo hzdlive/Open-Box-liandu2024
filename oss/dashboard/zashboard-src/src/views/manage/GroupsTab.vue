@@ -1,4 +1,4 @@
-<!-- Open-Box 二开：出站节点组管理（由旧版自研 UI 移植；实时切换用 zashboard 原生代理页） -->
+<!-- Open-Box 二开：出站节点组管理（1:1 对标原版 v0.1.331 出站节点页） -->
 <template>
   <div>
     <div class="mb-3 flex items-center justify-between">
@@ -12,10 +12,11 @@
           {{ $t('obx.healthCheck') }}
         </button>
         <button
-          class="btn btn-primary btn-sm"
+          class="btn btn-primary btn-sm btn-square"
+          :title="$t('obx.addGroup')"
           @click="openAdd"
         >
-          {{ $t('obx.addGroup') }}
+          +
         </button>
       </div>
     </div>
@@ -27,198 +28,452 @@
       <span>{{ err }}</span>
     </div>
 
-    <div class="overflow-x-auto rounded-box border border-base-300/30 bg-base-100">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>{{ $t('obx.name') }}</th>
-            <th>{{ $t('obx.type') }}</th>
-            <th>{{ $t('obx.nodes') }}</th>
-            <th>{{ $t('obx.detail') }}</th>
-            <th>{{ $t('obx.enabled') }}</th>
-            <th class="text-right">{{ $t('obx.actions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="g in groups"
-            :key="g.id"
+    <!-- 卡片列表（对标原版：拖拽手柄 / 图标 / 名称+徽标 / 描述 / 启用+编辑+删除） -->
+    <div class="flex flex-col gap-2">
+      <div
+        v-for="g in groups"
+        :key="g.id"
+        class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
+        :class="{ 'opacity-60': !g.enabled && !g.builtin }"
+      >
+        <span
+          v-if="!g.builtin"
+          class="cursor-move opacity-40"
+          title="拖拽排序"
+        >≡</span>
+        <span
+          v-if="g.icon"
+          class="text-xl"
+          :style="g.icon_scale ? `transform: scale(${1 + g.icon_scale * 0.1})` : ''"
+        >{{ iconEmoji(g.icon) }}</span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="font-medium">{{ g.name }}</span>
+            <span
+              v-if="g.builtin"
+              class="badge badge-ghost badge-xs"
+            >{{ $t('obx.builtin') }}</span>
+            <span
+              v-else
+              class="badge badge-ghost badge-xs"
+            >{{ typeBadge(g.type) }}</span>
+          </div>
+          <div class="truncate text-sm opacity-60">
+            {{ g.detail || groupDetail(g) }}
+          </div>
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            v-if="!g.builtin"
+            class="btn btn-ghost btn-square btn-sm"
+            :class="g.enabled ? 'text-success' : 'opacity-40'"
+            :title="g.enabled ? $t('obx.disable') : $t('obx.enable')"
+            @click="toggle(g)"
           >
-            <td class="font-medium">
-              {{ g.name }}
-              <span
-                v-if="g.builtin"
-                class="badge badge-ghost badge-xs ml-1"
-              >{{ $t('obx.builtin') }}</span>
-            </td>
-            <td>{{ typeName(g.type) }}</td>
-            <td>{{ g.member_count }}</td>
-            <td class="max-w-xs truncate text-sm opacity-70">
-              {{ g.detail || groupDetail(g) }}
-            </td>
-            <td>
-              <input
-                v-if="!g.builtin"
-                type="checkbox"
-                class="toggle toggle-sm"
-                :checked="g.enabled"
-                @change="toggle(g)"
-              />
-              <span
-                v-else
-                class="opacity-50"
-              >—</span>
-            </td>
-            <td class="text-right">
-              <div
-                v-if="!g.builtin"
-                class="join"
-              >
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  :disabled="isFirst(g)"
-                  @click="move(g, -1)"
-                >
-                  ↑
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  :disabled="isLast(g)"
-                  @click="move(g, 1)"
-                >
-                  ↓
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs join-item"
-                  @click="openEdit(g)"
-                >
-                  {{ $t('obx.edit') }}
-                </button>
-                <button
-                  class="btn btn-ghost btn-xs join-item text-error"
-                  @click="remove(g)"
-                >
-                  {{ $t('obx.delete') }}
-                </button>
-              </div>
-              <span
-                v-else
-                class="text-sm opacity-50"
-              >{{ $t('obx.builtinNoEdit') }}</span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            ⏻
+          </button>
+          <button
+            class="btn btn-ghost btn-square btn-sm"
+            :title="$t('obx.edit')"
+            @click="openEdit(g)"
+          >
+            ✎
+          </button>
+          <button
+            v-if="!g.builtin"
+            class="btn btn-ghost btn-square btn-sm hover:text-error"
+            :title="$t('obx.delete')"
+            @click="remove(g)"
+          >
+            🗑
+          </button>
+        </div>
+      </div>
     </div>
 
+    <!-- 添加/编辑分组弹窗（1:1 对标原版） -->
     <div
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-lg">
-        <h3 class="mb-4 text-lg font-bold">
-          {{ dlg.id ? $t('obx.editGroup') : $t('obx.addGroup') }}
-        </h3>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.name') }}</span>
-            <input
-              v-model="dlg.name"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.type') }}</span>
-            <select
-              v-model="dlg.type"
-              class="select select-bordered w-full"
-            >
-              <option value="urltest">{{ $t('obx.urltest') }}</option>
-              <option value="selector">{{ $t('obx.selector') }}</option>
-              <option value="failover">{{ $t('obx.failover') }}</option>
-            </select>
-          </label>
-          <label class="form-control col-span-2">
-            <span class="label-text mb-1">{{ $t('obx.membersHint') }}</span>
-            <input
-              v-model="dlg.members"
-              class="input input-bordered w-full"
-              placeholder="tag1, tag2（逗号分隔）"
-            />
-          </label>
-          <label class="form-control col-span-2">
-            <span class="label-text mb-1">{{ $t('obx.keywordsHint') }}</span>
-            <input
-              v-model="dlg.keywords"
-              class="input input-bordered w-full"
-              placeholder="香港, 美国（动态匹配，逗号分隔）"
-              :disabled="dlg.type === 'failover'"
-            />
-          </label>
-          <div
-            v-if="dlg.type === 'failover'"
-            class="col-span-2 rounded-box border border-base-300/30 p-3"
+      <div class="modal-box max-w-3xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">
+            {{ dlg.id ? $t('obx.editGroup') : $t('obx.addGroup') }}
+          </h3>
+          <button
+            class="btn btn-ghost btn-sm btn-square"
+            @click="dlg = null"
           >
-            <div class="mb-2 flex items-center justify-between">
-              <span class="label-text font-medium">{{ $t('obx.lanes') }}</span>
-              <button
-                class="btn btn-ghost btn-xs"
-                @click="dlg.lanes.push({ name: `lane${dlg.lanes.length + 1}`, members: '' })"
-              >{{ $t('obx.addLane') }}</button>
-            </div>
-            <div
-              v-for="(ln, i) in dlg.lanes"
-              :key="i"
-              class="mb-2 grid grid-cols-3 gap-2"
-            >
-              <input
-                v-model="ln.name"
-                class="input input-bordered input-sm"
-                :placeholder="$t('obx.laneName')"
-              />
-              <input
-                v-model="ln.members"
-                class="input input-bordered input-sm col-span-2"
-                :placeholder="$t('obx.laneMembersPh')"
-              />
-            </div>
-            <p class="text-xs opacity-60">{{ $t('obx.lanesHint') }}</p>
-          </div>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.intervalS') }}</span>
-            <input
-              v-model.number="dlg.interval_s"
-              type="number"
-              min="30"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.toleranceMs') }}</span>
-            <input
-              v-model.number="dlg.tolerance_ms"
-              type="number"
-              min="0"
-              class="input input-bordered w-full"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.idleTimeout') }}</span>
-            <input
-              v-model="dlg.idle_timeout"
-              class="input input-bordered w-full"
-              placeholder="12h"
-            />
-          </label>
-          <label class="form-control">
-            <span class="label-text mb-1">{{ $t('obx.testUrl') }}</span>
-            <input
-              v-model="dlg.test_url"
-              class="input input-bordered w-full"
-              placeholder="空=全局测速地址"
-            />
-          </label>
+            ✕
+          </button>
         </div>
+
+        <!-- 内置组：只能改名和图标 -->
+        <template v-if="dlg.builtin">
+          <div class="grid grid-cols-3 items-end gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.icon') }}</span>
+              <select
+                v-model="dlg.icon"
+                class="select select-bordered w-full"
+              >
+                <option value="">{{ $t('obx.none') }}</option>
+                <option
+                  v-for="ic in ICONS"
+                  :key="ic.value"
+                  :value="ic.value"
+                >
+                  {{ ic.label }}
+                </option>
+              </select>
+            </label>
+            <div class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.iconScale') }}</span>
+              <div class="join">
+                <button
+                  class="btn btn-bordered join-item"
+                  @click="dlg.icon_scale = Math.max(-5, (dlg.icon_scale || 0) - 1)"
+                >−</button>
+                <span class="join-item flex w-10 items-center justify-center border border-base-300">{{ dlg.icon_scale || 0 }}</span>
+                <button
+                  class="btn btn-bordered join-item"
+                  @click="dlg.icon_scale = Math.min(5, (dlg.icon_scale || 0) + 1)"
+                >+</button>
+                <button
+                  class="btn btn-ghost join-item"
+                  @click="dlg.icon_scale = 0"
+                >{{ $t('obx.reset') }}</button>
+              </div>
+            </div>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.groupName') }}</span>
+              <input
+                v-model="dlg.name"
+                class="input input-bordered w-full"
+              />
+            </label>
+          </div>
+          <p class="mt-3 text-sm opacity-60">{{ $t('obx.builtinOnlyNameIcon') }}</p>
+        </template>
+
+        <!-- 普通组：完整表单 -->
+        <template v-else>
+          <div class="grid grid-cols-3 items-end gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.icon') }}</span>
+              <select
+                v-model="dlg.icon"
+                class="select select-bordered w-full"
+              >
+                <option value="">{{ $t('obx.none') }}</option>
+                <option
+                  v-for="ic in ICONS"
+                  :key="ic.value"
+                  :value="ic.value"
+                >
+                  {{ ic.label }}
+                </option>
+              </select>
+            </label>
+            <div class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.iconScale') }}</span>
+              <div class="join">
+                <button
+                  class="btn btn-bordered join-item"
+                  @click="dlg.icon_scale = Math.max(-5, (dlg.icon_scale || 0) - 1)"
+                >−</button>
+                <span class="join-item flex w-10 items-center justify-center border border-base-300">{{ dlg.icon_scale || 0 }}</span>
+                <button
+                  class="btn btn-bordered join-item"
+                  @click="dlg.icon_scale = Math.min(5, (dlg.icon_scale || 0) + 1)"
+                >+</button>
+                <button
+                  class="btn btn-ghost join-item"
+                  @click="dlg.icon_scale = 0"
+                >{{ $t('obx.reset') }}</button>
+              </div>
+            </div>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.groupName') }}</span>
+              <input
+                v-model="dlg.name"
+                class="input input-bordered w-full"
+              />
+            </label>
+          </div>
+
+          <div class="mt-3 grid grid-cols-4 items-end gap-3">
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.groupRule') }}</span>
+              <select
+                v-model="dlg.type"
+                class="select select-bordered w-full"
+              >
+                <option value="urltest">{{ $t('obx.urltestLong') }}</option>
+                <option value="selector">{{ $t('obx.selectorLong') }}</option>
+                <option value="failover">{{ $t('obx.failoverLong') }}</option>
+              </select>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.intervalS') }}</span>
+              <div class="flex items-center gap-1">
+                <input
+                  v-model.number="dlg.interval_s"
+                  type="number"
+                  min="30"
+                  class="input input-bordered w-full"
+                />
+                <span class="text-sm opacity-60">{{ $t('obx.seconds') }}</span>
+              </div>
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.toleranceMs') }}</span>
+              <div class="flex items-center gap-1">
+                <input
+                  v-model.number="dlg.tolerance_ms"
+                  type="number"
+                  min="0"
+                  class="input input-bordered w-full"
+                />
+                <span class="text-sm opacity-60">{{ $t('obx.millis') }}</span>
+              </div>
+            </label>
+            <div />
+            <label class="form-control col-span-3">
+              <span class="label-text mb-1">{{ $t('obx.testUrl') }}</span>
+              <input
+                v-model="dlg.test_url"
+                class="input input-bordered w-full"
+                :placeholder="$t('obx.testUrlPh')"
+              />
+            </label>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.expectedStatus') }}</span>
+              <input
+                v-model="dlg.expected_status"
+                class="input input-bordered w-full"
+                :placeholder="$t('obx.expectedStatusPh')"
+              />
+            </label>
+          </div>
+
+          <!-- 动态组 / 静态组 切换 -->
+          <div class="mt-4 flex gap-2">
+            <button
+              class="btn btn-sm"
+              :class="dlg.mode === 'dynamic' ? 'btn-success' : 'btn-ghost'"
+              @click="dlg.mode = 'dynamic'"
+            >
+              {{ $t('obx.dynamicGroup') }}
+            </button>
+            <button
+              class="btn btn-sm"
+              :class="dlg.mode === 'static' ? 'btn-success' : 'btn-ghost'"
+              @click="dlg.mode = 'static'"
+            >
+              {{ $t('obx.staticGroup') }}
+            </button>
+          </div>
+
+          <!-- 动态组：关键词 -->
+          <div
+            v-if="dlg.mode === 'dynamic'"
+            class="mt-3"
+          >
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.keywords') }}</span>
+              <input
+                v-model="dlg.keywords"
+                class="input input-bordered w-full"
+                :placeholder="$t('obx.groupKeywordsPh')"
+                :disabled="dlg.type === 'failover'"
+              />
+            </label>
+            <p class="mt-1 text-xs opacity-60">{{ $t('obx.groupKeywordsHint') }}</p>
+            <div class="mt-2 rounded-box border border-base-300/30">
+              <div class="border-b border-base-300/30 px-3 py-2 text-sm">
+                {{ $t('obx.hitsNow', { n: hitCount }) }}
+              </div>
+              <div class="max-h-32 overflow-y-auto px-3 py-2 text-sm opacity-60">
+                <template v-if="hitTags.length">
+                  <div
+                    v-for="t in hitTags"
+                    :key="t"
+                  >
+                    {{ t }}
+                  </div>
+                </template>
+                <div
+                  v-else
+                  class="py-2 text-center"
+                >
+                  {{ $t('obx.noHits') }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 静态组：双栏选择器 -->
+          <div
+            v-else
+            class="mt-3"
+          >
+            <div
+              v-if="dlg.type === 'failover'"
+              class="mb-3"
+            >
+              <div class="mb-2 flex items-center justify-between">
+                <span class="label-text font-medium">{{ $t('obx.lanes') }}</span>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  @click="dlg.lanes.push({ name: `lane${dlg.lanes.length + 1}`, members: [] })"
+                >
+                  {{ $t('obx.addLane') }}
+                </button>
+              </div>
+              <div
+                v-for="(ln, i) in dlg.lanes"
+                :key="i"
+                class="mb-2 flex items-center gap-2"
+              >
+                <input
+                  v-model="ln.name"
+                  class="input input-bordered input-sm w-32"
+                  :placeholder="$t('obx.laneName')"
+                />
+                <span class="text-xs opacity-60">{{ $t('obx.laneMembersHint') }}</span>
+                <button
+                  class="btn btn-ghost btn-xs text-error"
+                  @click="dlg.lanes.splice(i, 1)"
+                >
+                  ✕
+                </button>
+              </div>
+              <p class="text-xs opacity-60">{{ $t('obx.lanesHint') }}</p>
+            </div>
+            <div class="grid grid-cols-[1fr_auto_1fr] gap-3">
+              <div class="rounded-box border border-base-300/30">
+                <div class="border-b border-base-300/30 p-2">
+                  <div class="mb-2 flex items-center justify-between">
+                    <span class="text-sm font-medium">{{ $t('obx.available', { n: availList.length }) }}</span>
+                    <input
+                      v-model="availFilter"
+                      class="input input-bordered input-xs w-32"
+                      :placeholder="$t('obx.filterByName')"
+                    />
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="selectAllAvail"
+                    >
+                      {{ $t('obx.selectAll') }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="invertAvail"
+                    >
+                      {{ $t('obx.invert') }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="clearAvail"
+                    >
+                      {{ $t('obx.clearSel') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="max-h-48 overflow-y-auto p-1">
+                  <label
+                    v-for="t in availList"
+                    :key="t.tag"
+                    class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-base-200"
+                  >
+                    <input
+                      v-model="availChecked"
+                      type="checkbox"
+                      :value="t.tag"
+                      class="checkbox checkbox-sm"
+                    />
+                    <span class="flex-1 truncate text-sm">{{ t.tag }}</span>
+                    <span class="badge badge-ghost badge-xs">{{ t.kind }}</span>
+                  </label>
+                </div>
+              </div>
+              <div class="flex flex-col justify-center gap-2">
+                <button
+                  class="btn btn-circle btn-sm"
+                  :disabled="!availChecked.length"
+                  @click="moveToSelected"
+                >
+                  →
+                </button>
+                <button
+                  class="btn btn-circle btn-sm"
+                  :disabled="!selChecked.length"
+                  @click="moveToAvail"
+                >
+                  ←
+                </button>
+              </div>
+              <div class="rounded-box border border-base-300/30">
+                <div class="border-b border-base-300/30 p-2">
+                  <div class="mb-2 flex items-center justify-between">
+                    <span class="text-sm font-medium">{{ $t('obx.selectedN', { n: dlg.members.length }) }}</span>
+                    <input
+                      v-model="selFilter"
+                      class="input input-bordered input-xs w-32"
+                      :placeholder="$t('obx.filterByName')"
+                    />
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="selectAllSel"
+                    >
+                      {{ $t('obx.selectAll') }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="invertSel"
+                    >
+                      {{ $t('obx.invert') }}
+                    </button>
+                    <button
+                      class="btn btn-ghost btn-xs"
+                      @click="clearSel"
+                    >
+                      {{ $t('obx.clearSel') }}
+                    </button>
+                  </div>
+                </div>
+                <div class="max-h-48 overflow-y-auto p-1">
+                  <div
+                    v-if="!selList.length"
+                    class="p-4 text-center text-sm opacity-60"
+                  >
+                    {{ $t('obx.pickHint') }}
+                  </div>
+                  <label
+                    v-for="t in selList"
+                    :key="t"
+                    class="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-base-200"
+                  >
+                    <input
+                      v-model="selChecked"
+                      type="checkbox"
+                      :value="t"
+                      class="checkbox checkbox-sm"
+                    />
+                    <span class="flex-1 truncate text-sm">{{ t }}</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <p
           v-if="dlgErr"
           class="mt-3 text-sm text-error"
@@ -233,7 +488,7 @@
             {{ $t('obx.cancel') }}
           </button>
           <button
-            class="btn btn-primary"
+            class="btn btn-success"
             :disabled="dlgBusy"
             @click="save"
           >
@@ -247,10 +502,29 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
+
+// 图标选项（对标原版图标选择器）
+const ICONS = [
+  { value: 'dart', label: '🎯 靶心' },
+  { value: 'globe', label: '🌍 地球·彩色(亚洲)' },
+  { value: 'globe-blue', label: '🌐 地球·蓝色' },
+  { value: 'bolt', label: '⚡ 闪电' },
+  { value: 'rocket', label: '🚀 火箭' },
+  { value: 'shield', label: '🛡️ 盾牌' },
+  { value: 'star', label: '⭐ 星星' },
+  { value: 'fire', label: '🔥 火焰' },
+  { value: 'game', label: '🎮 游戏' },
+  { value: 'video', label: '🎬 视频' },
+  { value: 'music', label: '🎵 音乐' },
+  { value: 'cross', label: '❌ 拒绝' },
+]
+function iconEmoji(v: string) {
+  return ICONS.find((i) => i.value === v)?.label.split(' ')[0] || '📦'
+}
 
 type Group = {
   id: number
@@ -265,6 +539,8 @@ type Group = {
   idle_timeout: string
   expected_status: string
   test_url: string
+  icon: string
+  icon_scale: number
   lanes: { name: string; members: string[] }[]
   builtin?: boolean
   detail?: string
@@ -277,17 +553,71 @@ const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
 
-function typeName(ty: string) {
-  return { urltest: t('obx.urltest'), selector: t('obx.selector'), failover: t('obx.failover'), builtin: t('obx.builtin') }[ty] || ty
+// 双栏选择器状态
+const allTags = ref<{ tag: string; kind: string }[]>([])
+const availFilter = ref('')
+const selFilter = ref('')
+const availChecked = ref<string[]>([])
+const selChecked = ref<string[]>([])
+
+function typeBadge(ty: string) {
+  return {
+    urltest: t('obx.urltestLong'),
+    selector: t('obx.selectorLong'),
+    failover: t('obx.failoverLong'),
+  }[ty] || ty
 }
 function groupDetail(g: Group) {
-  if (g.type === 'urltest' || g.type === 'failover')
-    return `${g.member_count} 个成员 · 检测间隔 ${g.interval_s || 300}s · 容差 ${g.tolerance_ms || 100}ms`
-  return `${g.member_count} 个成员`
+  if (g.type === 'urltest')
+    return `${t('obx.dynamicGroup')} · ${t('obx.memberCount', { n: g.member_count })} · ${t('obx.intervalS')}${g.interval_s || 300}s · ${t('obx.toleranceMs')}${g.tolerance_ms || 100}ms`
+  if (g.type === 'failover')
+    return `${t('obx.failoverLong')} · ${t('obx.memberCount', { n: g.member_count })}`
+  return `${t('obx.dynamicGroup')} · ${t('obx.memberCount', { n: g.member_count })}`
 }
-const editable = () => groups.value.filter((g) => !g.builtin)
-const isFirst = (g: Group) => editable()[0]?.id === g.id
-const isLast = (g: Group) => editable().slice(-1)[0]?.id === g.id
+
+// 动态关键词命中预览
+const hitTags = computed(() => {
+  if (!dlg.value || dlg.value.mode !== 'dynamic') return []
+  const kws = (dlg.value.keywords || '').split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
+  if (!kws.length) return allTags.value.map((x) => x.tag)
+  return allTags.value.filter((x) => kws.some((k: string) => x.tag.toLowerCase().includes(k))).map((x) => x.tag)
+})
+const hitCount = computed(() => hitTags.value.length)
+
+// 可选列表 = 全部标签 - 已选
+const availList = computed(() => {
+  const sel = new Set(dlg.value?.members || [])
+  const f = availFilter.value.trim().toLowerCase()
+  return allTags.value.filter((x) => !sel.has(x.tag) && (!f || x.tag.toLowerCase().includes(f)))
+})
+const selList = computed<string[]>(() => {
+  const f = selFilter.value.trim().toLowerCase()
+  return ((dlg.value?.members || []) as string[]).filter((m: string) => !f || m.toLowerCase().includes(f))
+})
+
+function selectAllAvail() { availChecked.value = availList.value.map((x) => x.tag) }
+function invertAvail() {
+  const all = new Set(availList.value.map((x) => x.tag))
+  availChecked.value = [...all].filter((x) => !availChecked.value.includes(x))
+}
+function clearAvail() { availChecked.value = [] }
+function selectAllSel() { selChecked.value = [...selList.value] }
+function invertSel() {
+  const all = new Set(selList.value)
+  selChecked.value = [...all].filter((x) => !selChecked.value.includes(x))
+}
+function clearSel() { selChecked.value = [] }
+function moveToSelected() {
+  const sel = new Set(dlg.value.members)
+  availChecked.value.forEach((x) => sel.add(x))
+  dlg.value.members = [...sel]
+  availChecked.value = []
+}
+function moveToAvail() {
+  const rm = new Set(selChecked.value)
+  dlg.value.members = dlg.value.members.filter((x: string) => !rm.has(x))
+  selChecked.value = []
+}
 
 async function load() {
   err.value = ''
@@ -296,6 +626,19 @@ async function load() {
   } catch (e) {
     err.value = e instanceof ObxApiError ? e.message : '加载失败'
   }
+}
+
+async function loadTags() {
+  try {
+    const nodes = await obxGet<any[]>('/api/nodes')
+    const chains = await obxGet<any[]>('/api/chains')
+    allTags.value = [
+      ...nodes.map((n: any) => ({ tag: n.tag || n.name, kind: t('obx.node') })),
+      ...(Array.isArray(chains) ? chains.map((c: any) => ({ tag: c.name, kind: t('obx.chain') })) : []),
+      { tag: '直连', kind: t('obx.group') },
+      { tag: '拒绝', kind: t('obx.group') },
+    ]
+  } catch { allTags.value = [] }
 }
 
 async function checkHealth() {
@@ -310,29 +653,77 @@ async function checkHealth() {
   }
 }
 
+function baseDlg() {
+  return {
+    id: null, builtin: false, name: '', type: 'urltest',
+    icon: '', icon_scale: 0,
+    interval_s: 300, tolerance_ms: 100, idle_timeout: '12h',
+    expected_status: '', test_url: '',
+    mode: 'dynamic', keywords: '', members: [] as string[],
+    lanes: [] as { name: string; members: string[] }[],
+  }
+}
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h', expected_status: '', test_url: '', lanes: [] }
+  availFilter.value = ''; selFilter.value = ''
+  availChecked.value = []; selChecked.value = []
+  dlg.value = baseDlg()
+  loadTags()
 }
 function openEdit(g: Group) {
   dlgErr.value = ''
-  dlg.value = { id: g.id, name: g.name, type: g.type, members: (g.members || []).join(', '), keywords: (g.dynamic_keywords || []).join(', '), interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100, idle_timeout: g.idle_timeout || '12h', expected_status: g.expected_status || '', test_url: g.test_url || '', lanes: (g.lanes || []).map((ln: any) => ({ name: ln.name, members: (ln.members || []).join(', ') })) }
+  availFilter.value = ''; selFilter.value = ''
+  availChecked.value = []; selChecked.value = []
+  const isDynamic = !!(g.dynamic_keywords?.length) || (g.members || []).some((m) => m === '*nodes*' || m === '*all*')
+  dlg.value = {
+    ...baseDlg(),
+    id: g.id, builtin: !!g.builtin, name: g.name, type: g.type,
+    icon: g.icon || '', icon_scale: g.icon_scale || 0,
+    interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100,
+    idle_timeout: g.idle_timeout || '12h',
+    expected_status: g.expected_status || '', test_url: g.test_url || '',
+    mode: isDynamic ? 'dynamic' : 'static',
+    keywords: (g.dynamic_keywords || []).join(', '),
+    members: (g.members || []).filter((m) => m !== '*nodes*' && m !== '*all*'),
+    lanes: (g.lanes || []).map((ln: any) => ({ name: ln.name, members: [...(ln.members || [])] })),
+  }
+  loadTags()
 }
-const split = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
 
 async function save() {
-  if (!dlg.value?.name.trim()) { dlgErr.value = '名称不能为空'; return }
-  const lanes = (dlg.value.lanes || []).map((ln: any) => ({ name: (ln.name || '').trim(), members: split(ln.members || '') })).filter((ln: any) => ln.name || ln.members.length)
-  const body = { name: dlg.value.name.trim(), type: dlg.value.type, members: split(dlg.value.members), dynamic_keywords: split(dlg.value.keywords), interval_s: dlg.value.interval_s, tolerance_ms: dlg.value.tolerance_ms, idle_timeout: dlg.value.idle_timeout, expected_status: dlg.value.expected_status, test_url: dlg.value.test_url, lanes }
+  if (!dlg.value) return
+  const d = dlg.value
+  if (!d.name.trim()) { dlgErr.value = t('obx.nameRequired'); return }
   dlgBusy.value = true
   dlgErr.value = ''
   try {
-    if (dlg.value.id) await obxPut(`/api/groups/${dlg.value.id}`, body)
-    else await obxPost('/api/groups', body)
+    if (d.builtin) {
+      // 内置组只能改名和图标
+      await obxPut(`/api/groups/${d.id}`, { name: d.name.trim(), icon: d.icon, icon_scale: d.icon_scale })
+    } else {
+      const lanes = (d.lanes || []).map((ln: any) => ({ name: (ln.name || '').trim(), members: ln.members || [] }))
+      const body: any = {
+        name: d.name.trim(), type: d.type,
+        icon: d.icon, icon_scale: d.icon_scale,
+        interval_s: d.interval_s, tolerance_ms: d.tolerance_ms,
+        idle_timeout: d.idle_timeout,
+        expected_status: d.expected_status, test_url: d.test_url,
+        lanes,
+      }
+      if (d.mode === 'dynamic') {
+        body.dynamic_keywords = d.keywords.split(',').map((s: string) => s.trim()).filter(Boolean)
+        body.members = []
+      } else {
+        body.members = d.members
+        body.dynamic_keywords = []
+      }
+      if (d.id) await obxPut(`/api/groups/${d.id}`, body)
+      else await obxPost('/api/groups', body)
+    }
     dlg.value = null
     await load()
   } catch (e) {
-    dlgErr.value = e instanceof ObxApiError ? e.message : '保存失败'
+    dlgErr.value = e instanceof ObxApiError ? e.message : t('obx.saveFailed')
   } finally {
     dlgBusy.value = false
   }
@@ -343,18 +734,9 @@ async function toggle(g: Group) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
 }
 async function remove(g: Group) {
-  if (!confirm(`确定删除组「${g.name}」吗？`)) return
+  if (!confirm(t('obx.delGroupConfirm', { name: g.name }))) return
   try { await obxDel(`/api/groups/${g.id}`); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
-}
-async function move(g: Group, dir: number) {
-  const list = editable()
-  const i = list.findIndex((x) => x.id === g.id)
-  const j = i + dir
-  if (j < 0 || j >= list.length) return
-  ;[list[i], list[j]] = [list[j], list[i]]
-  try { await obxPost('/api/groups/reorder', { ids: list.map((x) => x.id) }); await load() }
-  catch (e) { err.value = e instanceof ObxApiError ? e.message : '排序失败' }
 }
 
 onMounted(load)

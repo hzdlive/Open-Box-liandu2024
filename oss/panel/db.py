@@ -334,7 +334,9 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100"),
                      ("expected_status", "TEXT NOT NULL DEFAULT ''"),
                      ("test_url", "TEXT NOT NULL DEFAULT ''"),
-                     ("lanes", "TEXT NOT NULL DEFAULT '[]'")):
+                     ("lanes", "TEXT NOT NULL DEFAULT '[]'"),
+                     ("icon", "TEXT NOT NULL DEFAULT ''"),
+                     ("icon_scale", "INTEGER NOT NULL DEFAULT 0")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
     tcols = {r[1] for r in conn.execute("PRAGMA table_info(traffic_daily)")}
@@ -1087,7 +1089,9 @@ def _group_row(r) -> dict:
             "idle_timeout": r[9] if len(r) > 9 and r[9] else "12h",
             "expected_status": r[10] if len(r) > 10 and r[10] else "",
             "test_url": r[11] if len(r) > 11 and r[11] else "",
-            "lanes": lanes if isinstance(lanes, list) else []}
+            "lanes": lanes if isinstance(lanes, list) else [],
+            "icon": r[13] if len(r) > 13 and r[13] else "",
+            "icon_scale": r[14] if len(r) > 14 and r[14] else 0}
 
 
 def list_groups(conn: sqlite3.Connection) -> list[dict]:
@@ -1100,7 +1104,8 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     out = []
     for r in conn.execute(
             "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes,"
+            " icon, icon_scale"
             " FROM groups ORDER BY position, id"):
         g = _group_row(r)
         gm = _Group(name=g["name"], type=g["type"], members=g["members"],
@@ -1158,8 +1163,8 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     cur = conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position,"
         " enabled, interval_s, tolerance_ms, idle_timeout,"
-        " expected_status, test_url, lanes)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " expected_status, test_url, lanes, icon, icon_scale)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (d["name"], d.get("type", "urltest"),
          json.dumps(d.get("members", []), ensure_ascii=False),
          json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos,
@@ -1169,12 +1174,15 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
          d.get("idle_timeout", "12h") or "12h",
          (d.get("expected_status") or "").strip(),
          (d.get("test_url") or "").strip(),
-         json.dumps(lanes, ensure_ascii=False)))
+         json.dumps(lanes, ensure_ascii=False),
+         (d.get("icon") or "").strip(),
+         int(d.get("icon_scale", 0) or 0)))
     conn.commit()
     bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes,"
+        " icon, icon_scale"
         " FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
@@ -1189,7 +1197,8 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
                      ("tolerance_ms", "tolerance_ms"),
                      ("idle_timeout", "idle_timeout"),
                      ("expected_status", "expected_status"),
-                     ("test_url", "test_url")):
+                     ("test_url", "test_url"),
+                     ("icon", "icon"), ("icon_scale", "icon_scale")):
         if key in d:
             if key == "type" and d[key] not in ("urltest", "selector", "failover"):
                 raise ValueError("type must be urltest|selector|failover")
