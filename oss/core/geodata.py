@@ -148,17 +148,73 @@ def get_rule_set_detail(name: str) -> dict:
                "items": [{"type": "域名后缀", "value": "115.com"}, ...],
                "total": 14}
     """
-    # TODO: 解析 .srs 二进制文件获取真实数据
-    # 目前返回空列表，前端显示"暂无数据"
+    import json
+    import subprocess
+    import tempfile
+
     kind = "geosite" if name.startswith("geosite-") else \
            "geoip" if name.startswith("geoip-") else "other"
     code = name.split("-", 1)[1] if "-" in name else name
+
+    # 找 .srs 文件
+    srs_path = os.path.join(geodata_dir(), f"{name}.srs")
+    if not os.path.exists(srs_path):
+        return {
+            "name": name, "kind": kind, "code": code, "title": code,
+            "items": [], "total": 0, "message": "本地无此规则集文件",
+        }
+
+    # 用 sing-box decompile 解析
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            json_path = tf.name
+        result = subprocess.run(
+            ["sing-box", "rule-set", "decompile", srs_path, "-o", json_path],
+            capture_output=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return {
+                "name": name, "kind": kind, "code": code, "title": code,
+                "items": [], "total": 0,
+                "message": f"解析失败: {result.stderr.decode()[:200]}",
+            }
+        with open(json_path) as f:
+            data = json.load(f)
+        os.unlink(json_path)
+    except Exception as e:
+        return {
+            "name": name, "kind": kind, "code": code, "title": code,
+            "items": [], "total": 0, "message": f"解析异常: {e}",
+        }
+
+    # 转换为前端需要的格式
+    items = []
+    type_map = {
+        "domain": "域名",
+        "domain_suffix": "域名后缀",
+        "domain_keyword": "域名关键词",
+        "domain_regex": "域名正则",
+        "ip_cidr": "IP 段",
+        "ip_is_private": "私有 IP",
+    }
+    for rule in data.get("rules", []):
+        for key, label in type_map.items():
+            v = rule.get(key)
+            if not v:
+                continue
+            if isinstance(v, list):
+                for val in v:
+                    items.append({"type": label, "value": val})
+            elif isinstance(v, str):
+                items.append({"type": label, "value": v})
+            elif isinstance(v, bool) and v:
+                items.append({"type": label, "value": "是"})
+
     return {
         "name": name,
         "kind": kind,
         "code": code,
         "title": code,
-        "items": [],
-        "total": 0,
-        "message": "数据解析尚未实现",
+        "items": items,
+        "total": len(items),
     }

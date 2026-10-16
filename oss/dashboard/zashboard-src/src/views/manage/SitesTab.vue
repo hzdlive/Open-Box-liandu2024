@@ -320,7 +320,7 @@
                 class="btn btn-ghost btn-xs"
                 @click="showRuleDetail(r)"
               >
-                {{ $t('obx.detail') }} ({{ ruleCount(r) }})
+                {{ $t('obx.detail') }}
               </button>
               <input
                 v-model="r.note"
@@ -470,7 +470,7 @@
               class="btn btn-ghost btn-xs"
               @click="showRuleDetail(r)"
             >
-              {{ $t('obx.detail') }} ({{ ruleCount(r) }})
+              {{ $t('obx.detail') }}
             </button>
             <input
               v-model="r.note"
@@ -764,10 +764,6 @@ function geoDisplay(type: string, code: string) {
   const list = type === 'geosite' ? GEOSITE_CATEGORIES : GEOIP_COUNTRIES
   const item = list.find((x) => x.code === code)
   return item ? `${item.code} ${item.desc}` : code
-}
-function ruleCount(r: any) {
-  // TODO: 从 rule_sets API 获取实际数量
-  return '...'
 }
 // 规则详情弹窗
 const detailDlg = ref({
