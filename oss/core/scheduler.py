@@ -59,6 +59,75 @@ def _due_subscriptions(conn: sqlite3.Connection) -> list[int]:
     return out
 
 
+def _maybe_run_failover(conn: sqlite3.Connection) -> None:
+    """Run due failover probe rounds (REA §24.5: scheduler-driven pipeline)."""
+    from core import failover_sm as _fsm
+    from panel import db as dbmod
+    import json as _json
+    try:
+        groups = dbmod.list_groups(conn)
+    except Exception:
+        return
+    for g in groups:
+        if g.get("type") != "failover":
+            continue
+        # 加载状态，检查是否到探测时间
+        try:
+            row = conn.execute(
+                "SELECT state_json FROM failover_state WHERE group_name=?",
+                (g["name"],)).fetchone()
+            st = None
+            if row and row[0] and row[0] != '{}':
+                try:
+                    st = _fsm.FailoverState.from_dict(_json.loads(row[0]))
+                except Exception:
+                    st = None
+            if st is None:
+                lanes_cfg = g.get("lanes") or []
+                st = _fsm.failover_init(g["name"], lanes_cfg, {
+                    "probe_interval_s": g.get("interval_s", 300),
+                    "tolerance_ms": g.get("tolerance_ms", 100),
+                })
+            # 检查是否到期
+            now = time.time()
+            next_at = st.next_round_at
+            due = False
+            if not next_at:
+                due = True  # 从未跑过
+            else:
+                try:
+                    next_ts = time.mktime(time.strptime(next_at, "%Y-%m-%dT%H:%M:%S"))
+                    due = now >= next_ts
+                except ValueError:
+                    due = True
+            if not due:
+                continue
+            # 运行一轮
+            cfg = dbmod.load_app_config(conn)
+            api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+            secret = getattr(cfg, "clash_api_secret", "") or ""
+            result = _fsm.run_round(st, api_base, secret)
+            # 持久化
+            conn.execute(
+                "INSERT INTO failover_state(group_name, current_tag, updated_at, last_switch_at, state_json)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(group_name) DO UPDATE SET current_tag=excluded.current_tag,"
+                " updated_at=excluded.updated_at, last_switch_at=excluded.last_switch_at,"
+                " state_json=excluded.state_json",
+                (g["name"], st.current_id, _fsm._now_iso(),
+                 st.last_switch, _json.dumps(st.to_dict(), ensure_ascii=False)))
+            conn.commit()
+            if result.get("switched"):
+                print(f"[scheduler] failover {g['name']}: switched to {result['currentTag']} "
+                      f"({result['reason']})", flush=True)
+                _fsm.apply_switch(api_base, secret, g["name"], result["currentTag"])
+            else:
+                print(f"[scheduler] failover {g['name']}: round done ({result['reason']})",
+                      flush=True)
+        except Exception as e:
+            print(f"[scheduler] failover {g.get('name')} failed: {e}", flush=True)
+
+
 def _tick(dsn: str, uri: bool) -> None:
     from panel import db as dbmod
     conn = _open_db(dsn, uri)
@@ -72,6 +141,7 @@ def _tick(dsn: str, uri: bool) -> None:
         _maybe_update_dns_filter(conn)
         _maybe_panel_self_update(conn)
         _maybe_prune_traffic(conn)
+        _maybe_run_failover(conn)
     except Exception:
         traceback.print_exc()
     finally:
