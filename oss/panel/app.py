@@ -335,9 +335,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
         row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
         if not row:
             return jsonify({"error": "not found"}), 404
+        enabled_changed = False
         if "enabled" in d:
+            new_enabled = 1 if d["enabled"] else 0
+            # 检查是否真的变化了
+            cur_enabled = c.execute("SELECT enabled FROM subscriptions WHERE id=?", (sid,)).fetchone()
+            if cur_enabled and cur_enabled[0] != new_enabled:
+                enabled_changed = True
             c.execute("UPDATE subscriptions SET enabled=? WHERE id=?",
-                      (1 if d["enabled"] else 0, sid))
+                      (new_enabled, sid))
         if "auto_update" in d and isinstance(d["auto_update"], dict):
             au = d["auto_update"]
             try:
@@ -406,7 +412,22 @@ def create_app(db_path: str = ":memory:") -> Flask:
         c.commit()
         dbmod.bump_rev(c)
         updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
-        return jsonify(updated)
+        # 订阅启停变化时，自动重新生成配置并重载内核（1:1 对标原版）
+        apply_result = None
+        if enabled_changed:
+            try:
+                from core.hotapply import hot_apply_config
+                cfg = dbmod.load_app_config(c)
+                api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+                secret = getattr(cfg, "clash_api_secret", "") or ""
+                apply_result = hot_apply_config(c, _manager(), api_base, secret, force="auto")
+            except Exception as e:
+                # 配置应用失败不阻塞 API 返回，但记录错误
+                apply_result = {"error": str(e), "mode": "failed"}
+        resp = dict(updated)
+        if apply_result is not None:
+            resp["_apply"] = {"mode": apply_result.get("mode"), "error": apply_result.get("error")}
+        return jsonify(resp)
 
     @app.post("/api/subscriptions/<int:sid>/preview-rename")
     def sub_preview_rename(sid: int):
