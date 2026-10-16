@@ -220,7 +220,8 @@ CREATE TABLE IF NOT EXISTS share_servers(
   method TEXT NOT NULL DEFAULT 'aes-256-gcm',
   password TEXT NOT NULL DEFAULT '',
   enabled INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  params TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS node_info_cache(
   tag TEXT PRIMARY KEY,
@@ -378,6 +379,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         "INSERT OR IGNORE INTO groups(name, type, members, dynamic_keywords, position)"
         " VALUES ('所有-手动', 'selector', '[\"*all*\"]', '[]', 1)")
     _migrate_chains_enabled(conn)
+    _migrate_share_params(conn)
     conn.commit()
     # migrate old default names (auto/manual) to the new ones, fixing references
     _migrate_default_groups(conn)
@@ -1838,23 +1840,30 @@ SS_METHODS = ("aes-128-gcm", "aes-256-gcm", "chacha20-ietf-poly1305",
               "2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm")
 
 
+def _migrate_share_params(conn: sqlite3.Connection):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(share_servers)")]
+    if "params" not in cols:
+        conn.execute("ALTER TABLE share_servers ADD COLUMN params TEXT NOT NULL DEFAULT '{}'")
+
+
 def _share_row(r) -> dict:
     return {"id": r[0], "name": r[1], "protocol": r[2], "address": r[3],
             "port": r[4], "method": r[5], "password": r[6],
-            "enabled": bool(r[7]), "created_at": r[8]}
+            "enabled": bool(r[7]), "created_at": r[8],
+            "params": json.loads(r[9]) if len(r) > 9 and r[9] else {}}
 
 
 def list_share_servers(conn: sqlite3.Connection) -> list[dict]:
     return [_share_row(r) for r in conn.execute(
         "SELECT id, name, protocol, address, port, method, password,"
-        " enabled, created_at FROM share_servers ORDER BY id")]
+        " enabled, created_at, params FROM share_servers ORDER BY id")]
 
 
 def create_share_server(conn: sqlite3.Connection, d: dict) -> dict:
     import secrets as _secrets
     protocol = d.get("protocol", "shadowsocks")
-    if protocol != "shadowsocks":
-        raise ValueError("protocol must be shadowsocks")
+    if protocol not in ("shadowsocks", "vless", "tuic", "hysteria2", "socks5http"):
+        raise ValueError("protocol must be shadowsocks|vless|tuic|hysteria2|socks5http")
     method = d.get("method", "aes-256-gcm")
     if method not in SS_METHODS:
         raise ValueError(f"method must be one of {', '.join(SS_METHODS)}")
@@ -1868,15 +1877,16 @@ def create_share_server(conn: sqlite3.Connection, d: dict) -> dict:
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     cur = conn.execute(
         "INSERT INTO share_servers(name, protocol, address, port, method,"
-        " password, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        " password, enabled, created_at, params) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (str(d.get("name") or "").strip(), protocol,
          str(d.get("address") or "127.0.0.1").strip(), port, method, password,
-         0 if d.get("enabled") is False else 1, now))
+         0 if d.get("enabled") is False else 1, now,
+         json.dumps(d.get("params", {}), ensure_ascii=False)))
     conn.commit()
     bump_rev(conn)
     return _share_row(conn.execute(
         "SELECT id, name, protocol, address, port, method, password,"
-        " enabled, created_at FROM share_servers WHERE id=?",
+        " enabled, created_at, params FROM share_servers WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -1891,8 +1901,8 @@ def update_share_server(conn: sqlite3.Connection, sid: int, d: dict) -> dict | N
                      ("enabled", "enabled")):
         if key in d:
             v = d[key]
-            if key == "protocol" and v != "shadowsocks":
-                raise ValueError("protocol must be shadowsocks")
+            if key == "protocol" and v not in ("shadowsocks", "vless", "tuic", "hysteria2", "socks5http"):
+                raise ValueError("protocol must be shadowsocks|vless|tuic|hysteria2|socks5http")
             if key == "method" and v not in SS_METHODS:
                 raise ValueError(f"method must be one of {', '.join(SS_METHODS)}")
             if key == "port":
@@ -1908,6 +1918,9 @@ def update_share_server(conn: sqlite3.Connection, sid: int, d: dict) -> dict | N
                 v = v.strip()
             fields.append(f"{col}=?")
             vals.append(v)
+    if "params" in d:
+        fields.append("params=?")
+        vals.append(json.dumps(d["params"], ensure_ascii=False))
     if fields:
         vals.append(sid)
         conn.execute(f"UPDATE share_servers SET {', '.join(fields)} WHERE id=?", vals)
@@ -1915,7 +1928,7 @@ def update_share_server(conn: sqlite3.Connection, sid: int, d: dict) -> dict | N
     bump_rev(conn)
     return _share_row(conn.execute(
         "SELECT id, name, protocol, address, port, method, password,"
-        " enabled, created_at FROM share_servers WHERE id=?",
+        " enabled, created_at, params FROM share_servers WHERE id=?",
         (sid,)).fetchone())
 
 
