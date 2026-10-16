@@ -1429,9 +1429,13 @@ def create_app(db_path: str = ":memory:") -> Flask:
         d = request.get_json(force=True, silent=True) or {}
         c = db()
         if "mode" in d:
-            if d["mode"] not in ("dnsmasq", "firewall", "off"):
-                return jsonify({"error": "mode must be dnsmasq|firewall|off"}), 400
-            dbmod.set_setting(c, "dns_mode", d["mode"])
+            mode = d["mode"]
+            # 1:1 original: "hijack" is the firewall-hijack mode
+            if mode == "hijack":
+                mode = "firewall"
+            if mode not in ("dnsmasq", "firewall", "off"):
+                return jsonify({"error": "mode must be dnsmasq|firewall|hijack|off"}), 400
+            dbmod.set_setting(c, "dns_mode", mode)
         if "region" in d:
             if d["region"] not in ("auto", "cn", "outside"):
                 return jsonify({"error": "region must be auto|cn|outside"}), 400

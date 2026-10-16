@@ -62,6 +62,7 @@ const ru: LANG_MESSAGE = {
     autoGen: 'Авто, если пусто',
     regen: 'Сгенерировать',
     noTlsHint: 'Без TLS: только шифрование протокола.',
+    multiUpstreamHint: 'По одному на строку; первый — основной, остальные — резервные.',
     type: 'Тип',
     detail: 'Детали',
     builtin: 'встроенная',

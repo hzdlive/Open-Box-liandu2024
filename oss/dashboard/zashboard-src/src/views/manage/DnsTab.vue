@@ -33,7 +33,7 @@
           class="select select-bordered w-full"
         >
           <option value="dnsmasq">dnsmasq</option>
-          <option value="firewall">{{ $t('obx.dnsFirewall') }}</option>
+          <option value="firewall">{{ $t('obx.dnsFirewall') }} (hijack)</option>
           <option value="off">{{ $t('obx.dnsOff') }}</option>
         </select>
       </label>
@@ -50,19 +50,23 @@
       </label>
       <label class="form-control">
         <span class="label-text mb-1">{{ $t('obx.directDns') }}</span>
-        <input
+        <textarea
           v-model="f.direct_dns"
-          class="input input-bordered w-full"
-          placeholder="223.5.5.5"
+          class="textarea textarea-bordered w-full"
+          rows="2"
+          placeholder="223.5.5.5&#10;wan（跟随 WAN）"
         />
+        <span class="label-text-alt opacity-60">{{ $t('obx.multiUpstreamHint') }}</span>
       </label>
       <label class="form-control">
         <span class="label-text mb-1">{{ $t('obx.proxyDns') }}</span>
-        <input
+        <textarea
           v-model="f.proxy_dns"
-          class="input input-bordered w-full"
+          class="textarea textarea-bordered w-full"
+          rows="2"
           placeholder="tcp://1.1.1.1"
         />
+        <span class="label-text-alt opacity-60">{{ $t('obx.multiUpstreamHint') }}</span>
       </label>
       <label class="flex cursor-pointer items-center gap-3 rounded-box border border-base-300/30 bg-base-100 p-3">
         <input
@@ -119,6 +123,14 @@
           >
             <td class="font-mono">{{ r.domain }}</td>
             <td class="font-mono">{{ r.target }}</td>
+            <td>
+              <input
+                type="checkbox"
+                class="toggle toggle-xs"
+                :checked="!!r.enabled"
+                @change="toggleRewrite(r)"
+              />
+            </td>
             <td class="text-right">
               <button
                 class="btn btn-ghost btn-xs text-error"
@@ -159,7 +171,7 @@ import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { onMounted, ref } from 'vue'
 
 const f = ref({ mode: 'dnsmasq', region: 'auto', direct_dns: '', proxy_dns: '', fakeip: false, split: true })
-const rewrites = ref<{ id: number; domain: string; target: string }[]>([])
+const rewrites = ref<{ id: number; domain: string; target: string; enabled: number }[]>([])
 const nr = ref({ domain: '', target: '' })
 const err = ref('')
 const ok = ref('')
@@ -171,7 +183,8 @@ async function load() {
   err.value = ''
   try {
     const d = await obxGet<any>('/api/dns')
-    f.value = { mode: d.mode, region: d.region, direct_dns: d.direct_dns, proxy_dns: d.proxy_dns, fakeip: !!d.fakeip, split: !!d.split }
+    const toLines = (s: string) => (s || '').split(',').map((x) => x.trim()).filter(Boolean).join('\n')
+    f.value = { mode: d.mode, region: d.region, direct_dns: toLines(d.direct_dns), proxy_dns: toLines(d.proxy_dns), fakeip: !!d.fakeip, split: !!d.split }
     rewrites.value = d.rewrites || []
     const lat = d.upstream_latency || {}
     const parts = Object.entries(lat).map(([k, v]) => `${k}: ${v}ms`)
@@ -182,7 +195,8 @@ async function load() {
 async function save() {
   saving.value = true; err.value = ''; ok.value = ''
   try {
-    await obxPut('/api/dns', { ...f.value })
+    const toCsv = (s: string) => (s || '').split('\n').map((x) => x.trim()).filter(Boolean).join(', ')
+    await obxPut('/api/dns', { ...f.value, direct_dns: toCsv(f.value.direct_dns), proxy_dns: toCsv(f.value.proxy_dns) })
     ok.value = '已保存（下次应用内核配置后生效）'
     await load()
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '保存失败' }
@@ -210,6 +224,10 @@ async function addRewrite() {
 async function delRewrite(r: { id: number }) {
   try { await obxDel(`/api/dns/rewrite/${r.id}`); await load() }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '删除失败' }
+}
+async function toggleRewrite(r: { id: number; enabled: number }) {
+  try { await obxPut(`/api/dns/rewrite/${r.id}`, { enabled: r.enabled ? 0 : 1 }); await load() }
+  catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
 }
 
 onMounted(load)

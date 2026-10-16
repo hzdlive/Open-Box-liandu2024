@@ -60,6 +60,7 @@ const en = {
     autoGen: 'Auto-generate if empty',
     regen: 'Regenerate',
     noTlsHint: 'No TLS: only the protocol encryption between client and router.',
+    multiUpstreamHint: 'One per line; first is primary, rest are backup (queried concurrently).',
     type: 'Type',
     detail: 'Detail',
     builtin: 'built-in',

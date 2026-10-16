@@ -62,6 +62,7 @@ const zhTW: LANG_MESSAGE = {
     autoGen: '留空自動生成',
     regen: '重新生成',
     noTlsHint: '不套 TLS：客戶端到路由器之間只有協議本身的加密。',
+    multiUpstreamHint: '一行一個；第一個是主上游，後面是備用（並發查詢）。',
     type: '類型',
     detail: '詳情',
     builtin: '內建',
