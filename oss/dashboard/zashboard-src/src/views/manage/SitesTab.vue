@@ -972,7 +972,10 @@ async function openObSel(rule: any) {
       obxGet<any[]>('/api/health').catch(() => []),
     ])
     obSel.value.nodes = nodes || []
-    obSel.value.groups = groups || []
+    // 过滤掉直连/拒绝（原版节点组页签没有这两项，它们在节点页签的内置区）
+    obSel.value.groups = (groups || []).filter(
+      (g: any) => g.name !== 'direct' && g.name !== 'block' && g.tag !== 'direct' && g.tag !== 'block',
+    )
     const hm: Record<string, number> = {}
     for (const h of (health || [])) {
       if (h.latency_ms != null) hm[h.tag] = h.latency_ms
