@@ -273,21 +273,34 @@ def test_phase3_api():
         assert c.post("/api/backup", json={"format": "nope"}).status_code == 400
 
         # failover group type accepted + elect (no kernel -> actions report failed)
+        # 1:1 original: failover requires lanes (primary/backup tabs)
         gid = c.post("/api/groups", json={"name": "fo1", "type": "failover",
-                                          "members": [tags[0]]}).get_json()["id"]
+                                          "members": [tags[0]],
+                                          "lanes": [{"name": "主", "members": [tags[0]]}]}).get_json()["id"]
+        # failover without lanes must be rejected (original semantics)
+        r = c.post("/api/groups", json={"name": "fo-bad", "type": "failover",
+                                        "members": [tags[0]]})
+        assert r.status_code == 400, r.get_data(as_text=True)
         r = c.post("/api/failover/elect", json={})
         assert r.status_code == 200
         acts = r.get_json()
         assert any(a["group"] == "fo1" for a in acts), acts
         assert c.delete(f"/api/groups/{gid}").status_code == 200
 
-        # failover renders as selector in generated config
+        # failover renders as native failover in generated config;
+        # with lanes it becomes a top-level failover over per-lane failovers
         c.post("/api/groups", json={"name": "fo2", "type": "failover",
-                                    "members": [tags[0]]})
+                                    "members": [tags[0]],
+                                    "lanes": [{"name": "主", "members": [tags[0]]},
+                                              {"name": "备", "members": []}]})
         conf = c.get("/api/config").get_json()
         fo = [o for o in conf["outbounds"] if o.get("tag") == "fo2"]
         assert fo and fo[0]["type"] == "failover", fo
         assert "check_url" in fo[0] and "check_interval" in fo[0], fo
+        lane_obs = [o for o in conf["outbounds"]
+                    if o.get("tag", "").startswith("fo2#")]
+        assert len(lane_obs) == 2, lane_obs
+        assert lane_obs[0]["type"] == "failover"
     print("OK: phase3 panel APIs")
 
 

@@ -119,7 +119,8 @@ CREATE TABLE IF NOT EXISTS groups(
   tolerance_ms INTEGER NOT NULL DEFAULT 100,
   idle_timeout TEXT NOT NULL DEFAULT '12h',
   expected_status TEXT NOT NULL DEFAULT '',
-  test_url TEXT NOT NULL DEFAULT ''
+  test_url TEXT NOT NULL DEFAULT '',
+  lanes TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS node_health(
   tag TEXT PRIMARY KEY,
@@ -320,7 +321,8 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("interval_s", "INTEGER NOT NULL DEFAULT 300"),
                      ("tolerance_ms", "INTEGER NOT NULL DEFAULT 100"),
                      ("expected_status", "TEXT NOT NULL DEFAULT ''"),
-                     ("test_url", "TEXT NOT NULL DEFAULT ''")):
+                     ("test_url", "TEXT NOT NULL DEFAULT ''"),
+                     ("lanes", "TEXT NOT NULL DEFAULT '[]'")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
     tcols = {r[1] for r in conn.execute("PRAGMA table_info(traffic_daily)")}
@@ -859,18 +861,25 @@ def load_app_config(conn: sqlite3.Connection):
             ip_cidr=list(dict.fromkeys(cidrs)),
             rule_sets=rs_names,
         ))
+    def _mk_group(r):
+        try:
+            lanes = json.loads(r[11]) if len(r) > 11 and r[11] else []
+        except ValueError:
+            lanes = []
+        return Group(name=r[0], type=r[1], members=json.loads(r[2]),
+                     dynamic_keywords=json.loads(r[3]), position=r[4],
+                     enabled=bool(r[5]), interval_s=r[6] or 300,
+                     tolerance_ms=r[7] or 100,
+                     idle_timeout=r[8] if len(r) > 8 and r[8] else "12h",
+                     expected_status=r[9] if len(r) > 9 and r[9] else "",
+                     test_url=r[10] if len(r) > 10 and r[10] else "",
+                     lanes=lanes if isinstance(lanes, list) else [])
     groups = [
-        Group(name=r[0], type=r[1], members=json.loads(r[2]),
-              dynamic_keywords=json.loads(r[3]), position=r[4],
-              enabled=bool(r[5]), interval_s=r[6] or 300,
-              tolerance_ms=r[7] or 100,
-              idle_timeout=r[8] if len(r) > 8 and r[8] else "12h",
-              expected_status=r[9] if len(r) > 9 and r[9] else "",
-              test_url=r[10] if len(r) > 10 and r[10] else "")
+        _mk_group(r)
         for r in conn.execute(
             "SELECT name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups"
-            " ORDER BY position, id")
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+            " FROM groups ORDER BY position, id")
     ]
     chains = [
         Chain(name=r[0], exit_protocol=r[1], server=r[2], server_port=r[3],
@@ -1052,13 +1061,18 @@ def delete_chain(conn: sqlite3.Connection, cid: int) -> bool:
 
 # ---- groups ----
 def _group_row(r) -> dict:
+    try:
+        lanes = json.loads(r[12]) if len(r) > 12 and r[12] else []
+    except ValueError:
+        lanes = []
     return {"id": r[0], "name": r[1], "type": r[2], "members": json.loads(r[3]),
             "dynamic_keywords": json.loads(r[4]), "position": r[5],
             "enabled": bool(r[6]), "interval_s": r[7] or 300,
             "tolerance_ms": r[8] or 100,
             "idle_timeout": r[9] if len(r) > 9 and r[9] else "12h",
             "expected_status": r[10] if len(r) > 10 and r[10] else "",
-            "test_url": r[11] if len(r) > 11 and r[11] else ""}
+            "test_url": r[11] if len(r) > 11 and r[11] else "",
+            "lanes": lanes if isinstance(lanes, list) else []}
 
 
 def list_groups(conn: sqlite3.Connection) -> list[dict]:
@@ -1071,7 +1085,8 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     out = []
     for r in conn.execute(
             "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups ORDER BY position, id"):
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+            " FROM groups ORDER BY position, id"):
         g = _group_row(r)
         gm = _Group(name=g["name"], type=g["type"], members=g["members"],
                     dynamic_keywords=g["dynamic_keywords"])
@@ -1093,15 +1108,43 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     return out
 
 
+def _normalize_lanes(lanes) -> list[dict]:
+    """Normalize failover lanes to [{name, members[]}]."""
+    out = []
+    if not isinstance(lanes, list):
+        return out
+    for i, ln in enumerate(lanes):
+        if not isinstance(ln, dict):
+            continue
+        name = str(ln.get("name") or f"lane{i+1}").strip()
+        members = [str(m).strip() for m in (ln.get("members") or [])
+                   if str(m).strip()]
+        out.append({"name": name, "members": members})
+    return out
+
+
+def _validate_failover(members, dynamic_keywords, lanes) -> None:
+    # 1:1 with the original panel: failover only supports static members
+    # (explicit member list, no dynamic keywords) and requires lanes
+    # (primary/backup tabs).
+    if dynamic_keywords:
+        raise ValueError("failover 只支持静态成员，不能使用动态关键词")
+    if not lanes:
+        raise ValueError("failover 需要主备页签（lanes）")
+
+
 def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     if d.get("type", "urltest") not in ("urltest", "selector", "failover"):
         raise ValueError("type must be urltest|selector|failover")
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM groups").fetchone()[0]
+    lanes = _normalize_lanes(d.get("lanes"))
+    if d.get("type") == "failover":
+        _validate_failover(d.get("members", []), d.get("dynamic_keywords", []), lanes)
     cur = conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position,"
         " enabled, interval_s, tolerance_ms, idle_timeout,"
-        " expected_status, test_url)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " expected_status, test_url, lanes)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (d["name"], d.get("type", "urltest"),
          json.dumps(d.get("members", []), ensure_ascii=False),
          json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos,
@@ -1110,12 +1153,14 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
          int(d.get("tolerance_ms", 100) or 100),
          d.get("idle_timeout", "12h") or "12h",
          (d.get("expected_status") or "").strip(),
-         (d.get("test_url") or "").strip()))
+         (d.get("test_url") or "").strip(),
+         json.dumps(lanes, ensure_ascii=False)))
     conn.commit()
     bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups WHERE id=?",
+        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+        " FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
 
@@ -1144,6 +1189,26 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
         if key in d:
             fields.append(f"{key}=?")
             vals.append(json.dumps(d[key], ensure_ascii=False))
+    if "lanes" in d:
+        lanes = _normalize_lanes(d["lanes"])
+        # validate against the (possibly updated) type/members
+        cur_type = d.get("type")
+        if cur_type is None:
+            cur_type = conn.execute("SELECT type FROM groups WHERE id=?",
+                                    (gid,)).fetchone()[0]
+        if cur_type == "failover":
+            cur_members = d.get("members")
+            cur_kw = d.get("dynamic_keywords")
+            if cur_members is None or cur_kw is None:
+                row = conn.execute("SELECT members, dynamic_keywords FROM groups"
+                                   " WHERE id=?", (gid,)).fetchone()
+                if cur_members is None:
+                    cur_members = json.loads(row[0])
+                if cur_kw is None:
+                    cur_kw = json.loads(row[1])
+            _validate_failover(cur_members, cur_kw, lanes)
+        fields.append("lanes=?")
+        vals.append(json.dumps(lanes, ensure_ascii=False))
     if fields:
         vals.append(gid)
         conn.execute(f"UPDATE groups SET {', '.join(fields)} WHERE id=?", vals)
@@ -1151,7 +1216,8 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
     bump_rev(conn)
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
-        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url FROM groups WHERE id=?",
+        " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+        " FROM groups WHERE id=?",
         (gid,)).fetchone())
 
 

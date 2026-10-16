@@ -152,8 +152,38 @@
               v-model="dlg.keywords"
               class="input input-bordered w-full"
               placeholder="香港, 美国（动态匹配，逗号分隔）"
+              :disabled="dlg.type === 'failover'"
             />
           </label>
+          <div
+            v-if="dlg.type === 'failover'"
+            class="col-span-2 rounded-box border border-base-300/30 p-3"
+          >
+            <div class="mb-2 flex items-center justify-between">
+              <span class="label-text font-medium">{{ $t('obx.lanes') }}</span>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="dlg.lanes.push({ name: `lane${dlg.lanes.length + 1}`, members: '' })"
+              >{{ $t('obx.addLane') }}</button>
+            </div>
+            <div
+              v-for="(ln, i) in dlg.lanes"
+              :key="i"
+              class="mb-2 grid grid-cols-3 gap-2"
+            >
+              <input
+                v-model="ln.name"
+                class="input input-bordered input-sm"
+                :placeholder="$t('obx.laneName')"
+              />
+              <input
+                v-model="ln.members"
+                class="input input-bordered input-sm col-span-2"
+                :placeholder="$t('obx.laneMembersPh')"
+              />
+            </div>
+            <p class="text-xs opacity-60">{{ $t('obx.lanesHint') }}</p>
+          </div>
           <label class="form-control">
             <span class="label-text mb-1">{{ $t('obx.intervalS') }}</span>
             <input
@@ -235,6 +265,7 @@ type Group = {
   idle_timeout: string
   expected_status: string
   test_url: string
+  lanes: { name: string; members: string[] }[]
   builtin?: boolean
   detail?: string
 }
@@ -281,17 +312,18 @@ async function checkHealth() {
 
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h', expected_status: '', test_url: '' }
+  dlg.value = { id: null, name: '', type: 'urltest', members: '', keywords: '', interval_s: 300, tolerance_ms: 100, idle_timeout: '12h', expected_status: '', test_url: '', lanes: [] }
 }
 function openEdit(g: Group) {
   dlgErr.value = ''
-  dlg.value = { id: g.id, name: g.name, type: g.type, members: (g.members || []).join(', '), keywords: (g.dynamic_keywords || []).join(', '), interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100, idle_timeout: g.idle_timeout || '12h', expected_status: g.expected_status || '', test_url: g.test_url || '' }
+  dlg.value = { id: g.id, name: g.name, type: g.type, members: (g.members || []).join(', '), keywords: (g.dynamic_keywords || []).join(', '), interval_s: g.interval_s || 300, tolerance_ms: g.tolerance_ms || 100, idle_timeout: g.idle_timeout || '12h', expected_status: g.expected_status || '', test_url: g.test_url || '', lanes: (g.lanes || []).map((ln: any) => ({ name: ln.name, members: (ln.members || []).join(', ') })) }
 }
 const split = (s: string) => s.split(',').map((x) => x.trim()).filter(Boolean)
 
 async function save() {
   if (!dlg.value?.name.trim()) { dlgErr.value = '名称不能为空'; return }
-  const body = { name: dlg.value.name.trim(), type: dlg.value.type, members: split(dlg.value.members), dynamic_keywords: split(dlg.value.keywords), interval_s: dlg.value.interval_s, tolerance_ms: dlg.value.tolerance_ms, idle_timeout: dlg.value.idle_timeout, expected_status: dlg.value.expected_status, test_url: dlg.value.test_url }
+  const lanes = (dlg.value.lanes || []).map((ln: any) => ({ name: (ln.name || '').trim(), members: split(ln.members || '') })).filter((ln: any) => ln.name || ln.members.length)
+  const body = { name: dlg.value.name.trim(), type: dlg.value.type, members: split(dlg.value.members), dynamic_keywords: split(dlg.value.keywords), interval_s: dlg.value.interval_s, tolerance_ms: dlg.value.tolerance_ms, idle_timeout: dlg.value.idle_timeout, expected_status: dlg.value.expected_status, test_url: dlg.value.test_url, lanes }
   dlgBusy.value = true
   dlgErr.value = ''
   try {

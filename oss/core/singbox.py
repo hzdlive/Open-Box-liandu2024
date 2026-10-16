@@ -186,13 +186,30 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         elif g.type == "failover":
             # Native sing-box failover: kernel-level health checking and
             # automatic fallback, no panel-side watcher required.
-            ob = {"type": "failover", "tag": g.name,
-                  "outbounds": tags or ["direct"],
-                  "check_url": g.test_url or cfg.speedtest_url,
-                  "check_interval": f"{g.interval_s}s"}
+            # 1:1 with the original: lanes = primary/backup tabs. Each lane
+            # becomes a failover outbound; the top-level failover tries the
+            # lanes in order.
+            fo_kwargs = {"check_url": g.test_url or cfg.speedtest_url,
+                         "check_interval": f"{g.interval_s}s"}
             if g.expected_status:
-                ob["expected_status"] = g.expected_status
-            outbounds.append(ob)
+                fo_kwargs["expected_status"] = g.expected_status
+            if g.lanes:
+                lane_tags = []
+                for i, ln in enumerate(g.lanes):
+                    lane_tag = f"{g.name}#{ln.get('name') or f'line{i+1}'}"
+                    lane_members = [t for t in (ln.get("members") or [])
+                                    if t in node_tags or t in chain_tags]
+                    outbounds.append({"type": "failover", "tag": lane_tag,
+                                      "outbounds": lane_members or ["direct"],
+                                      **fo_kwargs})
+                    lane_tags.append(lane_tag)
+                outbounds.append({"type": "failover", "tag": g.name,
+                                  "outbounds": lane_tags or ["direct"],
+                                  **fo_kwargs})
+            else:
+                outbounds.append({"type": "failover", "tag": g.name,
+                                  "outbounds": tags or ["direct"],
+                                  **fo_kwargs})
         else:  # urltest
             ob = {"type": "urltest", "tag": g.name,
                   "outbounds": tags or ["direct"],

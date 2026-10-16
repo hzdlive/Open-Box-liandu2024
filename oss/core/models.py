@@ -71,6 +71,9 @@ class Group:
     idle_timeout: str = "12h"  # urltest idle timeout (sing-box duration)
     expected_status: str = ""  # urltest expected HTTP status ("" = kernel default)
     test_url: str = ""         # per-group test URL ("" = global speedtest_url)
+    lanes: list = field(default_factory=list)
+    # failover lanes: [{name, members[]}] — primary/backup tabs (1:1 original).
+    # Empty = single flat member list (legacy behavior).
 
 
 @dataclass
