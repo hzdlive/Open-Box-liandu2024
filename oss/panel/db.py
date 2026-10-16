@@ -517,20 +517,21 @@ def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
     return cur.rowcount > 0
 
 
-def add_manual_nodes(conn: sqlite3.Connection, content: str) -> dict:
-    """Manually add node(s) from pasted share link(s) into a '手动节点'
-    subscription (created on first use)."""
+def add_manual_nodes(conn: sqlite3.Connection, content: str, name: str = "") -> dict:
+    """Manually add node(s) from pasted share link(s). Creates a new
+    subscription with the given name (or reuses '手动节点')."""
     from core.subscription import parse_subscription
     nodes = parse_subscription(content)
     if not nodes:
         raise ValueError("no nodes parsed from content")
-    row = conn.execute("SELECT id FROM subscriptions WHERE name='手动节点'").fetchone()
+    name = (name or "").strip() or "手动节点"
+    row = conn.execute("SELECT id FROM subscriptions WHERE name=?", (name,)).fetchone()
     if row:
         sid = row[0]
     else:
         cur = conn.execute(
             "INSERT INTO subscriptions(name, source, created_at) VALUES (?, 'manual', ?)",
-            ("手动节点", time.strftime("%Y-%m-%dT%H:%M:%S")))
+            (name, time.strftime("%Y-%m-%dT%H:%M:%S")))
         sid = cur.lastrowid
     existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}
     added = []

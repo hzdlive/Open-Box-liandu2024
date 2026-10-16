@@ -286,6 +286,47 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def sub_list():
         return jsonify(dbmod.list_subscriptions(db()))
 
+    @app.get("/api/subscriptions/<int:sid>")
+    def sub_detail(sid: int):
+        """Full subscription detail for the edit dialog (rename, dns, urls)."""
+        subs = [s for s in dbmod.list_subscriptions(db()) if s["id"] == sid]
+        if not subs:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(subs[0])
+
+    @app.get("/api/subscriptions/<int:sid>/nodes")
+    def sub_nodes(sid: int):
+        return jsonify([n for n in dbmod.list_nodes(db()) if n["sub_id"] == sid])
+
+    @app.post("/api/subscriptions/<int:sid>/reset-rename")
+    def sub_reset_rename(sid: int):
+        from core import rename as _rn
+        c = db()
+        if not c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone():
+            return jsonify({"error": "not found"}), 404
+        c.execute("UPDATE subscriptions SET rename_enabled=0, rename_prefix=1,"
+                  " rename_order=?, rename_seq_digits=2, rename_regions=?,"
+                  " rename_fallback='其他', rename_features=?, rename_filter=?"
+                  " WHERE id=?",
+                  (json.dumps(["region", "feature", "seq"]),
+                   json.dumps(_rn.DEFAULT_REGIONS, ensure_ascii=False),
+                   _rn.DEFAULT_FEATURES, _rn.DEFAULT_FILTER, sid))
+        c.commit()
+        subs = [s for s in dbmod.list_subscriptions(c) if s["id"] == sid]
+        return jsonify({"rename": subs[0]["rename"] if subs else {}})
+
+    @app.post("/api/subscriptions/<int:sid>/reset-names")
+    def sub_reset_names(sid: int):
+        c = db()
+        if not c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone():
+            return jsonify({"error": "not found"}), 404
+        # clear custom tags; tags revert to rename-generated names on next refresh;
+        # for now restore to orig_tag
+        c.execute("UPDATE nodes SET custom_tag='' WHERE sub_id=?", (sid,))
+        c.execute("UPDATE nodes SET tag=orig_tag WHERE sub_id=? AND orig_tag != ''", (sid,))
+        c.commit()
+        return jsonify({"ok": True})
+
     @app.put("/api/subscriptions/<int:sid>")
     def sub_update(sid: int):
         import json as _json
@@ -518,7 +559,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if not content:
             return jsonify({"error": "content is required"}), 400
         try:
-            r = dbmod.add_manual_nodes(db(), content)
+            r = dbmod.add_manual_nodes(db(), content, d.get("name", ""))
         except Exception as e:
             return jsonify({"error": f"parse failed: {e}"}), 400
         return jsonify(r), 201

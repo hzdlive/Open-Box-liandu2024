@@ -1,4 +1,4 @@
-<!-- Open-Box 二开：订阅管理（由旧版自研 UI 移植核心功能） -->
+<!-- Open-Box 二开：订阅管理（1:1 对标原版订阅弹窗：订阅/规则/节点三 tab） -->
 <template>
   <div>
     <div class="mb-3 flex items-center justify-between">
@@ -133,68 +133,402 @@
       </table>
     </div>
 
-    <!-- 新增 / 编辑弹窗 -->
+    <!-- 新增 / 编辑弹窗（三 tab：订阅 / 规则 / 节点） -->
     <div
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box">
-        <h3 class="mb-4 text-lg font-bold">
-          {{ dlg.id ? $t('obx.editSubscription') : $t('obx.addSubscription') }}
-        </h3>
-        <label class="form-control mb-3">
-          <span class="label-text mb-1">{{ $t('obx.name') }}</span>
-          <input
-            v-model="dlg.name"
-            class="input input-bordered w-full"
-          />
-        </label>
-        <label class="form-control mb-3">
-          <span class="label-text mb-1">{{ $t('obx.urls') }}</span>
-          <textarea
-            v-model="dlg.urlsText"
-            class="textarea textarea-bordered w-full"
-            rows="3"
-            placeholder="https://…（每行一个）"
-          />
-        </label>
-        <div class="mb-4 rounded-box border border-base-300/30 p-3">
-          <label class="flex cursor-pointer items-center gap-2">
-            <input
-              v-model="dlg.auEnabled"
-              type="checkbox"
-              class="toggle toggle-sm"
-            />
-            <span class="label-text">{{ $t('obx.autoUpdate') }}</span>
-          </label>
+      <div class="modal-box max-w-3xl">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold">
+            {{ dlg.id ? $t('obx.editSubscription') : $t('obx.addSubOrNode') }}
+          </h3>
+          <button
+            class="btn btn-ghost btn-sm"
+            @click="dlg = null"
+          >✕</button>
+        </div>
+
+        <!-- tab 栏 -->
+        <div class="mb-4 flex items-center justify-between">
           <div
-            v-if="dlg.auEnabled"
-            class="mt-2 grid grid-cols-2 gap-2"
+            v-if="!dlg.id"
+            class="tabs tabs-boxed tabs-sm"
           >
-            <label class="form-control">
-              <span class="label-text mb-1">{{ $t('obx.everyDays') }}</span>
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.addMode === 'sub' }"
+              @click="dlg.addMode = 'sub'"
+            >{{ $t('obx.subscription') }}</a>
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.addMode === 'node' }"
+              @click="dlg.addMode = 'node'"
+            >{{ $t('obx.node') }}</a>
+          </div>
+          <div
+            v-else
+            class="w-24"
+          />
+          <div class="tabs tabs-boxed tabs-sm">
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.tab === 'sub' }"
+              @click="dlg.tab = 'sub'"
+            >{{ $t('obx.subscription') }}</a>
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.tab === 'rule' }"
+              @click="dlg.tab = 'rule'"
+            >{{ $t('obx.rule') }}</a>
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.tab === 'node' }"
+              @click="openNodeTab"
+            >{{ $t('obx.node') }}</a>
+          </div>
+        </div>
+
+        <!-- tab: 订阅 -->
+        <div v-if="dlg.tab === 'sub'">
+          <label class="form-control mb-3">
+            <span class="label-text mb-1">{{ $t('obx.name') }}</span>
+            <input
+              v-model="dlg.name"
+              class="input input-bordered w-full"
+              placeholder="比如“我的订阅”"
+            />
+          </label>
+
+          <!-- 新建：订阅链接模式 -->
+          <div v-if="!dlg.id && dlg.addMode === 'sub'">
+            <div class="mb-1 flex items-center justify-between">
+              <span class="label-text">{{ $t('obx.urls') }}</span>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="dlg.urls.push('')"
+              >＋ {{ $t('obx.addSubscription') }}</button>
+            </div>
+            <div
+              v-for="(u, i) in dlg.urls"
+              :key="i"
+              class="mb-2 flex gap-2"
+            >
               <input
-                v-model.number="dlg.auDays"
-                type="number"
-                min="1"
+                v-model="dlg.urls[i]"
                 class="input input-bordered w-full"
+                placeholder="https://"
+              />
+              <button
+                class="btn btn-ghost btn-sm text-error"
+                @click="dlg.urls.splice(i, 1)"
+              >🗑</button>
+            </div>
+            <p class="mb-3 text-xs opacity-60">一行一个，多个地址的节点合在一起；支持内网 / 本机地址，不校验 https 证书。</p>
+          </div>
+
+          <!-- 新建：手动节点模式 -->
+          <div v-if="!dlg.id && dlg.addMode === 'node'">
+            <label class="form-control mb-3">
+              <span class="label-text mb-1">{{ $t('obx.nodeContent') }}</span>
+              <textarea
+                v-model="dlg.nodeContent"
+                class="textarea textarea-bordered w-full"
+                rows="6"
+                placeholder="粘贴 ss:// / trojan:// / hysteria2:// 等链接，或 Clash/sing-box 配置…"
               />
             </label>
-            <label class="form-control">
-              <span class="label-text mb-1">{{ $t('obx.atHour') }}</span>
+            <p class="mb-3 text-xs opacity-60">一行一个节点链接（ss:// / trojan:// / vless:// / socks5:// 等），也支持整段 Clash / sing-box 配置。</p>
+          </div>
+
+          <!-- 编辑：订阅链接 -->
+          <div v-if="dlg.id">
+            <div class="mb-1 flex items-center justify-between">
+              <span class="label-text">{{ $t('obx.urls') }}</span>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="dlg.urls.push('')"
+              >＋ {{ $t('obx.addSubscription') }}</button>
+            </div>
+            <div
+              v-for="(u, i) in dlg.urls"
+              :key="i"
+              class="mb-2 flex gap-2"
+            >
               <input
-                v-model.number="dlg.auHour"
-                type="number"
-                min="0"
-                max="23"
+                v-model="dlg.urls[i]"
                 class="input input-bordered w-full"
+                placeholder="https://"
               />
+              <button
+                class="btn btn-ghost btn-sm text-error"
+                @click="dlg.urls.splice(i, 1)"
+              >🗑</button>
+            </div>
+            <p class="mb-3 text-xs opacity-60">一行一个，多个地址的节点合在一起；支持内网 / 本机地址，不校验 https 证书。</p>
+
+            <div class="mb-3 rounded-box border border-base-300/30 p-3">
+              <div class="mb-1 font-medium">{{ $t('obx.manualUpdate') }}</div>
+              <p class="mb-2 text-xs opacity-60">{{ $t('obx.manualUpdateHint') }}</p>
+              <textarea
+                v-model="dlg.manualContent"
+                class="textarea textarea-bordered w-full"
+                rows="3"
+                placeholder="粘贴 base64 订阅 / 链接列表 / Clash YAML"
+              />
+              <button
+                class="btn btn-ghost btn-sm mt-2"
+                :disabled="!dlg.manualContent.trim() || dlgBusy"
+                @click="doReimport"
+              >{{ $t('obx.manualUpdate') }}</button>
+            </div>
+          </div>
+
+          <div class="mb-3 flex flex-wrap items-center gap-4">
+            <div class="rounded-box border border-base-300/30 p-3">
+              <label class="flex cursor-pointer items-center gap-2">
+                <input
+                  v-model="dlg.auEnabled"
+                  type="checkbox"
+                  class="toggle toggle-sm"
+                />
+                <span class="label-text">{{ $t('obx.autoUpdate') }}</span>
+              </label>
+              <div
+                v-if="dlg.auEnabled"
+                class="mt-2 grid grid-cols-2 gap-2"
+              >
+                <label class="form-control">
+                  <span class="label-text mb-1">{{ $t('obx.everyDays') }}</span>
+                  <input
+                    v-model.number="dlg.auDays"
+                    type="number"
+                    min="1"
+                    class="input input-bordered input-sm w-full"
+                  />
+                </label>
+                <label class="form-control">
+                  <span class="label-text mb-1">{{ $t('obx.atHour') }}</span>
+                  <input
+                    v-model.number="dlg.auHour"
+                    type="number"
+                    min="0"
+                    max="23"
+                    class="input input-bordered input-sm w-full"
+                  />
+                </label>
+              </div>
+            </div>
+            <label class="form-control">
+              <span class="label-text mb-1">{{ $t('obx.dnsResolve') }}</span>
+              <select
+                v-model="dlg.dnsResolve"
+                class="select select-bordered select-sm"
+              >
+                <option value="auto">{{ $t('obx.auto') }}</option>
+                <option value="direct">{{ $t('obx.actDirect') }}</option>
+                <option value="proxy">{{ $t('obx.actProxy') }}</option>
+              </select>
             </label>
           </div>
         </div>
+
+        <!-- tab: 规则 -->
+        <div v-if="dlg.tab === 'rule'">
+          <label class="mb-3 flex cursor-pointer items-center gap-2">
+            <input
+              v-model="dlg.rename.prefix"
+              type="checkbox"
+              class="checkbox checkbox-sm"
+            />
+            <span class="text-sm">节点名前加订阅名（如「{{ dlg.name || '机场名称' }} | 香港-01」）</span>
+          </label>
+          <div class="mb-3 flex items-center justify-between">
+            <span class="font-bold">{{ $t('obx.renameRules') }}</span>
+            <div class="flex items-center gap-2">
+              <label class="flex cursor-pointer items-center gap-1">
+                <input
+                  v-model="dlg.rename.enabled"
+                  type="checkbox"
+                  class="toggle toggle-sm"
+                />
+              </label>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="resetRename"
+              >⟲ {{ $t('obx.reset') }}</button>
+            </div>
+          </div>
+          <div class="mb-2 text-xs opacity-60">
+            拖拽排序：
+            <span
+              v-for="(slot, i) in dlg.rename.order"
+              :key="slot"
+              class="badge badge-ghost badge-sm mr-1 gap-1"
+            >
+              {{ slotName(slot) }}
+              <button
+                class="opacity-60"
+                :disabled="i === 0"
+                @click="moveSlot(Number(i), -1)"
+              >↑</button>
+              <button
+                class="opacity-60"
+                :disabled="i === dlg.rename.order.length - 1"
+                @click="moveSlot(Number(i), 1)"
+              >↓</button>
+            </span>
+            <span class="ml-3">序号位数：<input
+              v-model.number="dlg.rename.seq_digits"
+              type="number"
+              min="1"
+              max="4"
+              class="input input-bordered input-xs w-14"
+            /></span>
+          </div>
+          <p class="mb-3 text-xs opacity-60">效果：{{ renamePreview }}</p>
+
+          <div class="mb-2 flex items-center justify-between">
+            <span class="font-medium">{{ $t('obx.regionKeywords') }}</span>
+            <button
+              class="btn btn-ghost btn-xs"
+              @click="dlg.rename.regions.push({ flag: '', name: '', keywords: '' })"
+            >＋ {{ $t('obx.add') }}</button>
+          </div>
+          <p class="mb-2 text-xs opacity-60">按原始节点名匹配（不区分大小写）。</p>
+          <div
+            v-for="(r, i) in dlg.rename.regions"
+            :key="i"
+            class="mb-1 flex items-center gap-2"
+          >
+            <span class="opacity-40">≡</span>
+            <input
+              v-model="r.flag"
+              class="input input-bordered input-sm w-12"
+              placeholder="旗"
+            />
+            <input
+              v-model="r.name"
+              class="input input-bordered input-sm w-20"
+              placeholder="地区名"
+            />
+            <input
+              v-model="r.keywords"
+              class="input input-bordered input-sm flex-1"
+              placeholder="关键词，逗号分隔"
+            />
+            <button
+              class="btn btn-ghost btn-xs text-error"
+              @click="dlg.rename.regions.splice(i, 1)"
+            >✕</button>
+          </div>
+
+          <label class="form-control mb-2 mt-3">
+            <span class="label-text mb-1">{{ $t('obx.unknownRegionTag') }}</span>
+            <input
+              v-model="dlg.rename.fallback"
+              class="input input-bordered input-sm max-w-xs"
+            />
+          </label>
+          <label class="form-control mb-2">
+            <span class="label-text mb-1">{{ $t('obx.featureKeywords') }} <span class="opacity-60">命中的关键词转成大写拼进节点名</span></span>
+            <input
+              v-model="dlg.rename.features"
+              class="input input-bordered input-sm w-full"
+              placeholder="iepl,iplc,ipv6,专线,家宽,2x"
+            />
+          </label>
+          <label class="form-control mb-2">
+            <span class="label-text mb-1">{{ $t('obx.filterNodes') }} <span class="opacity-60">原始节点命名中夹关键词的整条不导入</span></span>
+            <input
+              v-model="dlg.rename.filter"
+              class="input input-bordered input-sm w-full"
+              placeholder="官网,工单,客服"
+            />
+          </label>
+        </div>
+
+        <!-- tab: 节点 -->
+        <div v-if="dlg.tab === 'node'">
+          <div
+            v-if="!dlg.id"
+            class="rounded-box border border-dashed border-base-300 p-8 text-center opacity-60"
+          >
+            <div class="mb-2 text-2xl">🔍</div>
+            填写链接或粘贴内容后，这里会实时显示预览结果。
+          </div>
+          <div v-else>
+            <p class="mb-2">解析出 {{ subNodes.length }} 个节点 <span class="opacity-60">已应用重命名规则，可单独改名 / 禁用</span></p>
+            <div class="mb-2 flex items-center gap-2">
+              <div class="tabs tabs-boxed tabs-xs">
+                <a
+                  class="tab"
+                  :class="{ 'tab-active': nodeTab === 'ok' }"
+                  @click="nodeTab = 'ok'"
+                >有效（{{ okNodes.length }}）</a>
+                <a
+                  class="tab"
+                  :class="{ 'tab-active': nodeTab === 'off' }"
+                  @click="nodeTab = 'off'"
+                >禁用（{{ offNodes.length }}）</a>
+              </div>
+              <button
+                class="btn btn-ghost btn-xs"
+                @click="resetNames"
+              >⟲ 恢复默认名称</button>
+              <button
+                class="btn btn-ghost btn-xs"
+                :disabled="testingAll"
+                @click="testAllNodes"
+              >⚡ {{ testingAll ? '测速中…' : '一键测速' }}</button>
+            </div>
+            <div class="max-h-96 overflow-y-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>原名</th>
+                    <th />
+                    <th>新名</th>
+                    <th>延迟</th>
+                    <th class="text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="n in shownNodes"
+                    :key="n.id"
+                  >
+                    <td class="max-w-48 truncate opacity-60">{{ n.orig_tag || n.tag }}</td>
+                    <td class="opacity-40">→</td>
+                    <td><input
+                      v-model="n._editTag"
+                      class="input input-bordered input-xs w-full min-w-44"
+                      @change="saveNodeTag(n)"
+                    /></td>
+                    <td class="text-xs opacity-60">{{ nodeLatency(n.tag) }}</td>
+                    <td class="whitespace-nowrap text-right">
+                      <button
+                        class="btn btn-ghost btn-xs"
+                        title="测速"
+                        @click="testNode(n)"
+                      >⚡</button>
+                      <button
+                        class="btn btn-ghost btn-xs"
+                        :class="{ 'text-error': !n.disabled }"
+                        :title="n.disabled ? '启用' : '禁用'"
+                        @click="toggleNode(n)"
+                      >{{ n.disabled ? '⏻' : '⊘' }}</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
         <p
           v-if="dlgErr"
-          class="mb-3 text-sm text-error"
+          class="mt-3 text-sm text-error"
         >
           {{ dlgErr }}
         </p>
@@ -220,7 +554,7 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 type Sub = {
   id: number
@@ -232,13 +566,15 @@ type Sub = {
   auto_update_hours: number
   auto_update: { enabled: boolean; days: number; hour: number }
   updated_at: string
+  dns_resolve?: string
+  rename?: any
 }
 
 const subs = ref<Sub[]>([])
 const loading = ref(false)
 const err = ref('')
 const busyId = ref<number | null>(null)
-const dlg = ref<{ id: number | null; name: string; urlsText: string; auEnabled: boolean; auDays: number; auHour: number } | null>(null)
+const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
 
@@ -259,45 +595,123 @@ async function load() {
   }
 }
 
+const DEFAULT_RENAME = () => ({
+  enabled: false, prefix: true, order: ['region', 'feature', 'seq'], seq_digits: 2,
+  regions: [], fallback: '其他', features: '', filter: '',
+})
+
 function openAdd() {
   dlgErr.value = ''
-  dlg.value = { id: null, name: '', urlsText: '', auEnabled: false, auDays: 1, auHour: 4 }
+  dlg.value = {
+    id: null, tab: 'sub', addMode: 'sub', name: '', urls: [''], nodeContent: '',
+    auEnabled: false, auDays: 1, auHour: 4, dnsResolve: 'auto', manualContent: '',
+    rename: DEFAULT_RENAME(),
+  }
 }
 
-function openEdit(s: Sub) {
+async function openEdit(s: Sub) {
   dlgErr.value = ''
   const au = s.auto_update || { enabled: false, days: 1, hour: 4 }
-  dlg.value = { id: s.id, name: s.name, urlsText: (s.urls || []).join('\n'), auEnabled: !!au.enabled, auDays: au.days || 1, auHour: au.hour ?? 4 }
+  // fetch full detail (rename, dns_resolve)
+  let detail: any = {}
+  try { detail = await obxGet(`/api/subscriptions/${s.id}`) } catch { /* keep list data */ }
+  const rn = detail.rename || s.rename || {}
+  dlg.value = {
+    id: s.id, tab: 'sub', addMode: 'sub', name: s.name,
+    urls: [...(detail.urls || s.urls || [''])],
+    nodeContent: '', auEnabled: !!au.enabled, auDays: au.days || 1, auHour: au.hour ?? 4,
+    dnsResolve: detail.dns_resolve || s.dns_resolve || 'auto', manualContent: '',
+    rename: {
+      enabled: !!rn.enabled, prefix: rn.prefix !== false,
+      order: [...(rn.order || ['region', 'feature', 'seq'])],
+      seq_digits: rn.seq_digits || 2,
+      regions: (rn.regions || []).map((r: any) => ({ ...r })),
+      fallback: rn.fallback || '其他', features: rn.features || '', filter: rn.filter || '',
+    },
+  }
+  nodeTab.value = 'ok'
+  subNodes.value = []
+  health.value = []
+}
+
+function slotName(slot: string) {
+  return { region: '地区', feature: '特征', seq: '序号' }[slot] || slot
+}
+function moveSlot(i: number, dir: number) {
+  const o = dlg.value.rename.order
+  const j = i + dir
+  if (j < 0 || j >= o.length) return
+  ;[o[i], o[j]] = [o[j], o[i]]
+  updatePreview()
+}
+async function resetRename() {
+  if (!confirm('重置为默认重命名规则吗？')) return
+  try {
+    const r = await obxPost<{ rename: any }>(`/api/subscriptions/${dlg.value.id}/reset-rename`, {})
+    dlg.value.rename = { ...r.rename, regions: [...(r.rename.regions || [])] }
+    updatePreview()
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '重置失败' }
+}
+const renamePreview = ref('')
+async function updatePreview() {
+  if (!dlg.value?.id) { renamePreview.value = ''; return }
+  try {
+    const r = await obxPost<{ preview: string }>(`/api/subscriptions/${dlg.value.id}/preview-rename`, { rename: dlg.value.rename })
+    renamePreview.value = r.preview || ''
+  } catch { renamePreview.value = '' }
 }
 
 async function save() {
   if (!dlg.value) return
-  const urls = dlg.value.urlsText.split('\n').map((u) => u.trim()).filter(Boolean)
-  if (!dlg.value.name.trim() || !urls.length) {
-    dlgErr.value = '名称和订阅链接不能为空'
-    return
-  }
+  if (!dlg.value.name.trim()) { dlgErr.value = '名称不能为空'; return }
   dlgBusy.value = true
   dlgErr.value = ''
   try {
     const au = { enabled: dlg.value.auEnabled, days: dlg.value.auDays, hour: dlg.value.auHour }
+    const rn = dlg.value.rename
+    const rename = {
+      enabled: rn.enabled, prefix: rn.prefix, order: rn.order, seq_digits: rn.seq_digits,
+      regions: rn.regions, fallback: rn.fallback, features: rn.features, filter: rn.filter,
+    }
     if (dlg.value.id) {
+      const urls = dlg.value.urls.map((u: string) => u.trim()).filter(Boolean)
       await obxPut(`/api/subscriptions/${dlg.value.id}`, {
-        name: dlg.value.name.trim(),
-        urls,
-        auto_update: au,
+        name: dlg.value.name.trim(), urls, auto_update: au,
+        dns_resolve: dlg.value.dnsResolve, rename,
+      })
+    } else if (dlg.value.addMode === 'sub') {
+      const urls = dlg.value.urls.map((u: string) => u.trim()).filter(Boolean)
+      if (!urls.length) { dlgErr.value = '订阅链接不能为空'; return }
+      await obxPost('/api/subscriptions', {
+        name: dlg.value.name.trim(), urls, auto_update: au,
+        dns_resolve: dlg.value.dnsResolve, rename,
       })
     } else {
-      await obxPost('/api/subscriptions', {
-        name: dlg.value.name.trim(),
-        urls,
-        auto_update: au,
+      if (!dlg.value.nodeContent.trim()) { dlgErr.value = '节点内容不能为空'; return }
+      await obxPost('/api/nodes', {
+        name: dlg.value.name.trim(), content: dlg.value.nodeContent.trim(),
       })
     }
     dlg.value = null
     await load()
   } catch (e) {
     dlgErr.value = e instanceof ObxApiError ? e.message : '保存失败'
+  } finally {
+    dlgBusy.value = false
+  }
+}
+
+async function doReimport() {
+  if (!dlg.value?.id || !dlg.value.manualContent.trim()) return
+  dlgBusy.value = true
+  dlgErr.value = ''
+  try {
+    await obxPost(`/api/subscriptions/${dlg.value.id}/reimport`, { content: dlg.value.manualContent })
+    dlg.value.manualContent = ''
+    await load()
+    await openNodeTab()
+  } catch (e) {
+    dlgErr.value = e instanceof ObxApiError ? e.message : '导入失败'
   } finally {
     dlgBusy.value = false
   }
@@ -333,6 +747,64 @@ async function remove(s: Sub) {
   } catch (e) {
     err.value = e instanceof ObxApiError ? e.message : '删除失败'
   }
+}
+
+// ---- 节点 tab ----
+const nodeTab = ref<'ok' | 'off'>('ok')
+const subNodes = ref<any[]>([])
+const health = ref<any[]>([])
+const testingAll = ref(false)
+const okNodes = computed(() => subNodes.value.filter((n) => !n.disabled))
+const offNodes = computed(() => subNodes.value.filter((n) => n.disabled))
+const shownNodes = computed(() => nodeTab.value === 'ok' ? okNodes.value : offNodes.value)
+
+async function openNodeTab() {
+  if (!dlg.value) return
+  dlg.value.tab = 'node'
+  if (!dlg.value.id) return
+  try {
+    const nodes = await obxGet<any[]>(`/api/subscriptions/${dlg.value.id}/nodes`)
+    subNodes.value = nodes.map((n) => ({ ...n, _editTag: n.custom_tag || n.tag }))
+    const h = await obxGet<any[]>('/api/health')
+    health.value = h
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '加载节点失败' }
+}
+function nodeLatency(tag: string) {
+  const h = health.value.find((x: any) => x.tag === tag)
+  return h ? `${h.latency_ms ?? h.latency ?? ''}ms` : '—'
+}
+async function saveNodeTag(n: any) {
+  try {
+    await obxPut(`/api/nodes/${n.id}`, { custom_tag: n._editTag.trim() || null })
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '改名失败' }
+}
+async function toggleNode(n: any) {
+  try {
+    await obxPut(`/api/nodes/${n.id}`, { disabled: !n.disabled })
+    n.disabled = !n.disabled
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '操作失败' }
+}
+async function testNode(n: any) {
+  try {
+    await obxPost('/api/health/check', { tag: n.tag })
+    health.value = await obxGet<any[]>('/api/health')
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '测速失败' }
+}
+async function testAllNodes() {
+  if (!dlg.value?.id) return
+  testingAll.value = true
+  try {
+    await obxPost('/api/health/check', { sub_id: dlg.value.id })
+    health.value = await obxGet<any[]>('/api/health')
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '测速失败' }
+  finally { testingAll.value = false }
+}
+async function resetNames() {
+  if (!confirm('恢复所有节点为重命名规则生成的默认名称？')) return
+  try {
+    await obxPost(`/api/subscriptions/${dlg.value.id}/reset-names`, {})
+    await openNodeTab()
+  } catch (e) { dlgErr.value = e instanceof ObxApiError ? e.message : '重置失败' }
 }
 
 // ---- 订阅分享 ----
