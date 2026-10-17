@@ -18,15 +18,22 @@ def export_backup(conn: sqlite3.Connection) -> dict:
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
 
+    # REA 26.4 #23: 导出绝不含面板密码（users 表不导出）；
+    # 同时过滤 settings 中的密钥类字段
+    _SENSITIVE_SETTINGS = {"clash_api_secret", "panel_password", "auth_secret"}
+    settings_rows = [r for r in rows("settings")
+                     if r.get("key") not in _SENSITIVE_SETTINGS]
+
+    tables = {}
+    for t in ("subscriptions", "nodes", "site_sets",
+              "rule_sets", "chains", "groups", "node_health"):
+        tables[t] = rows(t)
+    tables["settings"] = settings_rows
+
     return {
         "format": "openbox-oss-backup",
         "version": BACKUP_VERSION,
-        "tables": {
-            t: rows(t) for t in (
-                "subscriptions", "nodes", "site_sets", "settings",
-                "rule_sets", "chains", "groups", "node_health",
-            )
-        },
+        "tables": tables,
     }
 
 

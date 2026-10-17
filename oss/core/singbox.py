@@ -474,6 +474,15 @@ def build_route_rules(cfg: AppConfig,
         dns_server = ("fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
                       else "proxy-dns" if s.action == "proxy" else "direct-dns")
         dns_rules.append({**rule, "server": dns_server})
+    # REA 26.6 #14: QUIC 拦截默认开启，不影响直连
+    # 在站点集规则之后、兜底之前拦截 UDP/443，强制 QUIC 回落到 TCP。
+    # 直连的站点集已在前面匹配，不受影响。
+    if getattr(cfg, 'quic_block', True):
+        route_rules.append({
+            "network": "udp",
+            "port": 443,
+            "outbound": "block",
+        })
     return route_rules, dns_rules, group_names
 
 
