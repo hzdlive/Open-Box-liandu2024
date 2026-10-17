@@ -9,11 +9,14 @@ export async function ensureOpenBoxBackend() {
   try {
     const cfg = await obxGet<{ port: number; secret: string; listen: string }>('/api/openbox/clash-config')
     const port = String(cfg.port || 9090)
-    const host = window.location.hostname
-    // 清空所有旧配置，用面板下发的最新配置重建（彻底解决 localStorage 残留问题）
+    const host = window.location.hostname || '127.0.0.1'
+    const protocol = window.location.protocol === 'https:' ? 'https' : 'http'
+    // 清除 localStorage 旧数据，避免 useStorage 合并导致字段丢失
+    try { localStorage.removeItem('setup/api-list') } catch {}
+    try { localStorage.removeItem('setup/active-uuid') } catch {}
     const b = {
       type: 'clash',
-      protocol: window.location.protocol === 'https:' ? 'https' : 'http',
+      protocol,
       host,
       port,
       secondaryPath: '',
