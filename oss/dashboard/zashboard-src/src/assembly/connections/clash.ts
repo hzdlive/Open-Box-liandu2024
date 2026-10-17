@@ -69,13 +69,13 @@ export const fetchConnectionsAPI = () => {
   const close = () => { if (timer) clearInterval(timer) }
   onUnmounted(close)
 
-  const asClash = (c: Connection) => c as unknown as { download: number; upload: number }
-
   return {
     data,
     close,
   }
 }
+
+const asClash = (connection: Connection) => connection as unknown as ClashConnectionRawMessage & { download: number; upload: number }
 
 const getNetwork = (c: ClashConnectionRawMessage) => {
   const { destinationPort, sniffHost, network } = c.metadata
