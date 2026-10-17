@@ -135,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { obxGet, obxPost } from '../api'
 
 // 图标映射：原版的 icon 标识符 -> emoji
@@ -396,10 +396,19 @@ const filteredSubs = computed(() => {
   )
 })
 
+let refreshTimer: any = null
 onMounted(() => {
   loadPolicies()
   loadNodes()
   loadSubs()
+  // 每 10 秒刷新延迟数据
+  refreshTimer = setInterval(() => {
+    loadPolicies()
+    loadNodes()
+  }, 10000)
+})
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 

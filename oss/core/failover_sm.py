@@ -562,18 +562,23 @@ def run_round(state: FailoverState, api_base: str, secret: str) -> dict:
 
 def apply_switch(api_base: str, secret: str, group_tag: str,
                  target_tag: str) -> tuple[bool, str]:
-    """Apply a lane switch via Clash API (clientSwap hot path).
+    """Apply a lane switch via Clash API.
 
-    For failover groups rendered as urltest, we use the selector API
-    if available, otherwise the switch is implicit in the urltest.
-    Actually, since we render as urltest, the "switch" is achieved by
-    ensuring the target lane's members are preferred. For now, we
-    log the decision; the urltest will automatically pick healthy nodes.
+    Failover groups are rendered as selector (top-level), so we use
+    PUT /proxies/{group} to force the switch to the target lane.
+    This implements "primary preferred, switch on failure" semantics.
 
     Returns (ok, message).
     """
-    # The urltest outbound automatically selects the best member.
-    # Panel-side failover provides the intelligence (which lane),
-    # but the actual switching for urltest is automatic.
-    # We record the decision; no API call needed for urltest.
-    return True, f"failover decision recorded: {group_tag} -> {target_tag}"
+    try:
+        import urllib.request, urllib.parse, json
+        url = f"{api_base}/proxies/{urllib.parse.quote(group_tag)}"
+        data = json.dumps({"name": target_tag}).encode()
+        req = urllib.request.Request(url, data=data, method="PUT",
+                                     headers={"Content-Type": "application/json", **_auth_headers(secret)})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            if r.status in (200, 204):
+                return True, f"switched {group_tag} -> {target_tag}"
+            return False, f"API returned {r.status}"
+    except Exception as e:
+        return False, f"switch failed: {e}"

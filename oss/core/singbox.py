@@ -234,10 +234,12 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                                           "tolerance": g.tolerance_ms,
                                           "idle_timeout": g.idle_timeout})
                         all_members.append(lane_tag)
-                outbounds.append({"type": "urltest", "tag": g.name,
+                # 顶层用 selector（非 urltest），由面板故障转移状态机主动控制切换，
+                # 实现“主通道优先、故障才切备用”的严格语义。default 指向主用 lane。
+                _default_lane = all_members[0] if all_members else "direct"
+                outbounds.append({"type": "selector", "tag": g.name,
                                   "outbounds": all_members or ["direct"],
-                                  "tolerance": g.tolerance_ms,
-                                  **fo_kwargs})
+                                  "default": _default_lane})
             else:
                 outbounds.append({"type": "urltest", "tag": g.name,
                                   "outbounds": tags or ["direct"],
