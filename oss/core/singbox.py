@@ -512,6 +512,14 @@ def build_route_rules(cfg: AppConfig,
                     "port": 443,
                     "outbound": "block",
                 })
+            elif rule.get("rule_set"):
+                # 纯 rule_set 引用的站点集：QUIC 规则直接引用（对标原版规则 6）
+                route_rules.append({
+                    "rule_set": rule["rule_set"],
+                    "network": "udp",
+                    "port": 443,
+                    "outbound": "block",
+                })
         route_rules.append({**rule, "outbound": target})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
