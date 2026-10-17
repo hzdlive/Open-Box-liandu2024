@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import re
+import socket
 import time
 import urllib.request
 import urllib.error
@@ -48,6 +49,19 @@ REASON_ALL_FAILED = "all-failed"    # 所有通道均不可达
 REASON_HEALTHY = "healthy"          # 当前通道健康，保持
 # Backward compat alias
 REASON_PRIMARY_RESTORED = REASON_RESTORE
+
+# ---- Probe failure reasons (REA §26.4: 11 codes, must not be merged) ----
+FAIL_CLOSED = "closed"          # 连接已关闭
+FAIL_DNS = "dns"                # DNS 查找失败
+FAIL_ERROR = "error"            # 连接失败
+FAIL_INVALID = "invalid"        # 节点配置无效
+FAIL_NOT_FOUND = "notFound"     # 已不在订阅中
+FAIL_REFUSED = "refused"        # 连接被拒绝
+FAIL_STATUS = "status"          # 意外状态
+FAIL_TIMEOUT = "timeout"        # 超时
+FAIL_TLS = "tls"                # TLS 握手失败
+FAIL_UNREACHABLE = "unreachable"  # 网络不可达
+FAIL_UNSTABLE = "unstable"      # 时断时续
 
 
 def parse_expected_status(text: str) -> list[tuple[int, int]]:
@@ -285,11 +299,22 @@ def probe_lane(api_base: str, secret: str, lane: dict,
                 last = history[-1]
                 delay = last.get("delay", 0)
                 return {"ok": delay > 0, "latency_ms": delay,
-                        "reason": "" if delay > 0 else "no-response"}
+                        "reason": "" if delay > 0 else FAIL_TIMEOUT}
             # No history: trigger a delay test
             return _delay_test(api_base, secret, tag, timeout_ms)
-    except Exception as e:
-        return {"ok": False, "latency_ms": None, "reason": str(e)[:100]}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": False, "latency_ms": None, "reason": FAIL_NOT_FOUND}
+        return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
+    except urllib.error.URLError as e:
+        reason = str(e.reason) if hasattr(e, "reason") else str(e)
+        if "refused" in reason.lower():
+            return {"ok": False, "latency_ms": None, "reason": FAIL_REFUSED}
+        if "name" in reason.lower() or "dns" in reason.lower():
+            return {"ok": False, "latency_ms": None, "reason": FAIL_DNS}
+        return {"ok": False, "latency_ms": None, "reason": FAIL_UNREACHABLE}
+    except Exception:
+        return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
 
 
 def _delay_test(api_base: str, secret: str, tag: str,
@@ -304,9 +329,25 @@ def _delay_test(api_base: str, secret: str, tag: str,
             data = json.loads(r.read())
             delay = data.get("delay", 0)
             return {"ok": delay > 0, "latency_ms": delay,
-                    "reason": "" if delay > 0 else "timeout"}
-    except Exception as e:
-        return {"ok": False, "latency_ms": None, "reason": str(e)[:100]}
+                    "reason": "" if delay > 0 else FAIL_TIMEOUT}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": False, "latency_ms": None, "reason": FAIL_NOT_FOUND}
+        return {"ok": False, "latency_ms": None, "reason": FAIL_STATUS}
+    except socket.timeout:
+        return {"ok": False, "latency_ms": None, "reason": FAIL_TIMEOUT}
+    except urllib.error.URLError as e:
+        reason = str(e.reason) if hasattr(e, "reason") else str(e)
+        rl = reason.lower()
+        if "refused" in rl:
+            return {"ok": False, "latency_ms": None, "reason": FAIL_REFUSED}
+        if "tls" in rl or "ssl" in rl or "certificate" in rl:
+            return {"ok": False, "latency_ms": None, "reason": FAIL_TLS}
+        if "name" in rl or "dns" in rl:
+            return {"ok": False, "latency_ms": None, "reason": FAIL_DNS}
+        return {"ok": False, "latency_ms": None, "reason": FAIL_UNREACHABLE}
+    except Exception:
+        return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
 
 
 def _auth_headers(secret: str) -> dict:
