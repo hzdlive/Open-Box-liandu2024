@@ -624,7 +624,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def subshare_patch(sid: int):
         d = request.get_json(force=True, silent=True) or {}
         r = dbmod.update_sub_share(db(), sid, d.get("name"),
-                                   d.get("node_filter"))
+                                   d.get("node_filter"), d.get("enabled"))
         if r is None:
             return jsonify({"error": "not found"}), 404
         return jsonify(r)
@@ -648,7 +648,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         this route is outside /api/* so the auth gate skips it."""
         from core.share import encode_nodes
         share = dbmod.find_sub_share(db(), token)
-        if not share:
+        if not share or not share.get("enabled", True):
             return jsonify({"error": "not found"}), 404
         filt = {t.strip() for t in (share["node_filter"] or "").split(",") if t.strip()}
         nodes = dbmod.list_nodes(db())

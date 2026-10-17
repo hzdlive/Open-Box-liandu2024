@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS subscription_shares(
   name TEXT NOT NULL,
   token TEXT NOT NULL UNIQUE,
   node_filter TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS ob_subscription_shares(
@@ -401,6 +402,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     _migrate_chains_enabled(conn)
     _migrate_sub_position(conn)
     _migrate_share_params(conn)
+    _migrate_share_enabled(conn)
     # front_rules: add rtype/note columns for typed rules (8 types)
     frcols = {r[1] for r in conn.execute("PRAGMA table_info(front_rules)")}
     if "rtype" not in frcols:
@@ -1929,9 +1931,9 @@ def traffic_usage(conn: sqlite3.Connection) -> dict:
 # ---- subscription shares (public capability links) ----
 def list_sub_shares(conn: sqlite3.Connection) -> list[dict]:
     return [{"id": r[0], "name": r[1], "token": r[2], "node_filter": r[3],
-             "created_at": r[4]}
+             "enabled": bool(r[4]), "created_at": r[5]}
             for r in conn.execute(
-                "SELECT id, name, token, node_filter, created_at"
+                "SELECT id, name, token, node_filter, enabled, created_at"
                 " FROM subscription_shares ORDER BY id")]
 
 
@@ -1941,15 +1943,15 @@ def create_sub_share(conn: sqlite3.Connection, name: str,
     token = _secrets.token_urlsafe(24)
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     cur = conn.execute(
-        "INSERT INTO subscription_shares(name, token, node_filter, created_at)"
-        " VALUES (?, ?, ?, ?)", (name, token, node_filter or "", now))
+        "INSERT INTO subscription_shares(name, token, node_filter, enabled, created_at)"
+        " VALUES (?, ?, ?, 1, ?)", (name, token, node_filter or "", now))
     conn.commit()
     return {"id": cur.lastrowid, "name": name, "token": token,
-            "node_filter": node_filter or "", "created_at": now}
+            "node_filter": node_filter or "", "enabled": True, "created_at": now}
 
 
 def update_sub_share(conn: sqlite3.Connection, sid: int, name: str | None,
-                     node_filter: str | None) -> dict | None:
+                     node_filter: str | None, enabled: bool | None = None) -> dict | None:
     row = conn.execute("SELECT id FROM subscription_shares WHERE id=?",
                        (sid,)).fetchone()
     if not row:
@@ -1960,6 +1962,9 @@ def update_sub_share(conn: sqlite3.Connection, sid: int, name: str | None,
     if node_filter is not None:
         conn.execute("UPDATE subscription_shares SET node_filter=? WHERE id=?",
                      (node_filter, sid))
+    if enabled is not None:
+        conn.execute("UPDATE subscription_shares SET enabled=? WHERE id=?",
+                     (1 if enabled else 0, sid))
     conn.commit()
     return [s for s in list_sub_shares(conn) if s["id"] == sid][0]
 
@@ -1984,10 +1989,10 @@ def delete_sub_share(conn: sqlite3.Connection, sid: int) -> bool:
 
 def find_sub_share(conn: sqlite3.Connection, token: str) -> dict | None:
     r = conn.execute(
-        "SELECT id, name, token, node_filter, created_at"
+        "SELECT id, name, token, node_filter, enabled, created_at"
         " FROM subscription_shares WHERE token=?", (token,)).fetchone()
     return ({"id": r[0], "name": r[1], "token": r[2], "node_filter": r[3],
-             "created_at": r[4]} if r else None)
+             "enabled": bool(r[4]), "created_at": r[5]} if r else None)
 
 
 # -- share servers (1:1 original: profile.servers[]; LAN inbound proxies) ----
@@ -1999,6 +2004,12 @@ def _migrate_sub_position(conn: sqlite3.Connection):
     cols = [r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")]
     if "position" not in cols:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+
+
+def _migrate_share_enabled(conn: sqlite3.Connection):
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(subscription_shares)")]
+    if "enabled" not in cols:
+        conn.execute("ALTER TABLE subscription_shares ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
 
 
 def _migrate_share_params(conn: sqlite3.Connection):
