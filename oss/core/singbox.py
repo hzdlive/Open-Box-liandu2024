@@ -472,21 +472,22 @@ def build_route_rules(cfg: AppConfig,
             target = "block"
         else:
             target = flip_tag(s)  # hot-switch selector; default = action/flip state
+        # 每个代理站点集独立 QUIC 拦截（对标原版）：在主规则前拦截 UDP/443，
+        # 强制 QUIC 回落到 TCP。只对实际走代理的站点集生效（考虑 flip 状态）。
+        _effective = (s.flip or s.action or "").strip()
+        if getattr(cfg, 'quic_block', True) and _effective == "proxy":
+            quic_rule = dict(rule)
+            quic_rule["network"] = "udp"
+            quic_rule["port"] = 443
+            quic_rule["outbound"] = "block"
+            route_rules.append(quic_rule)
         route_rules.append({**rule, "outbound": target})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
         dns_server = ("fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
                       else "proxy-dns" if s.action == "proxy" else "direct-dns")
         dns_rules.append({**rule, "server": dns_server})
-    # REA 26.6 #14: QUIC 拦截默认开启，不影响直连
-    # 在站点集规则之后、兜底之前拦截 UDP/443，强制 QUIC 回落到 TCP。
-    # 直连的站点集已在前面匹配，不受影响。
-    if getattr(cfg, 'quic_block', True):
-        route_rules.append({
-            "network": "udp",
-            "port": 443,
-            "outbound": "block",
-        })
+    # QUIC 拦截已改为每个站点集独立生成（见下方循环内），不再全局拦截
     # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名
     _blocked = getattr(cfg, 'blocked_domains', []) or []
     if _blocked:
