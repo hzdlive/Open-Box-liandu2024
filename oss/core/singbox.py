@@ -159,6 +159,17 @@ def flip_tag(site_set) -> str:
     return f"flip-{key}"
 
 
+def obflip_tag(site_set) -> str:
+    """Rule-set tag for per-site-set QUIC blocking (1:1 with original).
+    Format: obflip-<sha256(id|name)[0:12]>
+    """
+    import hashlib
+    sid = str(getattr(site_set, 'sid', '') or '')
+    name = str(getattr(site_set, 'name', '') or '')
+    h = hashlib.sha256(f"{sid}|{name}".encode()).hexdigest()[:12]
+    return f"obflip-{h}"
+
+
 def flip_outbound(site_set, group_names: set[str]) -> dict | None:
     """A selector holding [primary, secondary] so the panel can flip a site
     set between direct and proxy at runtime via the clash API (no restart).
@@ -425,6 +436,9 @@ def build_route_rules(cfg: AppConfig,
     # Collect remote ruleset URLs (side effect for build_config declarations)
     if not hasattr(cfg, "_remote_rulesets"):
         cfg._remote_rulesets = {}
+    # Collect obflip inline rule_sets for per-site-set QUIC blocking (1:1 with original)
+    if not hasattr(cfg, "_obflip_rulesets"):
+        cfg._obflip_rulesets = {}
     for s in cfg.site_sets:
         rule: dict = {}
         if s.domains:
@@ -472,15 +486,35 @@ def build_route_rules(cfg: AppConfig,
             target = "block"
         else:
             target = flip_tag(s)  # hot-switch selector; default = action/flip state
-        # 每个代理站点集独立 QUIC 拦截（对标原版）：在主规则前拦截 UDP/443，
-        # 强制 QUIC 回落到 TCP。只对实际走代理的站点集生效（考虑 flip 状态）。
+        # 每个代理站点集独立 QUIC 拦截（对标原版 obflip 机制）：
+        # 生成 obflip-<hash> inline rule_set，主规则前用 rule_set + udp/443 拦截。
+        # 只对实际走代理的站点集生效（考虑 flip 状态）。
         _effective = (s.flip or s.action or "").strip()
         if getattr(cfg, 'quic_block', True) and _effective == "proxy":
-            quic_rule = dict(rule)
-            quic_rule["network"] = "udp"
-            quic_rule["port"] = 443
-            quic_rule["outbound"] = "block"
-            route_rules.append(quic_rule)
+            _ob_tag = obflip_tag(s)
+            # obflip rule_set 内容：站点集的匹配条件（用于 QUIC 拦截）
+            _ob_rules = []
+            if rule.get("domain"):
+                _ob_rules.append({"domain": rule["domain"]})
+            if rule.get("domain_suffix"):
+                _ob_rules.append({"domain_suffix": rule["domain_suffix"]})
+            if rule.get("domain_keyword"):
+                _ob_rules.append({"domain_keyword": rule["domain_keyword"]})
+            if rule.get("ip_cidr"):
+                _ob_rules.append({"ip_cidr": rule["ip_cidr"]})
+            if rule.get("rule_set"):
+                # 引用其他 rule_set 的条件也纳入
+                for _rs in rule["rule_set"]:
+                    _ob_rules.append({"rule_set": _rs})
+            if _ob_rules:
+                cfg._obflip_rulesets[_ob_tag] = _ob_rules
+                # QUIC 拦截规则：引用 obflip rule_set
+                route_rules.append({
+                    "rule_set": [_ob_tag],
+                    "network": "udp",
+                    "port": 443,
+                    "outbound": "block",
+                })
         route_rules.append({**rule, "outbound": target})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
@@ -703,6 +737,13 @@ def build_config(cfg: AppConfig,
                 "format": "binary",
                 "url": url,
             })
+    # Obflip inline rule_sets for per-site-set QUIC blocking (1:1 with original)
+    for tag, rules in getattr(cfg, "_obflip_rulesets", {}).items():
+        rule_set_decls.append({
+            "type": "inline",
+            "tag": tag,
+            "rules": rules,
+        })
 
     return {
         "log": {"level": "warn"},

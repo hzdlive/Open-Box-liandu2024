@@ -2822,6 +2822,18 @@ def create_app(db_path: str = ":memory:") -> Flask:
         target = "direct" if to == "direct" else rows[0]["group"]
         ok, detail = clashapi.switch_selector(tag, target)
         dbmod.set_site_set_flip(c, sid, to)
+        # Regenerate config so obflip/QUIC rules match the new flip state
+        # (takes effect on next kernel restart; hot selector handles immediate traffic)
+        try:
+            from core.singbox import build_config
+            cfg = dbmod.load_app_config(db())
+            new_cfg = build_config(cfg, set())
+            import os, json
+            workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            with open(os.path.join(workdir, "config.json"), "w") as f:
+                json.dump(new_cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
         return jsonify({"ok": True, "hot": ok, "detail": detail})
 
     # ---- component upgrade ----
