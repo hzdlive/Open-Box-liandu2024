@@ -1781,8 +1781,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 # 验收 #16：在中国大陆，代理 DNS 不得使用上游 DNS
                 if k == "proxy_dns" and "上游 DNS" in val:
                     region = d.get("region") or dbmod.get_setting(c, "dns_region", "auto")
-                    # auto 时按当前检测值判断，默认为 cn
-                    if region in ("cn", "auto"):
+                    # auto 时按检测值判断；未检测过默认为 cn（保守）
+                    if region == "auto":
+                        region = dbmod.get_setting(c, "dns_region_detected", "cn") or "cn"
+                    if region == "cn":
                         return jsonify({"error": "在中国大陆，代理 DNS 不能使用「上游 DNS」：大陆的 DNS 对境外域名有污染，走代理的域名必须经代理 DNS（如 TCP 1.1.1.1）查询，否则会被污染结果误导。"}), 400
                 dbmod.set_setting(c, skey, val)
         if "fakeip" in d:
@@ -2087,7 +2089,30 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def ob_dns_region_get():
         c = db()
         region = dbmod.get_setting(c, "dns_region", "auto")
-        return jsonify({"region": region, "pending": False})
+        detected = dbmod.get_setting(c, "dns_region_detected", "")
+        # REA 26.4: 全新安装/升级/恢复默认值时自动检测
+        # region=auto 且未检测过 -> 触发异步检测
+        if region == "auto" and not detected:
+            import threading
+            def _auto_detect():
+                try:
+                    import json as _json
+                    import urllib.request as _req
+                    req = _req.Request(
+                        "http://ip-api.com/json/?fields=status,countryCode,query",
+                        headers={"User-Agent": "openbox-oss/1.0"})
+                    with _req.urlopen(req, timeout=10) as r:
+                        data = _json.loads(r.read().decode())
+                    cc = (data.get("countryCode") or "").upper()
+                    detected_region = "cn" if cc == "CN" else "outside"
+                    c2 = db()
+                    dbmod.set_setting(c2, "dns_region_detected", detected_region)
+                    c2.commit()
+                except Exception:
+                    pass
+            threading.Thread(target=_auto_detect, daemon=True).start()
+            return jsonify({"region": region, "pending": True})
+        return jsonify({"region": detected if region == "auto" else region, "pending": False})
 
     @app.post("/api/openbox/dns/region-detect")
     def ob_dns_region_post():
