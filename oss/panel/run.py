@@ -20,4 +20,5 @@ if __name__ == "__main__":
         _t = threading.Thread(target=_traffic.watch_loop,
                               args=(db_path,), kwargs={"stop": _stop}, daemon=True)
         _t.start()
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8080")))
+    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8080")),
+            threaded=True)  # 避免单线程僵死：慢请求（订阅刷新/节点测速）不阻塞全站
