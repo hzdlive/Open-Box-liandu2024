@@ -1,10 +1,11 @@
-// Clash WS 后端的连接流、断连动作,以及「原始 Clash 连接数据 → view 字段」的访问器。
-import { createClashWebSocket, disconnectAllClashAPI, disconnectClashByIdAPI } from '@/api/clash'
+// Open-Box 二开：VPS 本机 Chrome 的 WebSocket 连不上 sing-box，改用轮询面板 /api/openbox/clash-connections。
+import { disconnectAllClashAPI, disconnectClashByIdAPI } from '@/api/clash'
 import { proxyMap } from '@/assembly/proxies'
 import { PROXY_TYPE } from '@/constant'
 import type { ClashConnectionRawMessage, Connection } from '@/types'
 import { head } from 'lodash'
-import { shallowRef, watch } from 'vue'
+import { shallowRef, onUnmounted } from 'vue'
+import { obxGet } from '@/openbox/api'
 import {
   createGetConnectionDisplayValue,
   createGetConnectionVisibleSearchValues,
@@ -16,62 +17,65 @@ export const disconnectByIdAPI = disconnectClashByIdAPI
 
 export const disconnectAllAPI = disconnectAllClashAPI
 
-// Clash WS 每拍推送活跃连接全量快照。瞬时速率与已关闭连接需与上一拍 diff 求得 —— 这是 clash
-// 协议固有的内部细节,在此完成,对外只暴露统一的 ConnectionsSnapshot。
+// 轮询版：每 2 秒拉取一次，与 WS 版相同的 diff 逻辑计算速率与已关闭连接。
 export const fetchConnectionsAPI = () => {
-  const ws = createClashWebSocket<{
-    connections: ClashConnectionRawMessage[]
-    downloadTotal: number
-    uploadTotal: number
-    memory: number
-  }>('connections')
-
   const data = shallowRef<ConnectionsSnapshot>()
   let previousMap = new Map<string, Connection>()
+  let timer: any = null
 
-  const unwatch = watch(ws.data, (raw) => {
-    if (!raw) return
+  const poll = async () => {
+    try {
+      const raw = await obxGet<{
+        connections: ClashConnectionRawMessage[]
+        downloadTotal: number
+        uploadTotal: number
+        memory: number
+      }>('/api/openbox/clash-connections')
+      if (!raw) return
 
-    const currentMap = new Map<string, Connection>()
-    const active = (raw.connections ?? []).map((conn) => {
-      const connection = conn as Connection
-      const pre = previousMap.get(connection.id)
+      const currentMap = new Map<string, Connection>()
+      const active = (raw.connections ?? []).map((conn) => {
+        const connection = conn as Connection
+        const pre = previousMap.get(connection.id)
 
-      if (!pre) {
-        connection.downloadSpeed = 0
-        connection.uploadSpeed = 0
-      } else {
-        connection.downloadSpeed = asClash(connection).download - asClash(pre).download
-        connection.uploadSpeed = asClash(connection).upload - asClash(pre).upload
+        if (!pre) {
+          connection.downloadSpeed = 0
+          connection.uploadSpeed = 0
+        } else {
+          connection.downloadSpeed = asClash(connection).download - asClash(pre).download
+          connection.uploadSpeed = asClash(connection).upload - asClash(pre).upload
+        }
+
+        previousMap.delete(connection.id)
+        currentMap.set(connection.id, connection)
+        return connection
+      })
+
+      const closed = Array.from(previousMap.values())
+      previousMap = currentMap
+
+      data.value = {
+        active,
+        closed,
+        downloadTotal: raw.downloadTotal,
+        uploadTotal: raw.uploadTotal,
+        memory: raw.memory,
       }
+    } catch {}
+  }
 
-      previousMap.delete(connection.id)
-      currentMap.set(connection.id, connection)
-      return connection
-    })
+  poll()
+  timer = setInterval(poll, 2000)
+  const close = () => { if (timer) clearInterval(timer) }
+  onUnmounted(close)
 
-    // 上一拍存在、这一拍消失的连接即新关闭。
-    const closed = Array.from(previousMap.values())
-    previousMap = currentMap
-
-    data.value = {
-      active,
-      closed,
-      downloadTotal: raw.downloadTotal,
-      uploadTotal: raw.uploadTotal,
-    }
-  })
+  const asClash = (c: Connection) => c as unknown as { download: number; upload: number }
 
   return {
     data,
-    close: () => {
-      unwatch()
-      ws.close()
-    },
+    close,
   }
 }
-
-const asClash = (connection: Connection) => connection as ClashConnectionRawMessage
 
 const getNetwork = (c: ClashConnectionRawMessage) => {
   const { destinationPort, sniffHost, network } = c.metadata

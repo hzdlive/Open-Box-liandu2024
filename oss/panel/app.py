@@ -2925,6 +2925,45 @@ def create_app(db_path: str = ":memory:") -> Flask:
             pass
         return jsonify({"proxies": data.get("proxies", {})})
 
+    @app.get("/api/openbox/clash-connections")
+    def openbox_clash_connections():
+        """连接页用：经后端转发 clash API 的 /connections 原始格式（绕过浏览器 WebSocket 问题）。"""
+        import urllib.request
+        cfg = dbmod.load_app_config(db())
+        port = cfg.clash_api_port or 9090
+        secret = cfg.clash_api_secret or ""
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/connections")
+            if secret:
+                req.add_header("Authorization", f"Bearer {secret}")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+            return jsonify(data)
+        except Exception as e:
+            return jsonify({"error": f"clash api failed: {e}", "connections": []}), 502
+
+    @app.get("/api/openbox/clash-logs")
+    def openbox_clash_logs():
+        """日志页用：经后端获取 clash 日志（轮询，绕过浏览器 WebSocket 问题）。"""
+        import urllib.request
+        from urllib.parse import urlencode
+        cfg = dbmod.load_app_config(db())
+        port = cfg.clash_api_port or 9090
+        secret = cfg.clash_api_secret or ""
+        level = request.args.get("level", "info")
+        try:
+            qs = urlencode({"level": level})
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/logs?{qs}")
+            if secret:
+                req.add_header("Authorization", f"Bearer {secret}")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                # /logs 是 SSE 流，取最近的若干行
+                text = r.read().decode('utf-8', errors='ignore')
+                lines = [l for l in text.split('\n') if l.strip()][:100]
+                return jsonify({"logs": lines})
+        except Exception as e:
+            return jsonify({"error": f"clash api failed: {e}", "logs": []}), 502
+
     @app.post("/api/openbox/clash-select")
     def openbox_clash_select():
         """代理页用：切换指定分组的当前节点。"""
