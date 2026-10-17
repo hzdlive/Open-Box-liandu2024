@@ -200,6 +200,7 @@
               <th>{{ $t('obx.domain') }}</th>
               <th>{{ $t('obx.type') }}</th>
               <th>{{ $t('obx.result') }}</th>
+              <th>缓存</th>
               <th>{{ $t('obx.device') }}</th>
               <th>{{ $t('obx.hitList') }}</th>
               <th>{{ $t('obx.latency') }}</th>
@@ -210,8 +211,9 @@
               <td class="font-mono text-xs">{{ q.time }}</td>
               <td class="font-mono text-xs">{{ q.domain }}</td>
               <td class="text-xs">{{ q.qtype }}</td>
-              <td><span class="badge badge-sm" :class="q.blocked ? 'badge-error' : 'badge-ghost'">{{ q.blocked ? $t('obx.blocked') : q.result }}</span></td>
-              <td class="text-xs">{{ q.device }}</td>
+              <td><span class="badge badge-sm" :class="q.blocked ? 'badge-error' : 'badge-ghost'">{{ q.blocked ? $t('obx.blocked') : (q.answer || q.result) }}</span></td>
+              <td class="text-xs"><span v-if="q.cached" class="badge badge-info badge-sm">命中</span><span v-else class="opacity-40">-</span></td>
+              <td class="text-xs">{{ q.hostname || q.device || q.client }}</td>
               <td class="text-xs">{{ q.list }}</td>
               <td class="text-xs">{{ q.latency }}</td>
             </tr>
@@ -577,7 +579,7 @@ async function delFilter(fl: any) {
 async function loadQueryLog() {
   try {
     const d = await obxGet<any>('/api/dns/query-log')
-    queryLog.value = d.logs || d.records || []
+    queryLog.value = d.queries || d.logs || d.records || []
   } catch { /* 忽略 */ }
 }
 
