@@ -103,7 +103,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { obxGet, obxPut } from '@/openbox/api'
+import { obxGet, obxPut, obxPost } from '@/openbox/api'
 
 const filters = ref<any[]>([])
 const loading = ref(false)
@@ -174,12 +174,17 @@ async function updateFromSnapshot() {
   if (!detailFilter.value || !editSnapshotUrl.value) return
   updating.value = true
   try {
-    // 后端暂不支持从 URL 拉取，此处仅保存 URL
-    // 实际拉取逻辑待后端实现
+    // 先保存 URL
     await obxPut(`/api/content-filters/${detailFilter.value.id}`, {
       snapshot_url: editSnapshotUrl.value,
     })
+    // 再从 URL 拉取
+    const r = await obxPost(`/api/content-filters/${detailFilter.value.id}/refresh`, {})
     detailFilter.value.snapshot_url = editSnapshotUrl.value
+    if (r.filter) {
+      detailFilter.value = r.filter
+      showDetail(r.filter)
+    }
     await loadFilters()
   } catch {} finally {
     updating.value = false

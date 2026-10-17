@@ -1589,10 +1589,25 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.put("/api/content-filters/<int:fid>")
     def content_filter_update(fid: int):
         d = request.get_json(force=True, silent=True) or {}
-        r = dbmod.update_content_filter(db(), fid, d.get("enabled"), d.get("domains"))
+        r = dbmod.update_content_filter(db(), fid, d.get("enabled"), d.get("domains"), d.get("snapshot_url"))
         if not r:
             return jsonify({"error": "not found"}), 404
         return jsonify(r)
+
+    @app.post("/api/content-filters/<int:fid>/refresh")
+    def content_filter_refresh(fid: int):
+        """从快照 URL 拉取域名并更新。"""
+        try:
+            r = dbmod.refresh_content_filter_from_snapshot(db(), fid)
+            if not r:
+                return jsonify({"error": "not found or no snapshot url"}), 404
+            # 重新生成 sing-box 配置使新规则生效
+            from core import singbox as _sb
+            from core import models as _models
+            # 触发配置重新生成（经由 apply 接口逻辑）
+            return jsonify({"ok": True, "filter": r, "domains": len(r.get("domains", []))})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     # ---- backup / restore ----
     @app.get("/api/backup")

@@ -2049,9 +2049,55 @@ def get_content_filter(conn: sqlite3.Connection, fid: int) -> dict | None:
             "updated_at": r[6]}
 
 
+def fetch_snapshot_domains(url: str, timeout: int = 30) -> list[str]:
+    """从快照 URL 拉取域名列表。支持纯文本（每行一个域名）、hosts 格式、AdBlock 格式。"""
+    import urllib.request
+    import re
+    req = urllib.request.Request(url, headers={'User-Agent': 'Open-Box/1.0'})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        text = r.read().decode('utf-8', errors='ignore')
+    domains = set()
+    for line in text.split('\n'):
+        line = line.strip()
+        if not line or line.startswith('#') or line.startswith('!'):
+            continue
+        # hosts 格式：0.0.0.0 domain 或 127.0.0.1 domain
+        m = re.match(r'^(?:0\.0\.0\.0|127\.0\.0\.1)\s+([^\s#]+)', line)
+        if m:
+            domains.add(m.group(1).lower())
+            continue
+        # AdBlock 格式：||domain^
+        m = re.match(r'^\|\|([^\^\s]+)\^?', line)
+        if m:
+            domains.add(m.group(1).lower())
+            continue
+        # 纯域名
+        if re.match(r'^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$', line, re.I):
+            # 排除 IP
+            if not re.match(r'^\d+\.\d+\.\d+\.\d+$', line):
+                domains.add(line.lower())
+    return sorted(domains)
+
+
+def refresh_content_filter_from_snapshot(conn: sqlite3.Connection, fid: int) -> dict | None:
+    """从快照 URL 拉取并更新域名。"""
+    import json as _json
+    import time as _time
+    row = conn.execute("SELECT snapshot_url FROM content_filters WHERE id=?", (fid,)).fetchone()
+    if not row or not row[0]:
+        return None
+    domains = fetch_snapshot_domains(row[0])
+    now = _time.strftime("%Y-%m-%dT%H:%M:%S")
+    conn.execute("UPDATE content_filters SET domains=?, updated_at=? WHERE id=?",
+                 (_json.dumps(domains), now, fid))
+    conn.commit()
+    return get_content_filter(conn, fid)
+
+
 def update_content_filter(conn: sqlite3.Connection, fid: int,
                           enabled: bool | None = None,
-                          domains: list | None = None) -> dict | None:
+                          domains: list | None = None,
+                          snapshot_url: str | None = None) -> dict | None:
     if not conn.execute("SELECT id FROM content_filters WHERE id=?", (fid,)).fetchone():
         return None
     import json as _json
@@ -2063,6 +2109,9 @@ def update_content_filter(conn: sqlite3.Connection, fid: int,
         now = _time.strftime("%Y-%m-%dT%H:%M:%S")
         conn.execute("UPDATE content_filters SET domains=?, updated_at=? WHERE id=?",
                      (_json.dumps(domains), now, fid))
+    if snapshot_url is not None:
+        conn.execute("UPDATE content_filters SET snapshot_url=? WHERE id=?",
+                     (snapshot_url, fid))
     conn.commit()
     return get_content_filter(conn, fid)
 
