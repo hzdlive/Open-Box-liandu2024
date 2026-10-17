@@ -585,7 +585,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         try:
             from core.health import check_nodes
             c = db()
-            sub = dbmod.get_subscription(c, sid)
+            sub = next((s for s in dbmod.list_subscriptions(c) if s["id"] == sid), None)
             if not sub:
                 return jsonify({"error": "not found"}), 404
             cfg = dbmod.load_app_config(c)
