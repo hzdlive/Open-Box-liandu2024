@@ -1574,6 +1574,26 @@ def create_app(db_path: str = ":memory:") -> Flask:
         img.save(buf, format="PNG")
         return app.response_class(buf.getvalue(), mimetype="image/png")
 
+    # ---- content filtering (0.1.328) ----
+    @app.get("/api/content-filters")
+    def content_filter_list():
+        return jsonify(dbmod.list_content_filters(db()))
+
+    @app.get("/api/content-filters/<int:fid>")
+    def content_filter_get(fid: int):
+        r = dbmod.get_content_filter(db(), fid)
+        if not r:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.put("/api/content-filters/<int:fid>")
+    def content_filter_update(fid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        r = dbmod.update_content_filter(db(), fid, d.get("enabled"), d.get("domains"))
+        if not r:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
     # ---- backup / restore ----
     @app.get("/api/backup")
     def backup_export():
