@@ -1,1 +1,0 @@
-import{T as e,w as t}from"./backend-DXMivYvq.js";import{a as n,i as r}from"./rules-CNC19pZP.js";var i=async()=>{let{data:i}=await e(),{data:a}=await t();n.value=i.rules.map(e=>{let t=e.proxy,n=t.startsWith(`route(`)?t.substring(6,t.length-1):t;return{...e,proxy:n}}),r.value=Object.values(a.providers)};export{i as fetchRules};

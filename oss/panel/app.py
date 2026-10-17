@@ -2824,6 +2824,57 @@ def create_app(db_path: str = ":memory:") -> Flask:
                         "secret": cfg.clash_api_secret,
                         "listen": cfg.clash_api_listen})
 
+    @app.get("/api/openbox/clash-proxies")
+    def openbox_clash_proxies():
+        """代理页用：经后端转发 clash API 的 /proxies，附带延迟与存活信息。"""
+        import urllib.request
+        cfg = dbmod.load_app_config(db())
+        port = cfg.clash_api_port or 9090
+        secret = cfg.clash_api_secret or ""
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/proxies")
+            if secret:
+                req.add_header("Authorization", f"Bearer {secret}")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+        except Exception as e:
+            return jsonify({"error": f"clash api failed: {e}"}), 502
+        # 取延迟信息
+        delays = {}
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{port}/proxies")
+            if secret:
+                req.add_header("Authorization", f"Bearer {secret}")
+            # 用 /proxies 的 history 或单独查延迟
+        except Exception:
+            pass
+        return jsonify({"proxies": data.get("proxies", {})})
+
+    @app.post("/api/openbox/clash-select")
+    def openbox_clash_select():
+        """代理页用：切换指定分组的当前节点。"""
+        import urllib.request
+        d = request.get_json(force=True) or {}
+        group, name = d.get("group"), d.get("name")
+        if not group or not name:
+            return jsonify({"error": "group and name required"}), 400
+        cfg = dbmod.load_app_config(db())
+        port = cfg.clash_api_port or 9090
+        secret = cfg.clash_api_secret or ""
+        try:
+            payload = json.dumps({"name": name}).encode()
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/proxies/{urllib.parse.quote(group)}",
+                data=payload, method="PUT",
+                headers={"Content-Type": "application/json"})
+            if secret:
+                req.add_header("Authorization", f"Bearer {secret}")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                r.read()
+        except Exception as e:
+            return jsonify({"error": f"select failed: {e}"}), 502
+        return jsonify({"ok": True})
+
     # ---- legacy frontend (pre-zashboard UI, kept as fallback) ----
     @app.get("/legacy", defaults={"path": ""})
     @app.get("/legacy/<path:path>")

@@ -1,0 +1,1 @@
+import{N as e,j as t}from"./backend-ok-QDslS.js";import{t as n}from"./config-BGg_jjRM.js";var r=async()=>{n.value=(await t()).data},i=async t=>{await e(t),r()};export{r as fetchConfigs,i as updateConfigs};
