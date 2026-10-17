@@ -228,20 +228,53 @@ async function loadPolicies() {
   }
 }
 
-// 加载节点组（从 clash API）
+// 加载节点组（从 clash API）：故障转移组做归集，lane 子组不单独显示
 async function loadNodes() {
   try {
     // 经后端代理获取 clash proxies
-    const data = await obxGet<any>('/api/openbox/clash-proxies')
-    const proxies = data.proxies || {}
+    const [clashData, groupsData] = await Promise.all([
+      obxGet<any>('/api/openbox/clash-proxies'),
+      obxGet<any>('/api/groups').catch(() => []),
+    ])
+    const proxies = clashData.proxies || {}
+    const dbGroups = Array.isArray(groupsData) ? groupsData : (groupsData.groups || [])
+    // 找出故障转移组
+    const failoverNames = new Set(
+      dbGroups.filter((g: any) => g.type === 'failover').map((g: any) => g.name)
+    )
     const groups: any[] = []
+    // 先收集 lane 子组
+    const laneMap: Record<string, any[]> = {}
     for (const [name, info] of Object.entries(proxies as Record<string, any>)) {
-      // 跳过内部 flip 选择器
+      if (name.includes('#')) {
+        const [parent] = name.split('#')
+        if (!laneMap[parent]) laneMap[parent] = []
+        laneMap[parent].push({ name, info })
+      }
+    }
+    for (const [name, info] of Object.entries(proxies as Record<string, any>)) {
+      // 跳过内部 flip 选择器和 lane 子组
       if (name.startsWith('flip-') || name.startsWith('obflip-')) continue
+      if (name.includes('#')) continue
       if (info.type === 'Selector' || info.type === 'URLTest') {
+        const isFailover = failoverNames.has(name)
+        const lanes = (laneMap[name] || []).map(({ name: laneTag, info: laneInfo }: any) => {
+          const laneName = laneTag.split('#')[1]
+          return {
+            name: laneName,
+            tag: laneTag,
+            alive: 0,
+            total: (laneInfo.all || []).length,
+            members: (laneInfo.all || []).map((m: string) => {
+              const p = proxies[m] || {}
+              return { name: m, protocol: p.type || '', latency: p.latency || '', selected: laneInfo.now === m }
+            }),
+            now: laneInfo.now || '',
+          }
+        })
         groups.push({
           name,
-          typeLabel: info.type === 'URLTest' ? 'URLTest' : 'Selector',
+          typeLabel: isFailover ? '故障转移' : (info.type === 'URLTest' ? 'URLTest' : 'Selector'),
           alive: info.alive || 0,
           total: (info.all || []).length,
           latency: info.latency || '',
@@ -249,9 +282,12 @@ async function loadNodes() {
           interval: info.interval || 300,
           tolerance: info.tolerance || 100,
           dots: info.dots || [],
-          members: (info.all || []).map((m: string) => ({ name: m, protocol: '', latency: '' })),
-          isFailover: info.isFailover || false,
-          lanes: info.lanes || [],
+          members: (info.all || []).map((m: string) => {
+            const p = proxies[m] || {}
+            return { name: m, protocol: p.type || '', latency: p.latency || '' }
+          }),
+          isFailover,
+          lanes,
           switchHistory: info.switchHistory || '',
         })
       }
