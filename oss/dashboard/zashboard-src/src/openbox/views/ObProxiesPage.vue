@@ -21,7 +21,7 @@
     <div v-if="activeTab === 'policy'" class="ob-cards">
       <div v-for="site in filteredPolicies" :key="site.id" class="ob-card">
         <div class="ob-card-head" @click="toggleExpand('policy', site.id)">
-          <div class="ob-card-icon">{{ site.icon || '🌐' }}</div>
+          <div class="ob-card-icon">{{ mapIcon(site.icon, site.name) }}</div>
           <div class="ob-card-title">
             <span class="ob-card-name">{{ site.name }}</span>
             <span class="ob-card-badge">域名穿透</span>
@@ -138,6 +138,43 @@
 import { ref, computed, onMounted } from 'vue'
 import { obxGet, obxPost } from '../api'
 
+// 图标映射：原版的 icon 标识符 -> emoji
+function mapIcon(iconId: string | undefined, name: string): string {
+  if (!iconId) {
+    // 按名称猜
+    const n = name.toLowerCase()
+    if (n.includes('youtube')) return '▶️'
+    if (n.includes('tiktok')) return '🎵'
+    if (n.includes('netflix')) return '🎬'
+    if (n.includes('github')) return '🐙'
+    if (n.includes('google')) return '🔍'
+    if (n.includes('apple')) return '🍎'
+    if (n.includes('microsoft')) return '🪟'
+    if (n.includes('ai') || n.includes('openai')) return '🤖'
+    if (n.includes('game')) return '🎮'
+    if (n.includes('speed')) return '⏱️'
+    return '🌐'
+  }
+  // brand:xxx / misc:xxx 格式
+  const parts = iconId.split(':')
+  const key = parts[1] || ''
+  const iconMap: Record<string, string> = {
+    'stopwatch': '⏱️',
+    'openai-light': '🤖',
+    'youtube': '▶️',
+    'tiktok': '🎵',
+    'netflix-mono': '🎬',
+    'github-mono': '🐙',
+    'google': '🔍',
+    'apple': '🍎',
+    'microsoft': '🪟',
+    'game': '🎮',
+    'globe': '🌐',
+    'shield': '🛡️',
+  }
+  return iconMap[key] || '🌐'
+}
+
 // Tab 定义
 const tabs = [
   { key: 'policy', label: '策略', count: ref(0) },
@@ -153,24 +190,38 @@ const policies = ref<any[]>([])
 const nodes = ref<any[]>([])
 const subs = ref<any[]>([])
 
-// 加载策略（站点集）
+// 加载策略（站点集）：合并 sitesets 数据与 clash flip 选择器状态
 async function loadPolicies() {
   try {
-    const data = await obxGet<any>('/api/sitesets')
-    const list = data.sitesets || data || []
-    policies.value = list.map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      icon: s.icon,
-      matched: s.matched || 0,
-      total: s.total || 0,
-      latency: s.latency || 68,
-      currentGroup: s.group || '所有-自动',
-      currentNode: s.currentNode || '',
-      dots: s.dots || [],
-      options: s.options || [],
-      selected: s.selected || '',
-    }))
+    const [sitesData, clashData] = await Promise.all([
+      obxGet<any>('/api/sitesets'),
+      obxGet<any>('/api/openbox/clash-proxies').catch(() => ({ proxies: {} })),
+    ])
+    const list = Array.isArray(sitesData) ? sitesData : (sitesData.sitesets || [])
+    const proxies = clashData.proxies || {}
+    policies.value = list.map((s: any, idx: number) => {
+      // flip 选择器 tag: flip-<id> 或 flip-<name>
+      const flipTag = `flip-${s.id}`
+      const flipInfo = proxies[flipTag] || {}
+      const all = flipInfo.all || []
+      return {
+        id: s.id,
+        name: s.name,
+        icon: s.icon,
+        matched: all.length || 0,
+        total: all.length || 0,
+        latency: flipInfo.latency || 68,
+        currentGroup: s.group || '所有-自动',
+        currentNode: flipInfo.now || '',
+        dots: [],
+        options: all.map((name: string) => {
+          const p = proxies[name] || {}
+          return { name, type: p.type || 'selector', latency: p.latency || '', icon: '🎯' }
+        }),
+        selected: flipInfo.now || '',
+        flipTag,
+      }
+    })
     tabs[0].count.value = policies.value.length
   } catch (e) {
     console.error('load policies failed', e)
@@ -216,16 +267,28 @@ async function loadNodes() {
 async function loadSubs() {
   try {
     const data = await obxGet<any>('/api/subscriptions')
-    const list = data.subscriptions || data || []
-    subs.value = list.map((s: any) => ({
-      id: s.id,
-      name: s.name,
-      alive: s.alive || 0,
-      total: s.total || 0,
-      updated: s.updated || '',
-      traffic: s.traffic || '',
-      dots: s.dots || [],
-      nodes: s.nodes || [],
+    const list = Array.isArray(data) ? data : (data.subscriptions || [])
+    // 并行获取每个订阅的节点
+    subs.value = await Promise.all(list.map(async (s: any) => {
+      let nodes: any[] = []
+      try {
+        const nd = await obxGet<any>(`/api/subscriptions/${s.id}/nodes`)
+        nodes = Array.isArray(nd) ? nd : (nd.nodes || [])
+      } catch {}
+      return {
+        id: s.id,
+        name: s.name,
+        alive: s.node_count || 0,
+        total: s.node_total || s.node_count || 0,
+        updated: s.updated_at ? new Date(s.updated_at).toLocaleString('zh-CN') : '',
+        traffic: s.userinfo || '',
+        dots: [],
+        nodes: nodes.map((n: any) => ({
+          name: n.tag || n.name,
+          protocol: n.protocol || n.type || '',
+          latency: n.latency || '',
+        })),
+      }
     }))
     tabs[2].count.value = subs.value.length
   } catch (e) {
@@ -306,66 +369,79 @@ onMounted(() => {
 
 <style scoped>
 .ob-proxies { padding: 12px; }
-.ob-tabs { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.ob-tabs { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
 .ob-tab {
-  padding: 6px 16px; border-radius: 20px; border: 1px solid #ddd;
-  background: #fff; cursor: pointer; font-size: 14px;
+  padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 14px;
+  border: 1px solid var(--ob-border, #e5e7eb);
+  background: var(--ob-bg, #ffffff);
+  color: var(--ob-text, #374151);
+  transition: all 0.2s;
 }
-.ob-tab.active { background: #4caf50; color: #fff; border-color: #4caf50; }
+.ob-tab.active { background: #22c55e; color: #fff; border-color: #22c55e; }
 .ob-search { margin-left: auto; position: relative; }
 .ob-search input {
-  padding: 6px 12px; border-radius: 20px; border: 1px solid #ddd;
-  width: 280px; font-size: 13px;
+  padding: 6px 12px; border-radius: 20px; font-size: 13px; width: 280px;
+  border: 1px solid var(--ob-border, #e5e7eb);
+  background: var(--ob-bg, #ffffff);
+  color: var(--ob-text, #374151);
 }
-.ob-search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; }
+.ob-search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #9ca3af; }
 .ob-cards { display: flex; flex-direction: column; gap: 12px; }
 .ob-card {
-  background: #fff; border-radius: 12px; padding: 16px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-radius: 12px; padding: 16px;
+  background: var(--ob-bg, #ffffff);
+  border: 1px solid var(--ob-border, #f3f4f6);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 .ob-card-head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
-.ob-card-icon { font-size: 32px; }
-.ob-card-title { flex: 1; display: flex; align-items: center; gap: 8px; }
-.ob-card-name { font-size: 16px; font-weight: 600; }
+.ob-card-icon { font-size: 32px; line-height: 1; }
+.ob-card-title { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ob-card-name { font-size: 16px; font-weight: 600; color: var(--ob-text, #111827); }
 .ob-card-badge {
-  font-size: 12px; background: #e8f5e9; color: #4caf50;
-  padding: 2px 8px; border-radius: 10px;
+  font-size: 12px; padding: 2px 8px; border-radius: 10px;
+  background: #dcfce7; color: #16a34a;
 }
-.ob-card-type { font-size: 13px; color: #999; }
+.ob-card-type { font-size: 13px; color: #9ca3af; }
 .ob-card-latency {
-  background: #e8f5e9; color: #4caf50; padding: 4px 12px;
-  border-radius: 12px; font-size: 13px; font-weight: 600;
+  padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
+  background: #dcfce7; color: #16a34a;
 }
-.ob-card-chain { margin-top: 8px; font-size: 13px; color: #666; }
-.ob-card-sub { margin-top: 4px; font-size: 13px; color: #666; }
-.ob-card-meta { margin-top: 4px; font-size: 12px; color: #999; text-align: right; }
+.ob-card-chain { margin-top: 8px; font-size: 13px; color: var(--ob-text2, #4b5563); }
+.ob-card-sub { margin-top: 4px; font-size: 13px; color: var(--ob-text2, #4b5563); }
+.ob-card-meta { margin-top: 4px; font-size: 12px; color: #9ca3af; text-align: right; }
 .ob-card-dots { margin-top: 8px; display: flex; gap: 6px; }
-.ob-dot { width: 12px; height: 12px; border-radius: 50%; background: #ddd; }
-.ob-dot.ok { background: #4caf50; }
-.ob-dot.warn { background: #ffeb3b; }
-.ob-dot.err { background: #f44336; }
+.ob-dot { width: 12px; height: 12px; border-radius: 50%; background: #d1d5db; }
+.ob-dot.ok { background: #22c55e; }
+.ob-dot.warn { background: #facc15; }
+.ob-dot.err { background: #ef4444; }
 .ob-card-actions { display: flex; gap: 8px; }
 .ob-card-actions button {
-  border: none; background: none; cursor: pointer; font-size: 18px;
+  border: none; background: none; cursor: pointer; font-size: 18px; color: #9ca3af;
 }
+.ob-card-actions button:hover { color: #4b5563; }
 .ob-options {
-  margin-top: 12px; display: grid;
+  margin-top: 12px; display: grid; gap: 8px;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
 }
 .ob-option {
-  border: 1px solid #eee; border-radius: 8px; padding: 10px;
+  border: 1px solid var(--ob-border, #e5e7eb); border-radius: 8px; padding: 10px;
   cursor: pointer; transition: all 0.2s;
+  background: var(--ob-bg, #ffffff);
 }
-.ob-option:hover { border-color: #4caf50; }
-.ob-option.selected { background: #4caf50; color: #fff; }
-.ob-option.selected .ob-option-meta { color: rgba(255,255,255,0.8); }
+.ob-option:hover { border-color: #22c55e; }
+.ob-option.selected { background: #22c55e; color: #fff; border-color: #22c55e; }
 .ob-option-name { font-size: 14px; font-weight: 500; }
-.ob-option-meta { font-size: 12px; color: #999; margin-top: 4px; }
-.ob-lat { background: #e8f5e9; color: #4caf50; padding: 1px 8px; border-radius: 8px; }
+.ob-option-meta { font-size: 12px; color: #9ca3af; margin-top: 4px; }
+.ob-option.selected .ob-option-meta { color: rgba(255,255,255,0.8); }
+.ob-lat { background: #dcfce7; color: #16a34a; padding: 1px 8px; border-radius: 8px; font-size: 12px; }
 .ob-option.selected .ob-lat { background: rgba(255,255,255,0.2); color: #fff; }
 .ob-lanes { margin-top: 12px; }
 .ob-lane { margin-bottom: 12px; }
-.ob-lane-head { font-size: 14px; font-weight: 600; margin-bottom: 8px; }
-.ob-history { font-size: 12px; color: #999; margin-top: 8px; }
+.ob-lane-head { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--ob-text, #374151); }
+.ob-history { font-size: 12px; color: #9ca3af; margin-top: 8px; }
+/* 深色模式 */
+.dark .ob-tab { --ob-border: #374151; --ob-bg: #1f2937; --ob-text: #e5e7eb; }
+.dark .ob-card { --ob-bg: #1f2937; --ob-border: #374151; --ob-text: #f9fafb; --ob-text2: #d1d5db; }
+.dark .ob-option { --ob-border: #374151; --ob-bg: #1f2937; }
+.dark .ob-search input { --ob-border: #374151; --ob-bg: #1f2937; --ob-text: #e5e7eb; }
 </style>
