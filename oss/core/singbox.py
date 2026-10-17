@@ -258,6 +258,8 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
     outbounds += [
         {"type": "direct", "tag": "direct"},
         {"type": "block", "tag": "block"},
+        # REA 27.4: __fo:reject 为故障转移 reject 回退（all-failed 时切换到此）
+        {"type": "block", "tag": "__fo:reject"},
     ]
     # Hot-switch selectors, one per proxy/direct site set (see flip_outbound).
     group_names = {g.name for g in groups}

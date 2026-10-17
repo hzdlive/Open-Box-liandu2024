@@ -253,8 +253,8 @@ async function loadNodes() {
       }
     }
     for (const [name, info] of Object.entries(proxies as Record<string, any>)) {
-      // 跳过内部 flip 选择器和 lane 子组
-      if (name.startsWith('flip-') || name.startsWith('obflip-')) continue
+      // 跳过内部 flip 选择器、lane 子组和 __fo: 故障转移内部出站
+      if (name.startsWith('flip-') || name.startsWith('obflip-') || name.startsWith('__fo:')) continue
       if (name.includes('#')) continue
       if (info.type === 'Selector' || info.type === 'URLTest') {
         const isFailover = failoverNames.has(name)
