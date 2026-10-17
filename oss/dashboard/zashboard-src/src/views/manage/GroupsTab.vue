@@ -612,7 +612,7 @@ const dlgErr = ref('')
 const dlgBusy = ref(false)
 
 // 双栏选择器状态
-const allTags = ref<{ tag: string; kind: string; sub?: string }[]>([])
+const allTags = ref<{ tag: string; kind: string; kcode: string; sub?: string }[]>([])
 const availFilter = ref('')
 const availSubFilter = ref('')  // 订阅下拉筛选（1:1 原版）
 const subOptions = ref<{ id: string; name: string }[]>([])
@@ -688,8 +688,8 @@ const availList = computed(() => {
     if (f && !x.tag.toLowerCase().includes(f)) return false
     if (sub) {
       // 链式代理归为一类；否则按订阅名匹配
-      if (sub === '__chain__') return x.kind === 'chain'
-      if (x.kind === 'chain') return false
+      if (sub === '__chain__') return x.kcode === 'chain'
+      if (x.kcode === 'chain') return false
       return (x.sub || '') === sub
     }
     return true
@@ -766,11 +766,12 @@ async function loadTags() {
       ...nodes.map((n: any) => ({
         tag: n.tag || n.name,
         kind: t('obx.node'),
+        kcode: 'node',
         sub: n.sub_id != null ? (subMap.get(n.sub_id) || '') : '',
       })),
-      ...(Array.isArray(chains) ? chains.map((c: any) => ({ tag: c.name, kind: t('obx.chain') })) : []),
-      { tag: '直连', kind: t('obx.group') },
-      { tag: '拒绝', kind: t('obx.group') },
+      ...(Array.isArray(chains) ? chains.map((c: any) => ({ tag: c.name, kind: t('obx.chain'), kcode: 'chain' })) : []),
+      { tag: '直连', kind: t('obx.group'), kcode: 'group' },
+      { tag: '拒绝', kind: t('obx.group'), kcode: 'group' },
     ]
   } catch { allTags.value = [] }
 }
