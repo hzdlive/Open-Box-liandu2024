@@ -255,11 +255,27 @@ def parse_singbox_json(text: str) -> list[Node]:
     return nodes
 
 
+# 订阅信息节点（非真实节点）的名称特征，1:1 过滤
+# 订阅商常把流量/到期信息做成假节点，名称如"剩余流量：1012.99 GB"
+_INFO_NODE_PATTERNS = (
+    "剩余流量", "距离下次重置", "套餐到期", "流量", "到期时间",
+    "剩余", "已用流量", "总流量",
+)
+
+
+def is_info_node(name: str) -> bool:
+    """Check if a node name is subscription metadata, not a real node."""
+    if not name:
+        return False
+    return any(p in name for p in _INFO_NODE_PATTERNS)
+
+
 def parse_subscription(text: str) -> list[Node]:
     """Parse subscription text into a list of Nodes. Unknown lines are skipped."""
     # sing-box JSON 配置
     if looks_like_singbox_json(text):
-        return parse_singbox_json(text)
+        nodes = parse_singbox_json(text)
+        return [n for n in nodes if not is_info_node(getattr(n, "tag", ""))]
     nodes: list[Node] = []
     seen: set = set()
     for raw in _maybe_b64_body(text).splitlines():
@@ -281,5 +297,8 @@ def parse_subscription(text: str) -> list[Node]:
         except Exception:
             node = None
         if node and node.server and node.server_port:
+            # 过滤订阅信息假节点
+            if is_info_node(getattr(node, "tag", "")):
+                continue
             nodes.append(node)
     return nodes
