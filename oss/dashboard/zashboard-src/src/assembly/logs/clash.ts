@@ -1,22 +1,42 @@
-// Clash WS 后端的日志订阅。WS 每条消息即一条 { type, payload } 日志,逐条产出。
-import { createClashWebSocket } from '@/api/clash'
+// Open-Box 二开：VPS 本机 Chrome 的 WebSocket 连不上 sing-box，改用轮询面板 /api/openbox/clash-logs。
 import type { Log } from '@/types'
-import { watch } from 'vue'
+import { obxGet } from '@/openbox/api'
+import { onUnmounted } from 'vue'
 import type { LogsSubscription } from './types'
 
 export const subscribeLogs = (
   params: Record<string, string>,
   onBatch: (batch: Log[]) => void,
 ): LogsSubscription => {
-  const ws = createClashWebSocket<Log>('logs', params)
-  const stop = watch(ws.data, (data) => {
-    if (data) onBatch([data])
-  })
+  let timer: any = null
+  let seen = new Set<string>()
 
-  return {
-    close: () => {
-      stop()
-      ws.close()
-    },
+  const poll = async () => {
+    try {
+      const r = await obxGet<{ logs: Log[] }>('/api/openbox/clash-logs', {
+        params: { level: params.level || 'info' },
+      } as any)
+      const logs = r.logs || []
+      // 只推送新日志
+      const fresh = logs.filter((l: Log) => {
+        const key = `${l.type}:${l.payload}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      if (fresh.length) onBatch(fresh)
+      // 限制 seen 大小
+      if (seen.size > 1000) {
+        const arr = Array.from(seen)
+        seen = new Set(arr.slice(-500))
+      }
+    } catch {}
   }
+
+  poll()
+  timer = setInterval(poll, 3000)
+  const close = () => { if (timer) clearInterval(timer) }
+  onUnmounted(close)
+
+  return { close }
 }

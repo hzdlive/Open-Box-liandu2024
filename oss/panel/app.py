@@ -2944,25 +2944,24 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/openbox/clash-logs")
     def openbox_clash_logs():
-        """日志页用：经后端获取 clash 日志（轮询，绕过浏览器 WebSocket 问题）。"""
-        import urllib.request
-        from urllib.parse import urlencode
-        cfg = dbmod.load_app_config(db())
-        port = cfg.clash_api_port or 9090
-        secret = cfg.clash_api_secret or ""
+        """日志页用：从 systemd journal 读取 sing-box 日志（轮询，绕过浏览器 WebSocket 问题）。"""
+        import subprocess
         level = request.args.get("level", "info")
         try:
-            qs = urlencode({"level": level})
-            req = urllib.request.Request(f"http://127.0.0.1:{port}/logs?{qs}")
-            if secret:
-                req.add_header("Authorization", f"Bearer {secret}")
-            with urllib.request.urlopen(req, timeout=10) as r:
-                # /logs 是 SSE 流，取最近的若干行
-                text = r.read().decode('utf-8', errors='ignore')
-                lines = [l for l in text.split('\n') if l.strip()][:100]
-                return jsonify({"logs": lines})
+            # 取最近 100 行 sing-box 日志
+            result = subprocess.run(
+                ["journalctl", "-u", "openbox-zashboard-panel.service", "-n", "100", "--no-pager", "-o", "short"],
+                capture_output=True, text=True, timeout=5
+            )
+            lines = []
+            for line in result.stdout.split('\n'):
+                line = line.strip()
+                if line and 'sing-box' in line.lower():
+                    # 解析为前端期望的格式 {type, payload}
+                    lines.append({"type": "info", "payload": line[-200:]})
+            return jsonify({"logs": lines[-50:]})
         except Exception as e:
-            return jsonify({"error": f"clash api failed: {e}", "logs": []}), 502
+            return jsonify({"error": str(e), "logs": []}), 502
 
     @app.post("/api/openbox/clash-select")
     def openbox_clash_select():
