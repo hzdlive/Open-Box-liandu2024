@@ -483,6 +483,13 @@ def build_route_rules(cfg: AppConfig,
             "port": 443,
             "outbound": "block",
         })
+    # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名
+    _blocked = getattr(cfg, 'blocked_domains', []) or []
+    if _blocked:
+        route_rules.append({
+            "domain_suffix": _blocked,
+            "outbound": "block",
+        })
     return route_rules, dns_rules, group_names
 
 

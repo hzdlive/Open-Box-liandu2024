@@ -86,6 +86,16 @@ CREATE TABLE IF NOT EXISTS rule_sets(
   content TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT ''
 );
+-- Content filtering (0.1.328): offline snapshot rulesets for ad/tracker/malware blocking
+CREATE TABLE IF NOT EXISTS content_filters(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT NOT NULL DEFAULT '',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  snapshot_url TEXT NOT NULL DEFAULT '',
+  domains TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
 -- Front custom routing: domain patterns evaluated BEFORE all site sets.
 CREATE TABLE IF NOT EXISTS front_rules(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -403,6 +413,16 @@ def init_db(conn: sqlite3.Connection) -> None:
     _migrate_sub_position(conn)
     _migrate_share_params(conn)
     _migrate_share_enabled(conn)
+    # Content filtering: three offline snapshots (0.1.328)
+    conn.execute(
+        "INSERT OR IGNORE INTO content_filters(name, description, enabled, snapshot_url, domains, updated_at)"
+        " VALUES ('广告拦截', '拦截广告域名', 1, '', '[]', '')")
+    conn.execute(
+        "INSERT OR IGNORE INTO content_filters(name, description, enabled, snapshot_url, domains, updated_at)"
+        " VALUES ('跟踪器拦截', '拦截跟踪器域名', 1, '', '[]', '')")
+    conn.execute(
+        "INSERT OR IGNORE INTO content_filters(name, description, enabled, snapshot_url, domains, updated_at)"
+        " VALUES ('恶意软件拦截', '拦截恶意软件域名', 1, '', '[]', '')")
     # front_rules: add rtype/note columns for typed rules (8 types)
     frcols = {r[1] for r in conn.execute("PRAGMA table_info(front_rules)")}
     if "rtype" not in frcols:
@@ -1091,6 +1111,7 @@ def load_app_config(conn: sqlite3.Connection):
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         tun_address=get_setting(conn, "tun_address", "172.19.0.1/30"),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
+        blocked_domains=get_blocked_domains(conn),
         clash_api_port=int(get_setting(conn, "clash_api_port", "9090") or 9090),
         clash_api_listen=get_setting(conn, "clash_api_listen", "127.0.0.1"),
         clash_api_secret=get_setting(conn, "clash_api_secret", ""),
@@ -2004,6 +2025,58 @@ def _migrate_sub_position(conn: sqlite3.Connection):
     cols = [r[1] for r in conn.execute("PRAGMA table_info(subscriptions)")]
     if "position" not in cols:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+
+
+# ---- content filters (0.1.328) ----
+def list_content_filters(conn: sqlite3.Connection) -> list[dict]:
+    return [{"id": r[0], "name": r[1], "description": r[2], "enabled": bool(r[3]),
+             "snapshot_url": r[4], "domain_count": len(__import__('json').loads(r[5] or '[]')),
+             "updated_at": r[6]}
+            for r in conn.execute(
+                "SELECT id, name, description, enabled, snapshot_url, domains, updated_at"
+                " FROM content_filters ORDER BY id")]
+
+
+def get_content_filter(conn: sqlite3.Connection, fid: int) -> dict | None:
+    r = conn.execute(
+        "SELECT id, name, description, enabled, snapshot_url, domains, updated_at"
+        " FROM content_filters WHERE id=?", (fid,)).fetchone()
+    if not r:
+        return None
+    import json as _json
+    return {"id": r[0], "name": r[1], "description": r[2], "enabled": bool(r[3]),
+            "snapshot_url": r[4], "domains": _json.loads(r[5] or '[]'),
+            "updated_at": r[6]}
+
+
+def update_content_filter(conn: sqlite3.Connection, fid: int,
+                          enabled: bool | None = None,
+                          domains: list | None = None) -> dict | None:
+    if not conn.execute("SELECT id FROM content_filters WHERE id=?", (fid,)).fetchone():
+        return None
+    import json as _json
+    import time as _time
+    if enabled is not None:
+        conn.execute("UPDATE content_filters SET enabled=? WHERE id=?",
+                     (1 if enabled else 0, fid))
+    if domains is not None:
+        now = _time.strftime("%Y-%m-%dT%H:%M:%S")
+        conn.execute("UPDATE content_filters SET domains=?, updated_at=? WHERE id=?",
+                     (_json.dumps(domains), now, fid))
+    conn.commit()
+    return get_content_filter(conn, fid)
+
+
+def get_blocked_domains(conn: sqlite3.Connection) -> list[str]:
+    """All domains from enabled content filters."""
+    import json as _json
+    domains = []
+    for r in conn.execute("SELECT domains FROM content_filters WHERE enabled=1"):
+        try:
+            domains.extend(_json.loads(r[0] or '[]'))
+        except Exception:
+            pass
+    return sorted(set(domains))
 
 
 def _migrate_share_enabled(conn: sqlite3.Connection):
