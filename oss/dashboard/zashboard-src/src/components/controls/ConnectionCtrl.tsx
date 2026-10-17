@@ -195,6 +195,36 @@ export default defineComponent({
         </>
       )
 
+      const sortForTable = (
+        <div class="flex items-center gap-1">
+          <span class="text-xs opacity-70 whitespace-nowrap">{t('sortMethod') || '排序方式'}</span>
+          <SelectInput
+            class="select select-sm w-28"
+            modelValue={connectionSortType.value}
+            onUpdate:modelValue={(value) => (connectionSortType.value = value as SORT_TYPE)}
+            options={(Object.values(SORT_TYPE) as string[]).map((value) => ({
+              value,
+              label: t(value) || value,
+            }))}
+          />
+          <button
+            class="btn btn-sm btn-square"
+            onClick={() => {
+              connectionSortDirection.value =
+                connectionSortDirection.value === SORT_DIRECTION.ASC
+                  ? SORT_DIRECTION.DESC
+                  : SORT_DIRECTION.ASC
+            }}
+          >
+            {connectionSortDirection.value === SORT_DIRECTION.ASC ? (
+              <BarsArrowUpIcon class="h-4 w-4" />
+            ) : (
+              <BarsArrowDownIcon class="h-4 w-4" />
+            )}
+          </button>
+        </div>
+      )
+
       const content = !isLargeCtrlsBar.value ? (
         <div class="flex flex-wrap items-center gap-2 p-2">
           <div class="flex w-full items-center justify-between gap-2">
@@ -206,11 +236,15 @@ export default defineComponent({
               </div>
             )}
           </div>
-          {isConnectionCard.value && (
+          {isConnectionCard.value ? (
             <div class="flex w-full items-center gap-2">
               {sortForCards}
               {settingsModal}
               {buttons}
+            </div>
+          ) : (
+            <div class="flex w-full items-center gap-2">
+              {sortForTable}
             </div>
           )}
           <div class="join w-full">
@@ -221,7 +255,7 @@ export default defineComponent({
       ) : (
         <div class="flex items-center gap-2 p-2">
           <ConnectionTabs />
-          {isConnectionCard.value && sortForCards}
+          {isConnectionCard.value ? sortForCards : sortForTable}
           <SourceIPFilter class="w-40" />
           <div class="flex flex-1">{searchInput}</div>
           {settingsModal}

@@ -215,9 +215,10 @@ export const filteredActiveConnections = computed(() => filterConnections(active
 export const renderConnections = computed(() => {
   const filtered = filterConnections(connections.value)
 
-  const sortType = isConnectionCard.value ? connectionSortType.value : SORT_TYPE.HOST
+  // Open-Box 二开：表格视图也支持排序（原版有排序方式下拉）
+  const sortType = connectionSortType.value
   const getSortKey = sortKeyFunctionMap[sortType]
-  const desc = isConnectionCard.value && isDesc.value
+  const desc = connectionSortDirection.value === SORT_DIRECTION.DESC
   const decorated: [string | number, string, Connection][] = filtered.map((conn) => [
     getSortKey(conn),
     conn.id,
