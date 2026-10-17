@@ -407,13 +407,19 @@
             <div class="grid grid-cols-[1fr_auto_1fr] gap-3">
               <div class="rounded-box border border-base-300/30">
                 <div class="border-b border-base-300/30 p-2">
-                  <div class="mb-2 flex items-center justify-between">
+                  <div class="mb-2 flex items-center justify-between gap-2">
                     <span class="text-sm font-medium">{{ $t('obx.available', { n: availList.length }) }}</span>
-                    <input
-                      v-model="availFilter"
-                      class="input input-bordered input-xs w-32"
-                      :placeholder="$t('obx.filterByName')"
-                    />
+                    <div class="flex items-center gap-1">
+                      <select v-model="availSubFilter" class="select select-bordered select-xs w-28">
+                        <option value="">全部</option>
+                        <option v-for="o in subOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
+                      </select>
+                      <input
+                        v-model="availFilter"
+                        class="input input-bordered input-xs w-28"
+                        :placeholder="$t('obx.filterByName')"
+                      />
+                    </div>
                   </div>
                   <div class="flex items-center gap-1">
                     <button
@@ -606,8 +612,10 @@ const dlgErr = ref('')
 const dlgBusy = ref(false)
 
 // 双栏选择器状态
-const allTags = ref<{ tag: string; kind: string }[]>([])
+const allTags = ref<{ tag: string; kind: string; sub?: string }[]>([])
 const availFilter = ref('')
+const availSubFilter = ref('')  // 订阅下拉筛选（1:1 原版）
+const subOptions = ref<{ id: string; name: string }[]>([])
 const selFilter = ref('')
 const availChecked = ref<string[]>([])
 const selChecked = ref<string[]>([])
@@ -670,11 +678,22 @@ const hitTags = computed(() => {
 })
 const hitCount = computed(() => hitTags.value.length)
 
-// 可选列表 = 全部标签 - 已选
+// 可选列表 = 全部标签 - 已选（支持按订阅筛选，1:1 原版）
 const availList = computed(() => {
   const sel = new Set(curMembers.value)
   const f = availFilter.value.trim().toLowerCase()
-  return allTags.value.filter((x) => !sel.has(x.tag) && (!f || x.tag.toLowerCase().includes(f)))
+  const sub = availSubFilter.value
+  return allTags.value.filter((x) => {
+    if (sel.has(x.tag)) return false
+    if (f && !x.tag.toLowerCase().includes(f)) return false
+    if (sub) {
+      // 链式代理归为一类；否则按订阅名匹配
+      if (sub === '__chain__') return x.kind === 'chain'
+      if (x.kind === 'chain') return false
+      return (x.sub || '') === sub
+    }
+    return true
+  })
 })
 const selList = computed<string[]>(() => {
   const f = selFilter.value.trim().toLowerCase()
@@ -716,10 +735,39 @@ async function load() {
 
 async function loadTags() {
   try {
-    const nodes = await obxGet<any[]>('/api/nodes')
-    const chains = await obxGet<any[]>('/api/chains')
+    const [nodes, chains, subs] = await Promise.all([
+      obxGet<any[]>('/api/nodes'),
+      obxGet<any[]>('/api/chains').catch(() => []),
+      obxGet<any[]>('/api/subscriptions').catch(() => []),
+    ])
+    // sub_id -> 订阅名映射
+    const subMap = new Map<number, string>()
+    const opts: { id: string; name: string }[] = []
+    if (Array.isArray(subs)) {
+      for (const s of subs) {
+        if (s.id != null) {
+          subMap.set(s.id, s.name || s.url || `#${s.id}`)
+          opts.push({ id: String(s.name || s.url || `#${s.id}`), name: s.name || s.url || `#${s.id}` })
+        }
+      }
+    }
+    // 去重并排序
+    const seen = new Set<string>()
+    subOptions.value = opts.filter((o) => {
+      if (seen.has(o.id)) return false
+      seen.add(o.id)
+      return true
+    }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    // 链式代理单独一类（对标原版下拉中的"链式代理"）
+    if (Array.isArray(chains) && chains.length) {
+      subOptions.value.push({ id: '__chain__', name: '链式代理' })
+    }
     allTags.value = [
-      ...nodes.map((n: any) => ({ tag: n.tag || n.name, kind: t('obx.node') })),
+      ...nodes.map((n: any) => ({
+        tag: n.tag || n.name,
+        kind: t('obx.node'),
+        sub: n.sub_id != null ? (subMap.get(n.sub_id) || '') : '',
+      })),
       ...(Array.isArray(chains) ? chains.map((c: any) => ({ tag: c.name, kind: t('obx.chain') })) : []),
       { tag: '直连', kind: t('obx.group') },
       { tag: '拒绝', kind: t('obx.group') },
