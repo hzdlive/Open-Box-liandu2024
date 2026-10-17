@@ -57,16 +57,25 @@ INLINE_RULE_SETS = {
 
 
 def referenced_rule_sets(app_cfg) -> list[str]:
-    """All rule-set names referenced by site sets, in first-seen order.
-
-    Inline-expanded names (INLINE_RULE_SETS) are excluded: they need no file.
+    """All rule-set names referenced by site sets and front rules,
+    in first-seen order. Inline-expanded names (INLINE_RULE_SETS) are
+    excluded: they need no file.
     """
     out: list[str] = []
-    for s in getattr(app_cfg, "site_sets", []) or []:
-        for n in getattr(s, "rule_sets", []) or []:
+
+    def _add(names):
+        for n in names or []:
             n = (n or "").strip()
             if n and n not in out and n not in INLINE_RULE_SETS:
                 out.append(n)
+
+    for s in getattr(app_cfg, "site_sets", []) or []:
+        _add(getattr(s, "rule_sets", []))
+    for fr in getattr(app_cfg, "front_rules", []) or []:
+        rt = (fr.get("rtype") or "domain_suffix") if isinstance(fr, dict) else "domain_suffix"
+        val = (fr.get("domain") or "").strip() if isinstance(fr, dict) else ""
+        if rt in ("geosite", "geoip") and val:
+            _add([f"{rt}-{val}"])
     return out
 
 

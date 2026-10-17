@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS rule_sets(
 CREATE TABLE IF NOT EXISTS front_rules(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   domain TEXT NOT NULL,
+  rtype TEXT NOT NULL DEFAULT 'domain_suffix',
+  note TEXT NOT NULL DEFAULT '',
   target TEXT NOT NULL DEFAULT 'auto',
   position INTEGER NOT NULL DEFAULT 0,
   enabled INTEGER NOT NULL DEFAULT 1
@@ -285,6 +287,7 @@ DEFAULT_SETTINGS = {
     "update_check_channel": "mirror",  # check via mirror (original: updates.openbox.checkChannel)
     "update_days": "1",           # check interval in days (original: updates.openbox.days)
     "traffic_keep_months": "3",   # traffic history retention (original: traffic.keepMonths)
+    "front_rules_enabled": "1",   # global on/off switch for front custom routing
 }
 
 
@@ -398,6 +401,12 @@ def init_db(conn: sqlite3.Connection) -> None:
     _migrate_chains_enabled(conn)
     _migrate_sub_position(conn)
     _migrate_share_params(conn)
+    # front_rules: add rtype/note columns for typed rules (8 types)
+    frcols = {r[1] for r in conn.execute("PRAGMA table_info(front_rules)")}
+    if "rtype" not in frcols:
+        conn.execute("ALTER TABLE front_rules ADD COLUMN rtype TEXT NOT NULL DEFAULT 'domain_suffix'")
+    if "note" not in frcols:
+        conn.execute("ALTER TABLE front_rules ADD COLUMN note TEXT NOT NULL DEFAULT ''")
     conn.commit()
     # migrate old default names (auto/manual) to the new ones, fixing references
     _migrate_default_groups(conn)
@@ -694,30 +703,74 @@ def delete_site_set(conn: sqlite3.Connection, sid: int) -> bool:
 
 
 # -- front custom routing ----------------------------------------------
+# rtype: domain_suffix | domain | domain_keyword | ip_cidr |
+#        geosite | geoip | ruleset_url | port
+FRONT_RULE_TYPES = ("domain_suffix", "domain", "domain_keyword", "ip_cidr",
+                    "geosite", "geoip", "ruleset_url", "port")
+
+
+def validate_front_rule(d: dict) -> dict:
+    """Validate + normalize one front rule dict.
+
+    Accepts the zashboard frontend shape {type, value, note, target} as well
+    as the legacy row shape {rtype/domain, ...}. Returns a normalized dict
+    {rtype, domain, note, target, enabled}. Raises ValueError on bad input.
+    """
+    rtype = str(d.get("type", d.get("rtype", "domain_suffix")) or
+                "domain_suffix").strip()
+    if rtype not in FRONT_RULE_TYPES:
+        raise ValueError(f"unknown front rule type: {rtype}")
+    value = str(d.get("value", d.get("domain", "")) or "").strip()
+    if not value:
+        raise ValueError("front rule value required")
+    if rtype == "ip_cidr":
+        import ipaddress
+        try:
+            ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            raise ValueError(f"invalid CIDR: {value}")
+    elif rtype == "port":
+        parts = value.split("-", 1)
+        try:
+            nums = [int(p) for p in parts]
+        except ValueError:
+            raise ValueError(f"invalid port: {value}")
+        if not all(1 <= n <= 65535 for n in nums) or \
+                (len(nums) == 2 and nums[0] > nums[1]):
+            raise ValueError(f"invalid port: {value}")
+    elif rtype == "ruleset_url":
+        low = value.lower()
+        if not (low.startswith("http://") or low.startswith("https://")):
+            raise ValueError(f"invalid rule-set URL: {value}")
+    target = str(d.get("target", "auto") or "auto").strip() or "auto"
+    return {"rtype": rtype, "domain": value,
+            "note": str(d.get("note", "") or ""),
+            "target": target,
+            "enabled": d.get("enabled", True) is not False}
+
+
 def list_front_rules(conn: sqlite3.Connection) -> list[dict]:
     return [
-        {"id": r[0], "domain": r[1], "target": r[2], "position": r[3],
-         "enabled": bool(r[4])}
+        {"id": r[0], "domain": r[1], "rtype": r[2] or "domain_suffix",
+         "note": r[3] or "", "target": r[4], "position": r[5],
+         "enabled": bool(r[6])}
         for r in conn.execute(
-            "SELECT id, domain, target, position, enabled FROM front_rules"
-            " ORDER BY position, id")
+            "SELECT id, domain, rtype, note, target, position, enabled"
+            " FROM front_rules ORDER BY position, id")
     ]
 
 
 def create_front_rule(conn: sqlite3.Connection, d: dict) -> dict:
-    domain = str(d.get("domain", "")).strip()
-    if not domain:
-        raise ValueError("domain required")
+    v = validate_front_rule(d)
     pos = conn.execute("SELECT COALESCE(MAX(position), -1)+1 FROM front_rules").fetchone()[0]
     cur = conn.execute(
-        "INSERT INTO front_rules(domain, target, position, enabled) VALUES (?, ?, ?, ?)",
-        (domain, str(d.get("target", "auto")).strip() or "auto", pos,
-         0 if d.get("enabled") is False else 1))
+        "INSERT INTO front_rules(domain, rtype, note, target, position, enabled)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (v["domain"], v["rtype"], v["note"], v["target"], pos,
+         1 if v["enabled"] else 0))
     conn.commit()
     bump_rev(conn)
-    target = str(d.get("target", "auto")).strip() or "auto"
-    return {"id": cur.lastrowid, "domain": domain, "target": target,
-            "position": pos, "enabled": d.get("enabled", True) is not False}
+    return {"id": cur.lastrowid, "position": pos, **v}
 
 
 def update_front_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | None:
@@ -725,8 +778,21 @@ def update_front_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | Non
     if not row:
         return None
     fields, vals = [], []
-    for col, key in (("domain", "domain"), ("target", "target"),
-                     ("position", "position"), ("enabled", "enabled")):
+    # typed fields go through validation when type/value are touched
+    if any(k in d for k in ("type", "rtype", "value", "domain", "note")):
+        # merge with existing for full validation
+        cur = next((r for r in list_front_rules(conn) if r["id"] == rid), {})
+        merged = {**cur, **d}
+        # map legacy keys
+        if "type" in d:
+            merged["rtype"] = d["type"]
+        if "value" in d:
+            merged["domain"] = d["value"]
+        v = validate_front_rule(merged)
+        fields.extend(["domain=?", "rtype=?", "note=?"])
+        vals.extend([v["domain"], v["rtype"], v["note"]])
+    for col, key in (("target", "target"), ("position", "position"),
+                     ("enabled", "enabled")):
         if key in d:
             fields.append(f"{col}=?")
             vals.append(0 if key == "enabled" and not d[key] else d[key])
@@ -736,6 +802,21 @@ def update_front_rule(conn: sqlite3.Connection, rid: int, d: dict) -> dict | Non
         conn.commit()
     bump_rev(conn)
     return next((r for r in list_front_rules(conn) if r["id"] == rid), None)
+
+
+def replace_front_rules(conn: sqlite3.Connection, rules: list[dict]) -> list[dict]:
+    """Bulk replace all front rules (zashboard management UI save)."""
+    validated = [validate_front_rule(r) for r in rules or []]
+    conn.execute("DELETE FROM front_rules")
+    for pos, v in enumerate(validated):
+        conn.execute(
+            "INSERT INTO front_rules(domain, rtype, note, target, position, enabled)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (v["domain"], v["rtype"], v["note"], v["target"], pos,
+             1 if v["enabled"] else 0))
+    conn.commit()
+    bump_rev(conn)
+    return list_front_rules(conn)
 
 
 def delete_front_rule(conn: sqlite3.Connection, rid: int) -> bool:
@@ -999,7 +1080,9 @@ def load_app_config(conn: sqlite3.Connection):
     return AppConfig(
         nodes=nodes, site_sets=site_sets, groups=groups, chains=chains, dns=dns,
         dns_rewrites=rewrites, terminals=terminals, terminal_rules=terminal_rules,
-        front_rules=[r for r in list_front_rules(conn) if r["enabled"]],
+        front_rules=([r for r in list_front_rules(conn) if r["enabled"]]
+                     if get_setting(conn, "front_rules_enabled", "1") == "1"
+                     else []),
         final_outbound=get_setting(conn, "final_outbound", "所有-自动"),
         routing_fallback=get_setting(conn, "routing_fallback", "direct"),
         tun_stack=get_setting(conn, "tun_stack", "mixed"),

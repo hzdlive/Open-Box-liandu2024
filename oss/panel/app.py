@@ -799,6 +799,32 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
+    @app.put("/api/front-rules")
+    def front_rules_replace():
+        """Bulk replace front rules (zashboard management UI).
+
+        Body: {"rules": [{type, value, note, target}], "enabled": bool?}.
+        "rules" omitted -> keep existing rows; "enabled" sets the global
+        front_rules_enabled switch. Returns {"rules": [...], "enabled": bool}.
+        """
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        try:
+            if "rules" in d:
+                rules = d.get("rules") or []
+                if not isinstance(rules, list):
+                    return jsonify({"error": "rules must be a list"}), 400
+                dbmod.replace_front_rules(c, rules)
+            if "enabled" in d:
+                dbmod.set_setting(c, "front_rules_enabled",
+                                  "1" if d.get("enabled") else "0")
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        return jsonify({
+            "rules": dbmod.list_front_rules(c),
+            "enabled": dbmod.get_setting(c, "front_rules_enabled", "1") == "1",
+        })
+
     @app.put("/api/front-rules/<int:rid>")
     def front_rule_update(rid: int):
         r = dbmod.update_front_rule(db(), rid, request.get_json(force=True, silent=True) or {})

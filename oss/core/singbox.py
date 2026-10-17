@@ -267,6 +267,45 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
     return outbounds
 
 
+def _front_url_tag(url: str) -> str:
+    """Stable rule-set tag for a front ruleset_url rule."""
+    import hashlib as _hashlib
+    return "url-" + _hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+
+
+def front_remote_rule_sets(cfg: AppConfig) -> list[tuple[str, str]]:
+    """(tag, url) pairs for front ruleset_url rules pointing at .srs files.
+
+    sing-box consumes these natively as remote binary rule-sets.
+    """
+    out: list[tuple[str, str]] = []
+    for fr in cfg.front_rules or []:
+        if not isinstance(fr, dict):
+            continue
+        if (fr.get("rtype") or "") == "ruleset_url":
+            url = (fr.get("domain") or "").strip()
+            if url.lower().endswith(".srs"):
+                tag = _front_url_tag(url)
+                if not any(t == tag for t, _ in out):
+                    out.append((tag, url))
+    return out
+
+
+def front_rule_warnings(cfg: AppConfig) -> list[str]:
+    """Human-readable warnings for front rules the generator cannot honor."""
+    out: list[str] = []
+    for fr in cfg.front_rules or []:
+        if not isinstance(fr, dict):
+            continue
+        if (fr.get("rtype") or "") == "ruleset_url":
+            url = (fr.get("domain") or "").strip()
+            if url and not url.lower().endswith(".srs"):
+                out.append(
+                    f"前置规则: 规则集链接 {url} 非 .srs 格式, "
+                    "sing-box 无法直接订阅, 已跳过")
+    return out
+
+
 def build_route_rules(cfg: AppConfig,
                       skip_rule_sets: set[str] | None = None
                       ) -> tuple[list[dict], list[dict], set[str]]:
@@ -304,12 +343,57 @@ def build_route_rules(cfg: AppConfig,
             route_rules.append({"source_ip_cidr": cidrs, "outbound": tr.outbound})
     # Front custom routing: user domain -> target mappings, evaluated before
     # every site set. Target is a group name, node tag, "direct" or "reject".
+    # Front custom routing: typed user rules, evaluated before every site
+    # set. Target is a group name, node tag, "direct" or "reject".
+    # 8 types: domain_suffix | domain | domain_keyword | ip_cidr |
+    #          geosite | geoip | ruleset_url | port
     for fr in cfg.front_rules or []:
-        dom = (fr.get("domain") or "").strip()
-        if not dom:
+        if not isinstance(fr, dict):
+            continue
+        if not fr.get("enabled", True):
+            continue
+        rtype = (fr.get("rtype") or "domain_suffix").strip()
+        val = (fr.get("domain") or "").strip()
+        if not val:
             continue
         target = (fr.get("target") or "所有-自动").strip() or "所有-自动"
-        rule = {"domain_suffix": [dom.lstrip(".")]}
+        rule: dict = {}
+        dns_sel: dict | None = None  # selector for the companion dns rule
+        if rtype == "domain":
+            rule["domain"] = [val]
+            dns_sel = {"domain": [val]}
+        elif rtype == "domain_keyword":
+            rule["domain_keyword"] = [val]
+            dns_sel = {"domain_keyword": [val]}
+        elif rtype == "ip_cidr":
+            rule["ip_cidr"] = [val]
+        elif rtype == "geosite":
+            rule["rule_set"] = [f"geosite-{val}"]
+            dns_sel = {"rule_set": [f"geosite-{val}"]}
+        elif rtype == "geoip":
+            rule["rule_set"] = [f"geoip-{val}"]
+            dns_sel = {"rule_set": [f"geoip-{val}"]}
+        elif rtype == "ruleset_url":
+            if not val.lower().endswith(".srs"):
+                continue  # surfaced via front_rule_warnings()
+            tag = _front_url_tag(val)
+            rule["rule_set"] = [tag]
+            dns_sel = {"rule_set": [tag]}
+            # register for declaration in build_config
+            if not hasattr(cfg, "_front_remote_rs"):
+                cfg._front_remote_rs = {}
+            cfg._front_remote_rs[tag] = val
+        elif rtype == "port":
+            if "-" in val:
+                rule["port_range"] = [val]
+            else:
+                try:
+                    rule["port"] = [int(val)]
+                except ValueError:
+                    continue
+        else:  # domain_suffix (covers legacy rows)
+            rule["domain_suffix"] = [val.lstrip(".")]
+            dns_sel = {"domain_suffix": [val.lstrip(".")]}
         dns_srv = "proxy-dns"
         if target == "direct":
             rule["outbound"] = "direct"; dns_srv = "direct-dns"
@@ -320,7 +404,8 @@ def build_route_rules(cfg: AppConfig,
             if cfg.dns.enable_fakeip:
                 dns_srv = "fakeip"
         route_rules.append(rule)
-        dns_rules.append({"domain_suffix": [dom.lstrip(".")], "server": dns_srv})
+        if dns_sel is not None:
+            dns_rules.append({**dns_sel, "server": dns_srv})
     # Subscription & node server domains go direct (keeps subscription updates
     # and node dialing off the proxy).
     if cfg.sub_node_direct:
@@ -587,6 +672,15 @@ def build_config(cfg: AppConfig,
             "format": "binary",
             "url": url,
         })
+    # Remote ruleset URLs from front rules (typed ruleset_url)
+    for tag, url in front_remote_rule_sets(cfg):
+        if not any(d.get("tag") == tag for d in rule_set_decls):
+            rule_set_decls.append({
+                "type": "remote",
+                "tag": tag,
+                "format": "binary",
+                "url": url,
+            })
 
     return {
         "log": {"level": "warn"},
