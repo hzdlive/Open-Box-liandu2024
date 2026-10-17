@@ -581,14 +581,28 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/subscriptions/<int:sid>/speedtest")
     def sub_speedtest(sid: int):
-        # 触发该订阅下所有节点的测速（通过内核 clash API）
+        # 触发该订阅下所有节点的真实测速
         try:
+            from core.health import check_nodes
             c = db()
             sub = dbmod.get_subscription(c, sid)
             if not sub:
                 return jsonify({"error": "not found"}), 404
-            # TODO: 实际调用内核测速，这里先返回 ok
-            return jsonify({"ok": True, "subscription_id": sid})
+            cfg = dbmod.load_app_config(c)
+            tags = {n["tag"] for n in dbmod.list_nodes(c) if n.get("sub_id") == sid}
+            nodes = [n for n in cfg.nodes if n.tag in tags]
+            if not nodes:
+                return jsonify({"ok": True, "subscription_id": sid, "tested": 0})
+            results = check_nodes(nodes, timeout=5.0, max_workers=20)
+            dbmod.save_health(c, results)
+            ok_count = sum(1 for r in results if r.ok)
+            return jsonify({
+                "ok": True,
+                "subscription_id": sid,
+                "tested": len(results),
+                "healthy": ok_count,
+                "results": [{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms} for r in results],
+            })
         except Exception as e:
             return jsonify({"error": f"speedtest failed: {e}"}), 502
 
