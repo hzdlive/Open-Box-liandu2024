@@ -2019,7 +2019,37 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/openbox/terminal-test/capability")
     def ob_terminal_capability():
-        return jsonify({"ok": True, "lan": True, "missing": []})
+        """探测终端分流能力（REA 26.3：先探测能力，绝不静默降级）。"""
+        import shutil
+        import subprocess
+        missing = []
+        # nftables 可用性
+        has_nft = shutil.which("nft") is not None
+        if not has_nft:
+            missing.append("nftables")
+        # 检查是否有 LAN 网卡（非 lo）
+        has_lan = False
+        try:
+            out = subprocess.run(["ip", "-o", "link", "show"],
+                               capture_output=True, text=True, timeout=5)
+            for line in out.stdout.splitlines():
+                if ": lo:" not in line and "state UP" in line:
+                    has_lan = True
+                    break
+        except Exception:
+            missing.append("ip-command")
+        # ARP 可用性（MAC -> IP 解析）
+        has_arp = shutil.which("arp") is not None or shutil.which("ip") is not None
+        if not has_arp:
+            missing.append("arp")
+        ok = has_nft and has_lan and not missing
+        return jsonify({
+            "ok": ok,
+            "lan": has_lan,
+            "nftables": has_nft,
+            "arp": has_arp,
+            "missing": missing,
+        })
 
     @app.post("/api/openbox/dns/flush-cache")
     def ob_dns_flush():
