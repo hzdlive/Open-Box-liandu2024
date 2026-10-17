@@ -2944,22 +2944,33 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/openbox/clash-logs")
     def openbox_clash_logs():
-        """日志页用：从 systemd journal 读取 sing-box 日志（轮询，绕过浏览器 WebSocket 问题）。"""
-        import subprocess
+        """日志页用：读取 sing-box 日志文件（轮询，绕过浏览器 WebSocket 问题）。"""
+        import os, re
         level = request.args.get("level", "info")
         try:
-            # 取最近 100 行 sing-box 日志
-            result = subprocess.run(
-                ["journalctl", "-u", "openbox-zashboard-panel.service", "-n", "100", "--no-pager", "-o", "short"],
-                capture_output=True, text=True, timeout=5
-            )
-            lines = []
-            for line in result.stdout.split('\n'):
-                line = line.strip()
-                if line and 'sing-box' in line.lower():
-                    # 解析为前端期望的格式 {type, payload}
-                    lines.append({"type": "info", "payload": line[-200:]})
-            return jsonify({"logs": lines[-50:]})
+            log_path = os.path.join(os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard"), "sing-box.log")
+            if not os.path.isfile(log_path):
+                return jsonify({"logs": []})
+            with open(log_path, 'r', errors='ignore') as f:
+                lines = f.readlines()[-100:]
+            out = []
+            # 去除 ANSI 颜色码
+            ansi = re.compile(r'\x1b\[[0-9;]*m')
+            for line in lines:
+                line = ansi.sub('', line).strip()
+                if not line:
+                    continue
+                # 解析级别：WARN/ERROR/INFO/DEBUG/TRACE
+                ltype = "info"
+                for lv in ["ERROR", "WARN", "INFO", "DEBUG", "TRACE"]:
+                    if lv in line[:20]:
+                        ltype = lv.lower()
+                        break
+                # 按 level 过滤
+                if level != "debug" and ltype in ("debug", "trace"):
+                    continue
+                out.append({"type": ltype, "payload": line[-300:]})
+            return jsonify({"logs": out[-50:]})
         except Exception as e:
             return jsonify({"error": str(e), "logs": []}), 502
 
