@@ -1020,7 +1020,13 @@ async function load() {
 }
 async function loadFront() {
   try {
-    frontRules.value = await obxGet<any[]>('/api/front-rules')
+    const data = await obxGet<any[]>('/api/front-rules')
+    // 后端字段 -> 前端字段：rtype->type, domain->value
+    frontRules.value = (data || []).map((r: any) => ({
+      ...r,
+      type: r.rtype || r.type || 'domain_suffix',
+      value: r.domain ?? r.value ?? '',
+    }))
   } catch { frontRules.value = [] }
 }
 
@@ -1140,7 +1146,13 @@ function importFrontRules() {
 }
 async function saveFront() {
   try {
-    await obxPut('/api/front-rules', { rules: frontDlg.value.rules })
+    // 前端字段 -> 后端字段：type->rtype, value->domain
+    const rules = frontDlg.value.rules.map((r: any) => ({
+      ...r,
+      rtype: r.type,
+      domain: r.value,
+    }))
+    await obxPut('/api/front-rules', { rules })
     frontDlg.value = null
     await loadFront()
   } catch (e) { err.value = '保存失败' }
