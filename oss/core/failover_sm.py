@@ -209,10 +209,16 @@ def failover_init(group_name: str, lanes_config: list[dict],
     lanes = []
     for i, lc in enumerate(lanes_config[:DEFAULT_MAX_LANES]):
         lane_id = f"lane-{i}"
+        members = lc.get("members", []) or []
+        # 与 singbox.py 保持一致：单成员 lane 直接用成员 tag，多成员才生成 lane tag
+        if len(members) == 1:
+            lane_tag = members[0]
+        else:
+            lane_tag = f"{group_name}#{lc.get('name', f'lane{i}')}"
         lanes.append({
             "id": lane_id,
             "index": i,
-            "tag": f"{group_name}#{lc.get('name', f'lane{i}')}",
+            "tag": lane_tag,
             "name": lc.get("name", f"通道{i+1}"),
             "members": lc.get("members", []),
             "valid": bool(lc.get("members")),
