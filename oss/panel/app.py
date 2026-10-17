@@ -2969,8 +2969,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         full = os.path.join(FRONTEND_DIR, path)
         if path and os.path.isfile(full):
-            return send_from_directory(FRONTEND_DIR, path)
-        return send_from_directory(FRONTEND_DIR, "index.html")
+            resp = send_from_directory(FRONTEND_DIR, path)
+            # JS/CSS 带 content hash，可长期缓存；index.html 永不缓存
+            if path.endswith(('.js', '.css')):
+                resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            return resp
+        resp = send_from_directory(FRONTEND_DIR, "index.html")
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        return resp
 
     # background jobs: subscription auto-update, DNS filter auto-update
     if db_path != ":memory:":
