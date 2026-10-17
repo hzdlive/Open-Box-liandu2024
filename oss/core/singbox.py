@@ -734,7 +734,9 @@ def build_config(cfg: AppConfig,
         "route": {
             # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol
             # traffic is handed to the DNS module via the hijack-dns action.
-            "rules": [{"action": "sniff"}] + route_rules + [{"protocol": "dns", "action": "hijack-dns"}],
+            # DNS 劫持紧随 sniff（对标原版规则 3）：DNS 协议流量优先交由 DNS 模块处理，
+            # 避免被站点集规则误匹配。
+            "rules": [{"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}] + route_rules,
             **({"rule_set": rule_set_decls} if rule_set_decls else {}),
             "final": cfg.routing_fallback or cfg.final_outbound,
             "auto_detect_interface": True,
