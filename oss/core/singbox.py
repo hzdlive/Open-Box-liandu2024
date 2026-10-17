@@ -502,10 +502,7 @@ def build_route_rules(cfg: AppConfig,
                 _ob_rules.append({"domain_keyword": rule["domain_keyword"]})
             if rule.get("ip_cidr"):
                 _ob_rules.append({"ip_cidr": rule["ip_cidr"]})
-            if rule.get("rule_set"):
-                # 引用其他 rule_set 的条件也纳入
-                for _rs in rule["rule_set"]:
-                    _ob_rules.append({"rule_set": _rs})
+            # 注意：inline rule_set 内不能嵌套 rule_set 引用，只纳入直接条件
             if _ob_rules:
                 cfg._obflip_rulesets[_ob_tag] = _ob_rules
                 # QUIC 拦截规则：引用 obflip rule_set
