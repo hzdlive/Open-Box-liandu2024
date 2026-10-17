@@ -1069,48 +1069,75 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify({"ok": True})
 
+    def _resolve_chain_front(c, front_tag: str):
+        """Resolve front tag to (outbound, deps) for chain speedtest.
+
+        Handles both single nodes and groups (selector/urltest with members).
+        Returns (front_ob, front_deps) or (None, None) if direct/not found.
+        """
+        from core.singbox import node_to_outbound, resolve_group_members
+        if not front_tag or front_tag in ("direct", "block"):
+            return None, None
+        cfg = dbmod.load_app_config(c)
+        # Try as node tag first
+        for n in cfg.nodes:
+            if n.tag == front_tag:
+                return node_to_outbound(n), None
+        # Try as group
+        for g in (cfg.groups or []):
+            if g.name == front_tag and g.enabled:
+                node_tags = [n.tag for n in cfg.nodes]
+                chain_tags = [ch.name for ch in cfg.chains]
+                members = resolve_group_members(g, node_tags, chain_tags)
+                # Build member outbounds
+                deps = []
+                for n in cfg.nodes:
+                    if n.tag in members:
+                        deps.append(node_to_outbound(n))
+                # Build group outbound (selector/urltest)
+                if g.type == "selector":
+                    front_ob = {
+                        "type": "selector",
+                        "tag": g.name,
+                        "outbounds": members or ["direct"],
+                        "default": members[0] if members else "direct",
+                    }
+                else:  # urltest/failover
+                    front_ob = {
+                        "type": "urltest",
+                        "tag": g.name,
+                        "outbounds": members or ["direct"],
+                        "url": g.test_url or cfg.speedtest_url,
+                        "interval": f"{g.interval_s}s",
+                    }
+                return front_ob, deps
+        return None, None
+
     @app.post("/api/chains/<int:cid>/speedtest")
     def chain_speedtest(cid: int):
         """Real chain proxy speedtest: reports latency, exit IP and country."""
         from core import chain_test as _ct
-        from core.singbox import node_to_outbound
         c = db()
         chains = dbmod.list_chains(c)
         chain = next((x for x in chains if x["id"] == cid), None)
         if not chain:
             return jsonify({"error": "not found"}), 404
         # Resolve front outbound (node or group)
-        front_ob = None
-        front_tag = chain.get("front", "")
-        if front_tag and front_tag not in ("direct", "block"):
-            # Try as node tag
-            cfg = dbmod.load_app_config(c)
-            for n in cfg.nodes:
-                if n.tag == front_tag:
-                    front_ob = node_to_outbound(n)
-                    break
-        result = _ct.test_chain(chain, front_ob)
+        front_ob, front_deps = _resolve_chain_front(c, chain.get("front", ""))
+        result = _ct.test_chain(chain, front_ob, front_deps)
         return jsonify(result)
 
     @app.post("/api/chains/speedtest")
     def chain_speedtest_adhoc():
         """Speedtest for unsaved chain config (from modal)."""
         from core import chain_test as _ct
-        from core.singbox import node_to_outbound
         d = request.get_json(force=True, silent=True) or {}
         if not d.get("server"):
             return jsonify({"error": "server is required"}), 400
         c = db()
-        # Resolve front if specified
-        front_ob = None
-        front_tag = d.get("front", "")
-        if front_tag and front_tag not in ("direct", "block"):
-            cfg = dbmod.load_app_config(c)
-            for n in cfg.nodes:
-                if n.tag == front_tag:
-                    front_ob = node_to_outbound(n)
-                    break
-        result = _ct.test_chain(d, front_ob)
+        # Resolve front if specified (node or group)
+        front_ob, front_deps = _resolve_chain_front(c, d.get("front", ""))
+        result = _ct.test_chain(d, front_ob, front_deps)
         return jsonify(result)
 
     # ---- groups ----

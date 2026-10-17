@@ -6,6 +6,7 @@ Reports exit IP and country (1:1 with original panel behavior).
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 import tempfile
 import time
@@ -13,7 +14,15 @@ import urllib.request
 import os
 
 
+def _free_port() -> int:
+    """Find a free TCP port for the test SOCKS inbound."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def test_chain(chain: dict, front_outbound: dict | None = None,
+               front_deps: list[dict] | None = None,
                timeout: int = 15) -> dict:
     """Test a chain proxy by routing through it.
 
@@ -21,6 +30,7 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
             "server": ..., "server_port": ..., "params": {...},
             "front": "tag of front node/group"}
     front_outbound: the sing-box outbound dict for the front (if any)
+    front_deps: additional outbounds the front depends on (e.g. group members)
 
     Returns: {"ok": bool, "latency_ms": int|None,
               "exit_ip": str|None, "country": str|None,
@@ -42,14 +52,24 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
     # If there's a front, the chain dials through it
     outbounds = [chain_ob, {"type": "direct", "tag": "direct"}]
     if front_outbound:
-        # Add front outbound and set chain to detour through it
+        # Add front outbound and its dependencies, set chain to detour
         front_ob = dict(front_outbound)
+        orig_tag = front_ob.get("tag", "front")
         front_ob["tag"] = "front"
+        # Insert dependencies first (so tags resolve)
+        for dep in (front_deps or []):
+            d = dict(dep)
+            # Avoid tag collision with our "front"
+            if d.get("tag") == "front":
+                d["tag"] = f"dep-{d['tag']}"
+            outbounds.insert(0, d)
         outbounds.insert(0, front_ob)
         chain_ob["detour"] = "front"
+        # If front references member tags (selector/urltest), ensure they're present
+        # (front_deps should already include them)
 
-    # Test port (avoid conflicts)
-    test_port = 18901
+    # Test port: dynamically allocated to avoid concurrent conflicts
+    test_port = _free_port()
     inbounds = [{
         "type": "socks",
         "tag": "test-in",
