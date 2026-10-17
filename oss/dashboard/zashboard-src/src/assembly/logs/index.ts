@@ -37,7 +37,10 @@ watch(supportedLogLevels, (levels) => {
   if (cancel) initLogs()
 })
 
-const backend = () => (channel.value === Channel.Singbox ? singbox : clash)
+const backend = () => {
+  // Open-Box 二开：VPS 本机 Chrome 的 WebSocket 连不上，日志统一走 clash 轮询后端。
+  return clash
+}
 
 let cancel: (() => void) | undefined
 

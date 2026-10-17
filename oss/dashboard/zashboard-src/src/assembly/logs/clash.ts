@@ -13,9 +13,8 @@ export const subscribeLogs = (
 
   const poll = async () => {
     try {
-      const r = await obxGet<{ logs: Log[] }>('/api/openbox/clash-logs', {
-        params: { level: params.level || 'info' },
-      } as any)
+      const level = params.level || 'info'
+      const r = await obxGet<{ logs: Log[] }>(`/api/openbox/clash-logs?level=${encodeURIComponent(level)}`)
       const logs = r.logs || []
       // 只推送新日志
       const fresh = logs.filter((l: Log) => {
