@@ -19,6 +19,7 @@ that urltest alone cannot (priority order, fail streaks, restore hold).
 from __future__ import annotations
 
 import json
+import re
 import time
 import urllib.request
 import urllib.error
@@ -36,11 +37,67 @@ DEFAULT_MAX_LANES = 3             # 最大通道数
 
 
 # ---- Decision reasons (from REA §24.5) ----
+# i18n codes from panel: initial, lane-failed, restore, priority,
+#                        recovered, all-failed
 REASON_INITIAL = "initial"          # 初始选择
-REASON_LANE_FAILED = "lane-failed"  # 当前通道不可达，前进到下一个
-REASON_ALL_FAILED = "all-failed"    # 没有任何通道通过
-REASON_PRIMARY_RESTORED = "primary-restored"  # 主通道恢复
+REASON_LANE_FAILED = "lane-failed"  # 上一个通道不可达
+REASON_RESTORE = "restore"          # 主通道已恢复
+REASON_PRIORITY = "priority"        # 按新顺序重新选择
+REASON_RECOVERED = "recovered"      # 候选已恢复
+REASON_ALL_FAILED = "all-failed"    # 所有通道均不可达
 REASON_HEALTHY = "healthy"          # 当前通道健康，保持
+# Backward compat alias
+REASON_PRIMARY_RESTORED = REASON_RESTORE
+
+
+def parse_expected_status(text: str) -> list[tuple[int, int]]:
+    """Parse expected status text (REA §24.6, tcp19).
+
+    Accepts "204", "200-299", "200,204", "200/204", "200-299/302".
+    Separators / and , are interchangeable. Returns list of (lo, hi).
+    Empty or "*" means any status is accepted.
+    """
+    text = (text or "").strip()
+    if not text or text == "*":
+        return []  # any
+    ranges = []
+    # split on / or ,
+    parts = re.split(r"[/,]", text)
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        m = re.match(r"^(\d{3})(?:\s*-\s*(\d{3}))?$", p)
+        if not m:
+            raise ValueError(f"invalid expected status: {text}")
+        lo = int(m.group(1))
+        hi = int(m.group(2)) if m.group(2) else lo
+        if not (100 <= lo <= 599 and 100 <= hi <= 599 and lo <= hi):
+            raise ValueError(f"invalid expected status: {text}")
+        ranges.append((lo, hi))
+    return ranges
+
+
+def status_matches(status: int, ranges: list[tuple[int, int]]) -> bool:
+    """Check if HTTP status matches expected ranges. Empty = any."""
+    if not ranges:
+        return True
+    return any(lo <= status <= hi for lo, hi in ranges)
+
+
+def parse_duration(text: str) -> int:
+    """Parse duration text (REA §24.6). Returns milliseconds.
+
+    Format: (\\d+(?:\\.\\d+)?)(ms|h|m|s), e.g. "5000ms", "5s", "1.5m".
+    """
+    text = (text or "").strip()
+    m = re.match(r"^(\d+(?:\.\d+)?)(ms|h|m|s)$", text)
+    if not m:
+        raise ValueError(f"invalid duration: {text}")
+    val = float(m.group(1))
+    unit = m.group(2)
+    mult = {"ms": 1, "s": 1000, "m": 60000, "h": 3600000}[unit]
+    return int(val * mult)
 
 
 @dataclass
@@ -77,11 +134,13 @@ class FailoverState:
     last_reason: str = REASON_INITIAL
     # Lanes
     lanes: list = field(default_factory=list)  # list[LaneState] as dicts
-    # Round accounting
+    # Round accounting (§24.4: cheap vs full rounds)
     last_round_at: str | None = None
+    last_full_round_at: str | None = None  # 上次完整轮次
     next_round_at: str | None = None
     last_round_id: str = ""
     last_round_result: str = ""
+    plan_full: bool = False  # 当前/上次是否为完整轮次
     # Logs (recent switch history)
     logs: list = field(default_factory=list)
     # Settings
@@ -102,9 +161,11 @@ class FailoverState:
             last_reason=d.get("last_reason", REASON_INITIAL),
             lanes=d.get("lanes", []),
             last_round_at=d.get("last_round_at"),
+            last_full_round_at=d.get("last_full_round_at"),
             next_round_at=d.get("next_round_at"),
             last_round_id=d.get("last_round_id", ""),
             last_round_result=d.get("last_round_result", ""),
+            plan_full=d.get("plan_full", False),
             logs=d.get("logs", []),
             settings=d.get("settings", {}),
         )
@@ -167,10 +228,14 @@ def failover_init(group_name: str, lanes_config: list[dict],
     return st
 
 
-def failover_plan(state: FailoverState) -> dict:
+def failover_plan(state: FailoverState, full: bool = False) -> dict:
     """Open a probe round (REA: failoverPlan).
 
-    Returns: {"roundId": ..., "startedAt": ..., "plan": [...]}
+    full=False: cheap round — only probe lanes needing recheck
+                (failed lanes, current lane if unhealthy).
+    full=True:  full round — probe every valid lane.
+
+    Returns: {"roundId": ..., "startedAt": ..., "plan": [...], "planFull": bool}
     """
     round_id = f"r{int(time.time() * 1000)}"
     started_at = _now_iso()
@@ -178,6 +243,12 @@ def failover_plan(state: FailoverState) -> dict:
     for lane in state.lanes:
         if not lane["valid"]:
             continue
+        if not full:
+            # Cheap round: skip healthy non-current lanes
+            is_current = (lane["id"] == state.current_lane_id)
+            is_healthy = lane.get("ok", False)
+            if is_healthy and not is_current:
+                continue
         plan.append({
             "laneId": lane["id"],
             "tag": lane["tag"],
@@ -186,7 +257,11 @@ def failover_plan(state: FailoverState) -> dict:
         })
     state.last_round_id = round_id
     state.last_round_at = started_at
-    return {"roundId": round_id, "startedAt": started_at, "plan": plan}
+    state.plan_full = full
+    if full:
+        state.last_full_round_at = started_at
+    return {"roundId": round_id, "startedAt": started_at,
+            "plan": plan, "planFull": full}
 
 
 def probe_lane(api_base: str, secret: str, lane: dict,
@@ -303,14 +378,17 @@ def failover_decide(state: FailoverState) -> dict:
 
     current = next((l for l in state.lanes if l["id"] == state.current_lane_id), None)
 
-    # Case 1: No healthy lanes
+    # Case 1: No healthy lanes -> all-failed
+    # REA §24.5: does NOT silently fall back to direct; switches to
+    # the __fo:reject outbound and retries every minute.
     if not healthy_lanes:
         return {
-            "target": state.current_lane_id,
-            "switchTo": state.current_id,
+            "target": "__fo:reject",
+            "switchTo": "__fo:reject",
             "reason": REASON_ALL_FAILED,
             "reorderMove": None,
             "recheckRound": True,
+            "retryInMs": 60000,  # 每分钟重试
         }
 
     # Case 2: Current lane is healthy - keep it (with restore logic)
@@ -327,7 +405,7 @@ def failover_decide(state: FailoverState) -> dict:
                         return {
                             "target": primary["id"],
                             "switchTo": primary["tag"],
-                            "reason": REASON_PRIMARY_RESTORED,
+                            "reason": REASON_RESTORE,
                             "reorderMove": None,
                             "recheckRound": False,
                         }
