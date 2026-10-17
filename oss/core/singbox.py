@@ -243,8 +243,9 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                                   "outbounds": tags or ["direct"],
                                   "tolerance": g.tolerance_ms,
                                   **fo_kwargs})
-        elif g.type in ("smart", "loadbalance"):
-            # smart: 按延迟智能选择（映射为 urltest）；loadbalance: 负载均衡（映射为 urltest）
+        elif g.type in ("urltest", "smart", "loadbalance"):
+            # urltest: 标准 URL 测试；smart: 按延迟智能选择（映射为 urltest）；
+            # loadbalance: 负载均衡（映射为 urltest）
             ob = {"type": "urltest", "tag": g.name,
                   "outbounds": tags or ["direct"],
                   "url": g.test_url or cfg.speedtest_url,
