@@ -2048,16 +2048,35 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/openbox/dns/flush-cache")
     def ob_dns_flush():
-        # 清除 dnsmasq 缓存（如果运行）并标记内核 DNS 缓存失效
+        """Clear DNS caches on both ends (1:1).
+
+        - dnsmasq (LAN): SIGHUP clears its cache immediately. Safe.
+        - kernel (sing-box): in-memory DNS cache has no flush API in
+          stock or tcp23-patched sing-box; it is rebuilt on the next
+          config apply/restart. We do NOT restart the shared kernel
+          automatically; the response reports this honestly.
+        """
         import subprocess
         dnsmasq_ok = False
-        kernel_ok = False
+        dnsmasq_note = ""
         try:
-            subprocess.run(["pkill", "-HUP", "dnsmasq"], timeout=5, capture_output=True)
-            dnsmasq_ok = True
-        except Exception:
-            pass
-        return jsonify({"dnsmasq": dnsmasq_ok, "kernel": kernel_ok, "resolved": False})
+            r = subprocess.run(["pkill", "-HUP", "dnsmasq"],
+                               timeout=5, capture_output=True)
+            # pkill returns 0 if at least one process matched
+            dnsmasq_ok = (r.returncode == 0)
+            if not dnsmasq_ok:
+                dnsmasq_note = "dnsmasq 未运行"
+        except Exception as e:
+            dnsmasq_note = str(e)[:100]
+        return jsonify({
+            "dnsmasq": dnsmasq_ok,
+            "dnsmasq_note": dnsmasq_note,
+            # Kernel DNS cache: no runtime flush API; cleared on next
+            # config apply / service restart.
+            "kernel": False,
+            "kernel_note": "sing-box 无运行时清缓存接口，缓存将在下次配置应用/重启时重建",
+            "resolved": False,
+        })
 
     @app.get("/api/openbox/dns/region-detect")
     def ob_dns_region_get():
@@ -2067,18 +2086,30 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/openbox/dns/region-detect")
     def ob_dns_region_post():
-        # 按出口 IP 检测地区（简化：尝试获取公网 IP 地理位置）
-        import urllib.request
+        """Detect region by exit IP geolocation (1:1).
+
+        Queries ip-api.com for country code; maps CN -> "cn",
+        otherwise -> "outside". Falls back to "cn" on failure.
+        """
+        import json as _json
+        import urllib.request as _req
         region = "cn"
         ip = ""
+        country = ""
         try:
-            with urllib.request.urlopen("https://ip.sb", timeout=10) as r:
-                ip = r.read().decode().strip()
-            # 简单判断：如果能访问国际站点则为 outside
-            # 实际应查询 GeoIP，这里做简化
+            req = _req.Request(
+                "http://ip-api.com/json/?fields=status,country,countryCode,query",
+                headers={"User-Agent": "openbox-oss/1.0"})
+            with _req.urlopen(req, timeout=10) as r:
+                data = _json.loads(r.read().decode())
+            if data.get("status") == "success":
+                ip = data.get("query", "")
+                country = data.get("country", "")
+                cc = (data.get("countryCode") or "").upper()
+                region = "cn" if cc == "CN" else "outside"
         except Exception:
             pass
-        return jsonify({"region": region, "ip": ip})
+        return jsonify({"region": region, "ip": ip, "country": country})
 
     # ---- subscription shares (1:1 对标原版) ----
     @app.get("/api/openbox/subscription-shares/")
