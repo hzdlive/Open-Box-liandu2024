@@ -20,6 +20,7 @@
     <TerminalsTab v-else-if="active === 'terminals'" />
     <ChainsTab v-else-if="active === 'chains'" />
     <ShareTab v-else-if="active === 'share'" />
+    <ContentFilterTab v-else-if="active === 'contentfilter'" />
     <SettingsTab v-else-if="active === 'settings'" />
   </div>
 </template>
@@ -28,6 +29,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed, ref } from 'vue'
 import ChainsTab from './ChainsTab.vue'
+import ContentFilterTab from './ContentFilterTab.vue'
 import DnsTab from './DnsTab.vue'
 import GroupsTab from './GroupsTab.vue'
 import SettingsTab from './SettingsTab.vue'
@@ -47,6 +49,7 @@ const tabs = computed(() => [
   { key: 'terminals', label: t('obx.terminals') },
   { key: 'chains', label: t('obx.chains') },
   { key: 'share', label: t('obx.shareNetwork') },
+  { key: 'contentfilter', label: t('obx.contentFilter') },
   { key: 'settings', label: t('obx.panelSettings') },
 ])
 </script>
