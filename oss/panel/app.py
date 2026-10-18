@@ -1626,10 +1626,37 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # ---- backup / restore ----
     @app.get("/api/backup")
     def backup_export():
-        from core.backup import backup_to_json
+        from core.backup import backup_to_json, BACKUP_GROUPS, REQUIRED_GROUPS
+        # 选择性导出：?groups=routing,groups,dns,panel,subscriptions,chain,share,apps
+        # 不传则导出全部；必选分组总是包含
+        groups_param = request.args.get("groups", "").strip()
+        if groups_param:
+            groups = [g.strip() for g in groups_param.split(",") if g.strip() in BACKUP_GROUPS]
+        else:
+            groups = None
         return app.response_class(
-            backup_to_json(db()), mimetype="application/json",
+            backup_to_json(db(), groups), mimetype="application/json",
             headers={"Content-Disposition": "attachment; filename=openbox-oss-backup.json"})
+
+    @app.get("/api/backup/groups")
+    def backup_groups():
+        """返回可用的备份分组及其描述。"""
+        from core.backup import BACKUP_GROUPS, REQUIRED_GROUPS
+        descs = {
+            "routing": "目标分流（站点集）与前置规则",
+            "groups": "出站节点分组",
+            "dns": "DNS 设置",
+            "panel": "面板设置",
+            "subscriptions": "订阅与节点",
+            "chain": "链式代理",
+            "share": "订阅分享",
+            "apps": "终端分流",
+        }
+        return jsonify({
+            "groups": [{"id": g, "required": g in REQUIRED_GROUPS,
+                        "description": descs.get(g, g),
+                        "tables": BACKUP_GROUPS[g]} for g in sorted(BACKUP_GROUPS.keys())],
+        })
 
     @app.post("/api/backup")
     def backup_import():
