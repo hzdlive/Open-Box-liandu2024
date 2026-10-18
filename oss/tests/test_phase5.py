@@ -267,9 +267,9 @@ def test_orig_parity_batch():
     orig = _dt.system_upstreams
     _dt.system_upstreams = lambda: ["9.9.9.9", "8.8.4.4"]
     try:
-        servers = _sb._dns_servers("direct-dns", "wan", "direct")
+        servers = _sb._dns_servers("dns-direct", "wan", "direct")
         assert [s["server"] for s in servers] == ["9.9.9.9", "8.8.4.4"], servers
-        assert servers[0]["tag"] == "direct-dns" and servers[0]["type"] == "udp"
+        assert servers[0]["tag"] == "dns-direct" and servers[0]["type"] == "udp"
     finally:
         _dt.system_upstreams = orig
     r = c.put("/api/dns", json={"direct_dns": "wan"})

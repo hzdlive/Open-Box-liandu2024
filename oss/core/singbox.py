@@ -410,15 +410,15 @@ def build_route_rules(cfg: AppConfig,
         else:  # domain_suffix (covers legacy rows)
             rule["domain_suffix"] = [val.lstrip(".")]
             dns_sel = {"domain_suffix": [val.lstrip(".")]}
-        dns_srv = "proxy-dns"
+        dns_srv = "dns-proxy"
         if target == "direct":
-            rule["outbound"] = "direct"; dns_srv = "direct-dns"
+            rule["outbound"] = "direct"; dns_srv = "dns-direct"
         elif target == "reject":
-            rule["action"] = "reject"; dns_srv = "direct-dns"
+            rule["action"] = "reject"; dns_srv = "dns-direct"
         else:
             rule["outbound"] = target
             if cfg.dns.enable_fakeip:
-                dns_srv = "fakeip"
+                dns_srv = "dns-fakeip"
         route_rules.append(rule)
         if dns_sel is not None:
             dns_rules.append({**dns_sel, "server": dns_srv})
@@ -432,7 +432,7 @@ def build_route_rules(cfg: AppConfig,
                 snd.add(srv)
         if snd:
             route_rules.append({"domain_suffix": sorted(snd), "outbound": "direct"})
-            dns_rules.append({"domain_suffix": sorted(snd), "server": "direct-dns"})
+            dns_rules.append({"domain_suffix": sorted(snd), "server": "dns-direct"})
     # Collect remote ruleset URLs (side effect for build_config declarations)
     if not hasattr(cfg, "_remote_rulesets"):
         cfg._remote_rulesets = {}
@@ -523,8 +523,8 @@ def build_route_rules(cfg: AppConfig,
         route_rules.append({**rule, "outbound": target})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
-        dns_server = ("fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
-                      else "proxy-dns" if s.action == "proxy" else "direct-dns")
+        dns_server = ("dns-fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
+                      else "dns-proxy" if s.action == "proxy" else "dns-direct")
         dns_rules.append({**rule, "server": dns_server})
     # QUIC 拦截已改为每个站点集独立生成（见下方循环内），不再全局拦截
     # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名
@@ -708,11 +708,11 @@ def build_config(cfg: AppConfig,
     outbounds = build_outbounds(cfg)
     route_rules, dns_rules, _ = build_route_rules(cfg, skip_rule_sets)
     # split=false: all DNS via the proxy upstream (no direct/proxy split).
-    dns_final = "direct-dns"
+    dns_final = "dns-direct"
     if not cfg.dns.split:
-        dns_rules = [{**r, "server": "proxy-dns"} if r.get("server") == "direct-dns" else r
+        dns_rules = [{**r, "server": "dns-proxy"} if r.get("server") == "dns-direct" else r
                      for r in dns_rules]
-        dns_final = "proxy-dns"
+        dns_final = "dns-proxy"
     # Effective region (same formula as db.load_app_config). Outside mainland
     # there is no GFW, so proxy DNS goes direct instead of through the proxy.
     _eff_region = (cfg.dns.region if cfg.dns.region != "auto"
@@ -754,12 +754,12 @@ def build_config(cfg: AppConfig,
         "log": {"level": "warn"},
         "dns": {
             "servers": (
-                [{"type": "fakeip", "tag": "fakeip",
+                [{"type": "fakeip", "tag": "dns-fakeip",
                   "inet4_range": "198.19.0.0/16", "inet6_range": "fc00::/18"}]
                 if cfg.dns.enable_fakeip else []
-            ) + (_dns_servers("direct-dns", cfg.dns.direct_dns, "direct",
+            ) + (_dns_servers("dns-direct", cfg.dns.direct_dns, "direct",
                              cfg.dns.upstream_latency)
-                 + _dns_servers("proxy-dns", cfg.dns.proxy_dns, _proxy_detour,
+                 + _dns_servers("dns-proxy", cfg.dns.proxy_dns, _proxy_detour,
                                 cfg.dns.upstream_latency)),
             "rules": dns_rules,
             "final": dns_final,

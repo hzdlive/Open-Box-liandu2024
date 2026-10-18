@@ -39,7 +39,7 @@ def main() -> int:
     assert len(flips) == 2, [o["tag"] for o in flips]
     assert {o["tag"] for o in conf["outbounds"]} >= {"所有-自动", "所有-手动", "direct", "block"}
     assert "dns-out" not in {o["tag"] for o in conf["outbounds"]}
-    assert conf["dns"]["servers"][0]["tag"] == "direct-dns"
+    assert conf["dns"]["servers"][0]["tag"] == "dns-direct"
     json.dumps(conf)  # must be serializable
 
     # rule_set references: site sets with rule_sets emit route.rule_set
