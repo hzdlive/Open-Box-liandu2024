@@ -424,6 +424,10 @@ def build_route_rules(cfg: AppConfig,
             dns_rules.append({**dns_sel, "server": dns_srv})
     # Subscription & node server domains go direct (keeps subscription updates
     # and node dialing off the proxy).
+    # 对标原版：使用 obnode-direct / obnode-direct-ip rule_set（而非 inline 规则）。
+    # 空集时用 sentinel 值（obnode-direct.invalid / 192.0.2.255/32）。
+    if not hasattr(cfg, "_obnode_direct"):
+        cfg._obnode_direct = {"domains": [], "cidrs": []}
     if cfg.sub_node_direct:
         snd = set(cfg.sub_domains or [])
         for n in cfg.nodes or []:
@@ -431,8 +435,12 @@ def build_route_rules(cfg: AppConfig,
             if srv and not _is_ip_literal(srv):
                 snd.add(srv)
         if snd:
-            route_rules.append({"domain_suffix": sorted(snd), "outbound": "direct"})
-            dns_rules.append({"domain_suffix": sorted(snd), "server": "dns-direct"})
+            cfg._obnode_direct["domains"] = sorted(snd)
+            # 路由规则引用 obnode-direct rule_set
+            route_rules.append({"rule_set": ["obnode-direct", "obnode-direct-ip"],
+                                "outbound": "direct"})
+            dns_rules.append({"rule_set": ["obnode-direct"],
+                              "server": "dns-direct"})
     # Collect remote ruleset URLs (side effect for build_config declarations)
     if not hasattr(cfg, "_remote_rulesets"):
         cfg._remote_rulesets = {}
@@ -748,6 +756,22 @@ def build_config(cfg: AppConfig,
             "type": "inline",
             "tag": tag,
             "rules": rules,
+        })
+    # obnode-direct / obnode-direct-ip: direct-host DOMAIN/CIDR sets (1:1 with original).
+    # 空集时用 sentinel 值，保证 rule_set 非空。
+    _obd = getattr(cfg, "_obnode_direct", None)
+    if _obd is not None:
+        _domains = _obd.get("domains") or ["obnode-direct.invalid"]
+        _cidrs = _obd.get("cidrs") or ["192.0.2.255/32"]
+        rule_set_decls.append({
+            "type": "inline",
+            "tag": "obnode-direct",
+            "rules": [{"domain": _domains}],
+        })
+        rule_set_decls.append({
+            "type": "inline",
+            "tag": "obnode-direct-ip",
+            "rules": [{"ip_cidr": _cidrs}],
         })
 
     return {
