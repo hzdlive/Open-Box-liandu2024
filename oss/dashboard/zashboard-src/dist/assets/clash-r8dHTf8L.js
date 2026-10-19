@@ -1,1 +1,0 @@
-import{A as e,M as t}from"./backend-BvRpNwVL.js";import{t as n}from"./config-DIAGj-5T.js";var r=async()=>{n.value=(await e()).data},i=async e=>{await t(e),r()};export{r as fetchConfigs,i as updateConfigs};
