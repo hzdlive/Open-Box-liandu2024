@@ -293,6 +293,7 @@
                   >
                   <div class="flex items-center gap-1 border-b border-base-300 p-2">
                     <input
+                      ref="geoSearchInput"
                       v-model="geoSearch"
                       class="input input-bordered input-sm flex-1"
                       :placeholder="$t('obx.geoSearchPh')"
@@ -461,6 +462,7 @@
                 >
                 <div class="flex items-center gap-1 border-b border-base-300 p-2">
                   <input
+                    ref="geoSearchInput"
                     v-model="geoSearch"
                     class="input input-bordered input-sm flex-1"
                     :placeholder="$t('obx.geoSearchPh')"
@@ -809,7 +811,7 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GEOSITE_CATEGORIES, GEOIP_COUNTRIES } from './geodata'
 
@@ -917,6 +919,7 @@ const geoOpen = ref<string>('')
 const geoSearch = ref('')
 const geoFilter = ref('all')
 const geoPos = ref({ left: '0px', top: '0px' })
+const geoSearchInput = ref<HTMLInputElement | null>(null)
 function toggleGeoDrop(ri: number | string, type: string, ev?: Event) {
   const key = String(ri)
   if (geoOpen.value === key) {
@@ -925,14 +928,35 @@ function toggleGeoDrop(ri: number | string, type: string, ev?: Event) {
     geoOpen.value = key
     geoSearch.value = ''
     // 计算下拉位置（Teleport 到 body，用 fixed 定位）
+    // 智能上下展开：下方空间不足且上方更大时向上展开
     if (ev && ev.currentTarget) {
       const el = ev.currentTarget as HTMLElement
       const rect = el.getBoundingClientRect()
+      const DROPDOWN_H = 256  // max-h-64
+      const DROPDOWN_W = 384  // w-96
+      const GAP = 4
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      let top: number
+      if (spaceBelow < DROPDOWN_H + GAP && spaceAbove > spaceBelow) {
+        top = rect.top - DROPDOWN_H - GAP
+      } else {
+        top = rect.bottom + GAP
+      }
+      // 防止左右溢出
+      let left = rect.left
+      if (left + DROPDOWN_W > window.innerWidth) {
+        left = Math.max(8, window.innerWidth - DROPDOWN_W - 8)
+      }
       geoPos.value = {
-        left: `${rect.left}px`,
-        top: `${rect.bottom + 4}px`,
+        left: `${left}px`,
+        top: `${Math.max(8, top)}px`,
       }
     }
+    // 下拉打开后自动聚焦搜索框
+    nextTick(() => {
+      geoSearchInput.value?.focus()
+    })
   }
 }
 function onGeoSearch() {
