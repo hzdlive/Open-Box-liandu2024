@@ -319,6 +319,8 @@ const zhTW: LANG_MESSAGE = {
     failoverBackupN: '備用{n}',
     backupRestore: '恢復備份',
     contentFilter: '內容過濾',
+    cfDescription: '管理規則與腳本快照。iOS 運行同步的副本離線。',
+    cfEmpty: '暫無規則集。添加文件或 HTTPS URL。',
     contentFilterDesc: '攔截廣告、追蹤器和惡意軟件域名，基於離線規則快照',
     blockedDomains: '攔截域名',
     viewDetails: '查看詳情',

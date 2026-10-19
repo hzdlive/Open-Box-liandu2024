@@ -1589,6 +1589,94 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return app.response_class(buf.getvalue(), mimetype="image/png")
 
     # ---- content filtering (0.1.328) ----
+    # 新版：Surge/QuantumultX 规则集管理器（1:1 对标原版）
+    # 原版路径：/api/openbox/content-filter（单数）
+    @app.get("/api/openbox/content-filter")
+    def cf_ruleset_list():
+        return jsonify(dbmod.list_cf_rulesets(db()))
+
+    @app.post("/api/openbox/content-filter")
+    def cf_ruleset_create():
+        """Create ruleset from text/URL.
+        
+        Body: {name, dialect, text?, source_url?}
+        """
+        from core.cf_parser import parse_ruleset
+        import hashlib, time, json
+        data = request.get_json() or {}
+        name = (data.get("name") or "").strip()
+        dialect = (data.get("dialect") or "surge").strip()
+        text = data.get("text") or ""
+        source_url = (data.get("source_url") or "").strip()
+        
+        if not name:
+            return jsonify({"error": "name required"}), 400
+        if dialect not in ("surge", "quantumultx"):
+            return jsonify({"error": "dialect must be surge or quantumultx"}), 400
+        
+        # 从 URL 拉取
+        if source_url and not text:
+            import urllib.request
+            try:
+                req = urllib.request.Request(source_url, headers={"User-Agent": "OpenBox/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    text = r.read().decode('utf-8', errors='ignore')
+            except Exception as e:
+                return jsonify({"error": f"fetch failed: {e}"}), 400
+        
+        if not text:
+            return jsonify({"error": "text or source_url required"}), 400
+        
+        try:
+            parsed = parse_ruleset(text, dialect)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        
+        rid = hashlib.sha256(f"cf-{name}-{time.time()}".encode()).hexdigest()[:16]
+        conn = db()
+        conn.execute("""INSERT INTO cf_rulesets
+            (id, name, dialect, source_url, text, rules, hostnames, arguments, scripts,
+             enabled, updated_at, skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+            (rid, name, dialect, source_url, text[:524288],
+             json.dumps(parsed["rules"], ensure_ascii=False),
+             json.dumps(parsed["hostnames"], ensure_ascii=False),
+             json.dumps(parsed["arguments"], ensure_ascii=False),
+             json.dumps(parsed["scripts"], ensure_ascii=False),
+             time.strftime("%Y-%m-%dT%H:%M:%S"),
+             parsed["skipped_scripts"], parsed["skipped_unsupported"],
+             parsed["skipped_routing"], parsed["skipped_unrepresentable"]))
+        conn.commit()
+        return jsonify({"id": rid, "parsed": parsed})
+
+    @app.get("/api/openbox/content-filter/<rid>")
+    def cf_ruleset_get(rid: str):
+        r = dbmod.get_cf_ruleset(db(), rid)
+        if not r:
+            return jsonify({"error": "not found"}), 404
+        return jsonify(r)
+
+    @app.delete("/api/openbox/content-filter/<rid>")
+    def cf_ruleset_delete(rid: str):
+        conn = db()
+        conn.execute("DELETE FROM cf_rulesets WHERE id = ?", (rid,))
+        conn.commit()
+        return jsonify({"deleted": True})
+
+    @app.patch("/api/openbox/content-filter/<rid>")
+    def cf_ruleset_patch(rid: str):
+        data = request.get_json() or {}
+        conn = db()
+        if "enabled" in data:
+            conn.execute("UPDATE cf_rulesets SET enabled = ? WHERE id = ?",
+                        (1 if data["enabled"] else 0, rid))
+        if "name" in data:
+            conn.execute("UPDATE cf_rulesets SET name = ? WHERE id = ?",
+                        (data["name"], rid))
+        conn.commit()
+        return jsonify({"updated": True})
+
+    # 旧版接口（兼容保留）
     @app.get("/api/content-filters")
     def content_filter_list():
         return jsonify(dbmod.list_content_filters(db()))

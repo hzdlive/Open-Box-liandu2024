@@ -319,6 +319,8 @@ const zh: LANG_MESSAGE = {
     failoverBackupN: '备用{n}',
     backupRestore: '恢复备份',
     contentFilter: '内容过滤',
+    cfDescription: '管理规则与脚本快照。iOS 运行同步的副本离线。',
+    cfEmpty: '暂无规则集。添加文件或 HTTPS URL。',
     contentFilterDesc: '拦截广告、跟踪器和恶意软件域名，基于离线规则快照',
     blockedDomains: '拦截域名',
     viewDetails: '查看详情',

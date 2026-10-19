@@ -317,6 +317,8 @@ const en = {
     failoverBackupN: 'Backup {n}',
     backupRestore: 'Restore Backup',
     contentFilter: 'Content Filter',
+    cfDescription: 'Manage rule and script snapshots. iOS runs the synced copy offline.',
+    cfEmpty: 'No rule sets. Add a file or HTTPS URL.',
     contentFilterDesc: 'Block ads, trackers and malware domains via offline snapshots',
     blockedDomains: 'Blocked domains',
     viewDetails: 'Details',

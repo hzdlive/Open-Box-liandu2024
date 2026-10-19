@@ -1,100 +1,145 @@
+<!-- Open-Box 二开：内容过滤 - Surge/QuantumultX 规则集管理器（1:1 对标原版） -->
 <template>
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.contentFilter') }}</h2>
-      <button class="btn btn-sm btn-primary" @click="loadFilters" :disabled="loading">
-        {{ $t('obx.refresh') }}
-      </button>
+      <div class="flex gap-2">
+        <button class="btn btn-sm btn-primary" @click="showAdd = true">
+          + {{ $t('obx.add') || '添加' }}
+        </button>
+        <button class="btn btn-sm btn-ghost" @click="load" :disabled="loading">
+          {{ $t('obx.refresh') }}
+        </button>
+      </div>
     </div>
 
-    <p class="text-sm opacity-60">{{ $t('obx.contentFilterDesc') }}</p>
+    <p class="text-sm opacity-60">{{ $t('obx.cfDescription') || '管理规则与脚本快照。iOS 运行同步的副本离线。' }}</p>
 
     <div v-if="loading" class="text-center py-8 opacity-60">{{ $t('obx.loading') }}</div>
 
+    <div v-else-if="!rulesets.length" class="text-center py-8 opacity-60">
+      {{ $t('obx.cfEmpty') || '暂无规则集。添加文件或 HTTPS URL。' }}
+    </div>
+
     <div v-else class="space-y-3">
       <div
-        v-for="f in filters"
-        :key="f.id"
+        v-for="r in rulesets"
+        :key="r.id"
         class="card bg-base-100 shadow-sm border border-base-200"
       >
         <div class="card-body p-4">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
-              <span class="text-2xl">{{ iconFor(f) }}</span>
+              <span class="text-2xl">{{ r.dialect === 'surge' ? '🔷' : '🔶' }}</span>
               <div>
-                <div class="font-bold">{{ f.name }}</div>
-                <div class="text-xs opacity-60">{{ f.description }}</div>
+                <div class="font-bold">{{ r.name }}</div>
+                <div class="text-xs opacity-60">
+                  {{ r.dialect }} · {{ formatSize(r.text_len) }}
+                  <span v-if="r.source_url" class="truncate max-w-xs inline-block align-bottom" :title="r.source_url">
+                    · {{ r.source_url }}
+                  </span>
+                </div>
               </div>
             </div>
-            <label class="cursor-pointer flex items-center gap-2">
-              <span class="text-xs opacity-60">{{ f.enabled ? $t('obx.enabled') : $t('obx.disabled') }}</span>
-              <input
-                type="checkbox"
-                class="toggle toggle-primary toggle-sm"
-                :checked="f.enabled"
-                @change="toggleEnabled(f)"
-              />
-            </label>
+            <div class="flex items-center gap-2">
+              <label class="cursor-pointer flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  class="toggle toggle-primary toggle-sm"
+                  :checked="r.enabled"
+                  @change="toggleEnabled(r)"
+                />
+              </label>
+              <button class="btn btn-xs btn-ghost" @click="showDetail(r)">
+                {{ $t('obx.viewDetails') }}
+              </button>
+              <button class="btn btn-xs btn-ghost text-error" @click="delRuleset(r)">
+                {{ $t('obx.delete') }}
+              </button>
+            </div>
           </div>
 
-          <div class="mt-3 flex items-center gap-2 text-xs">
-            <span class="opacity-60">{{ $t('obx.blockedDomains') }}:</span>
-            <span class="badge badge-neutral">{{ domainCount(f) }}</span>
-            <span v-if="f.snapshot_url" class="opacity-60 truncate max-w-xs" :title="f.snapshot_url">
-              {{ f.snapshot_url }}
+          <div v-if="hasSkipped(r)" class="mt-2 flex gap-2 text-xs flex-wrap">
+            <span v-if="r.skipped_scripts" class="badge badge-warning badge-sm">
+              脚本跳过: {{ r.skipped_scripts }}
             </span>
-            <button
-              class="btn btn-xs btn-ghost ml-auto"
-              @click="showDetail(f)"
-            >
-              {{ $t('obx.viewDetails') }}
-            </button>
-          </div>
-
-          <div v-if="f.updated_at" class="mt-1 text-xs opacity-40">
-            {{ $t('obx.updatedAt') }}: {{ formatTime(f.updated_at) }}
+            <span v-if="r.skipped_unsupported" class="badge badge-ghost badge-sm">
+              不支持: {{ r.skipped_unsupported }}
+            </span>
+            <span v-if="r.skipped_routing" class="badge badge-ghost badge-sm">
+              路由规则跳过: {{ r.skipped_routing }}
+            </span>
+            <span v-if="r.skipped_unrepresentable" class="badge badge-ghost badge-sm">
+              无法表示: {{ r.skipped_unrepresentable }}
+            </span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- 详情弹窗 -->
-    <div v-if="detailFilter" class="modal modal-open">
+    <div v-if="showAdd" class="modal modal-open">
       <div class="modal-box max-w-2xl">
-        <h3 class="font-bold text-lg mb-2">{{ detailFilter.name }}</h3>
-        <p class="text-sm opacity-60 mb-4">{{ detailFilter.description }}</p>
-
-        <div class="mb-4">
-          <label class="label text-sm">{{ $t('obx.snapshotUrl') }}</label>
-          <div class="flex gap-2">
-            <input
-              v-model="editSnapshotUrl"
-              class="input input-bordered input-sm flex-1"
-              placeholder="https://..."
-            />
-            <button class="btn btn-sm btn-primary" @click="updateFromSnapshot" :disabled="updating">
-              {{ updating ? $t('obx.updating') : $t('obx.updateFromSnapshot') }}
-            </button>
+        <h3 class="font-bold text-lg mb-4">{{ $t('obx.add') || '添加' }}规则集</h3>
+        <div class="space-y-3">
+          <label class="form-control">
+            <span class="label-text">名称</span>
+            <input v-model="form.name" class="input input-bordered" placeholder="如：综合省流" />
+          </label>
+          <label class="form-control">
+            <span class="label-text">方言</span>
+            <select v-model="form.dialect" class="select select-bordered">
+              <option value="surge">Surge</option>
+              <option value="quantumultx">QuantumultX</option>
+            </select>
+          </label>
+          <div class="tabs tabs-boxed w-fit">
+            <a class="tab" :class="{ 'tab-active': inputMode === 'text' }" @click="inputMode = 'text'">粘贴文本</a>
+            <a class="tab" :class="{ 'tab-active': inputMode === 'url' }" @click="inputMode = 'url'">URL</a>
           </div>
+          <label v-if="inputMode === 'text'" class="form-control">
+            <span class="label-text">规则文本（最大 512 KiB）</span>
+            <textarea v-model="form.text" class="textarea textarea-bordered h-48 font-mono text-xs" placeholder="[Rule]&#10;DOMAIN-SUFFIX, ads.example.com, REJECT"></textarea>
+          </label>
+          <label v-else class="form-control">
+            <span class="label-text">HTTPS URL</span>
+            <input v-model="form.source_url" class="input input-bordered" placeholder="https://..." />
+          </label>
+          <div v-if="addErr" class="text-error text-sm">{{ addErr }}</div>
         </div>
-
-        <div class="mb-2 flex items-center justify-between">
-          <span class="text-sm font-bold">{{ $t('obx.blockedDomains') }} ({{ detailDomains.length }})</span>
-          <input
-            v-model="domainSearch"
-            class="input input-bordered input-xs w-48"
-            :placeholder="$t('obx.search')"
-          />
-        </div>
-        <div class="max-h-64 overflow-y-auto bg-base-200 rounded p-2 text-xs font-mono">
-          <div v-for="d in filteredDomains" :key="d" class="py-0.5">{{ d }}</div>
-          <div v-if="!filteredDomains.length" class="opacity-40 text-center py-4">
-            {{ $t('obx.noDomains') }}
-          </div>
-        </div>
-
         <div class="modal-action">
-          <button class="btn btn-sm" @click="detailFilter = null">{{ $t('obx.close') }}</button>
+          <button class="btn btn-ghost" @click="showAdd = false">{{ $t('obx.cancel') }}</button>
+          <button class="btn btn-primary" :disabled="adding" @click="doAdd">
+            {{ adding ? '...' : $t('obx.confirm') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="detail" class="modal modal-open">
+      <div class="modal-box max-w-2xl">
+        <h3 class="font-bold text-lg mb-2">{{ detail.name }}</h3>
+        <div class="text-sm opacity-60 mb-4">
+          {{ detail.dialect }} · {{ detail.rules?.length || 0 }} 条规则 · {{ detail.scripts?.length || 0 }} 个脚本
+        </div>
+        <div v-if="detail.rules?.length" class="max-h-96 overflow-auto">
+          <table class="table table-xs">
+            <thead>
+              <tr><th>动作</th><th>模式</th><th>类型</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in detail.rules.slice(0, 100)" :key="i">
+                <td><span class="badge badge-sm" :class="r.action === 'reject' ? 'badge-error' : 'badge-ghost'">{{ r.action }}</span></td>
+                <td class="font-mono text-xs break-all">{{ r.pattern }}</td>
+                <td class="text-xs opacity-60">{{ r.type }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="detail.rules.length > 100" class="text-xs opacity-60 mt-2">
+            仅显示前 100 条，共 {{ detail.rules.length }} 条
+          </div>
+        </div>
+        <div class="modal-action">
+          <button class="btn btn-ghost" @click="detail = null">{{ $t('obx.close') }}</button>
         </div>
       </div>
     </div>
@@ -102,94 +147,105 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { obxGet, obxPut, obxPost } from '@/openbox/api'
+import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { obxGet, obxPost, obxDel, obxPatch } from '@/openbox/api'
 
-const filters = ref<any[]>([])
+const { t } = useI18n()
+
+const rulesets = ref<any[]>([])
 const loading = ref(false)
-const detailFilter = ref<any>(null)
-const detailDomains = ref<string[]>([])
-const domainSearch = ref('')
-const editSnapshotUrl = ref('')
-const updating = ref(false)
+const showAdd = ref(false)
+const adding = ref(false)
+const addErr = ref('')
+const detail = ref<any>(null)
+const inputMode = ref<'text' | 'url'>('text')
 
-const iconFor = (f: any) => {
-  if (f.name.includes('广告')) return '🚫'
-  if (f.name.includes('跟踪')) return '👁️'
-  if (f.name.includes('恶意')) return '⚠️'
-  return '🛡️'
-}
-
-const domainCount = (f: any) => {
-  const d = f.domains
-  if (Array.isArray(d)) return d.length
-  if (typeof d === 'string') {
-    try { return JSON.parse(d).length } catch { return 0 }
-  }
-  return 0
-}
-
-const filteredDomains = computed(() => {
-  if (!domainSearch.value) return detailDomains.value
-  const q = domainSearch.value.toLowerCase()
-  return detailDomains.value.filter(d => d.toLowerCase().includes(q))
+const form = ref({
+  name: '',
+  dialect: 'surge',
+  text: '',
+  source_url: '',
 })
 
-const formatTime = (t: string) => {
-  try { return new Date(t).toLocaleString() } catch { return t }
-}
-
-async function loadFilters() {
+async function load() {
   loading.value = true
   try {
-    filters.value = await obxGet<any[]>('/api/content-filters')
-  } catch {
-    filters.value = []
+    rulesets.value = await obxGet<any[]>('/api/openbox/content-filter')
+  } catch (e: any) {
+    console.error(e)
   } finally {
     loading.value = false
   }
 }
 
-async function toggleEnabled(f: any) {
-  const newVal = !f.enabled
-  try {
-    await obxPut(`/api/content-filters/${f.id}`, { enabled: newVal })
-    f.enabled = newVal
-  } catch {}
+function hasSkipped(r: any) {
+  return r.skipped_scripts || r.skipped_unsupported || r.skipped_routing || r.skipped_unrepresentable
 }
 
-function showDetail(f: any) {
-  detailFilter.value = f
-  editSnapshotUrl.value = f.snapshot_url || ''
-  let domains: string[] = []
-  if (Array.isArray(f.domains)) domains = f.domains
-  else if (typeof f.domains === 'string') {
-    try { domains = JSON.parse(f.domains) } catch { domains = [] }
+function formatSize(bytes: number) {
+  if (!bytes) return '0 B'
+  if (bytes < 1024) return bytes + ' B'
+  return (bytes / 1024).toFixed(1) + ' KiB'
+}
+
+async function doAdd() {
+  addErr.value = ''
+  if (!form.value.name.trim()) {
+    addErr.value = '请输入名称'
+    return
   }
-  detailDomains.value = domains
-  domainSearch.value = ''
-}
-
-async function updateFromSnapshot() {
-  if (!detailFilter.value || !editSnapshotUrl.value) return
-  updating.value = true
+  adding.value = true
   try {
-    // 先保存 URL
-    await obxPut(`/api/content-filters/${detailFilter.value.id}`, {
-      snapshot_url: editSnapshotUrl.value,
-    })
-    // 再从 URL 拉取
-    const r = await obxPost(`/api/content-filters/${detailFilter.value.id}/refresh`, {})
-    detailFilter.value.snapshot_url = editSnapshotUrl.value
-    if (r.filter) {
-      detailFilter.value = r.filter
-      showDetail(r.filter)
+    const payload: any = {
+      name: form.value.name.trim(),
+      dialect: form.value.dialect,
     }
-    await loadFilters()
-  } catch {} finally {
-    updating.value = false
+    if (inputMode.value === 'text') {
+      payload.text = form.value.text
+    } else {
+      payload.source_url = form.value.source_url.trim()
+    }
+    await obxPost('/api/openbox/content-filter', payload)
+    showAdd.value = false
+    form.value = { name: '', dialect: 'surge', text: '', source_url: '' }
+    load()
+  } catch (e: any) {
+    addErr.value = e.message || '添加失败'
+  } finally {
+    adding.value = false
   }
 }
 
-onMounted(loadFilters)
+async function toggleEnabled(r: any) {
+  try {
+    await obxPatch(`/api/openbox/content-filter/${r.id}`, { enabled: !r.enabled })
+    r.enabled = !r.enabled
+  } catch (e: any) {
+    console.error(e)
+  }
+}
+
+async function delRuleset(r: any) {
+  if (!confirm(`删除规则集 "${r.name}"？`)) return
+  try {
+    await obxDel(`/api/openbox/content-filter/${r.id}`)
+    load()
+  } catch (e: any) {
+    console.error(e)
+  }
+}
+
+async function showDetail(r: any) {
+  try {
+    const data = await obxGet<any>(`/api/openbox/content-filter/${r.id}`)
+    try { data.rules = JSON.parse(data.rules || '[]') } catch { data.rules = [] }
+    try { data.scripts = JSON.parse(data.scripts || '[]') } catch { data.scripts = [] }
+    detail.value = data
+  } catch (e: any) {
+    console.error(e)
+  }
+}
+
+onMounted(load)
 </script>
