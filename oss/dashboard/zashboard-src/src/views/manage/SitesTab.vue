@@ -1074,7 +1074,7 @@ async function openObSel(rule: any) {
       obxGet<any[]>('/api/groups'),
       obxGet<any[]>('/api/chains').catch(() => []),
       obxGet<any[]>('/api/health').catch(() => []),
-      obxGet<any[]>('/api/openbox/subscriptions').catch(() => []),
+      obxGet<any[]>('/api/subscriptions').catch(() => []),
     ])
     obSel.value.nodes = nodes || []
     obSel.value.chains = chains || []
