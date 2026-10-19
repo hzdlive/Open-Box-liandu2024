@@ -745,6 +745,12 @@ def build_config(cfg: AppConfig,
     are dropped so a missing geodata file can never break config validation.
     """
     outbounds = build_outbounds(cfg)
+    def _reorder_rules_for_original(rules: list[dict]) -> list[dict]:
+        """Reorder rules to match original: logical bypass first, then sniff, hijack-dns."""
+        logical_rules = [r for r in rules if r.get("type") == "logical"]
+        other_rules = [r for r in rules if r.get("type") != "logical"]
+        return logical_rules + [{"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}] + other_rules
+
     route_rules, dns_rules, _ = build_route_rules(cfg, skip_rule_sets)
     # split=false: all DNS via the proxy upstream (no direct/proxy split).
     dns_final = "dns-direct"
@@ -835,9 +841,12 @@ def build_config(cfg: AppConfig,
         "route": {
             # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol
             # traffic is handed to the DNS module via the hijack-dns action.
-            # DNS 劫持紧随 sniff（对标原版规则 3）：DNS 协议流量优先交由 DNS 模块处理，
-            # 避免被站点集规则误匹配。
-            "rules": [{"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}] + route_rules,
+            # 规则顺序（对标原版）:
+            # 1. logical 入口绕过（bypass）
+            # 2. sniff
+            # 3. hijack-dns（DNS 协议流量优先交由 DNS 模块处理）
+            # 4. 其余站点集规则
+            "rules": _reorder_rules_for_original(route_rules),
             **({"rule_set": rule_set_decls} if rule_set_decls else {}),
             "final": cfg.routing_fallback or cfg.final_outbound,
             "auto_detect_interface": True,
