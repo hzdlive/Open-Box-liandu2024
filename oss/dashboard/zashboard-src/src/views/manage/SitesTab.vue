@@ -19,6 +19,15 @@
       <span>{{ err }}</span>
     </div>
 
+    <!-- 入口绕过状态（对标原版：显示模式及原因） -->
+    <div v-if="entryPlan" class="mb-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-2 flex items-center gap-2 text-sm">
+      <span class="opacity-60">{{ $t('obx.entryBypassStatus') }}:</span>
+      <span class="badge" :class="entryPlan.mode === 'blacklist' ? 'badge-warning' : 'badge-info'">
+        {{ entryPlan.mode === 'blacklist' ? $t('obx.entryBypassBlacklist') : $t('obx.entryBypassWhitelist') }}
+      </span>
+      <span class="opacity-60 text-xs">{{ entryPlan.reason }}</span>
+    </div>
+
     <!-- 卡片列表（对标原版） -->
     <div class="flex flex-col gap-2">
       <!-- 前置自定义分流（固定顶部） -->
@@ -822,6 +831,15 @@ type SiteSet = {
 
 const sites = ref<SiteSet[]>([])
 const err = ref('')
+const entryPlan = ref<any>(null)
+
+async function loadEntryPlan() {
+  try {
+    entryPlan.value = await obxGet('/api/openbox/entry-plan')
+  } catch (e) {
+    // 静默失败，不阻塞主界面
+  }
+}
 const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
@@ -1176,5 +1194,5 @@ async function saveFallback() {
   fallbackDlg.value = null
 }
 
-onMounted(() => { load(); loadFront() })
+onMounted(() => { load(); loadFront(); loadEntryPlan() })
 </script>

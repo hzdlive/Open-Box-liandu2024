@@ -281,7 +281,7 @@ DEFAULT_SETTINGS = {
     "dns_split": "1",                 # split direct/proxy DNS upstreams; 0 = all via proxy
     "dns_upstream_latency": "{}",      # JSON {upstream: ms} for primary/backup ordering
     "sub_node_direct": "0",           # subscription & node server domains go direct
-    "direct_bypass_kernel": "0",      # direct traffic bypasses kernel at ingress (ipset)
+    "direct_bypass_kernel": "1",      # direct traffic bypasses kernel at ingress (ipset); default ON
     "bypass_ports": "",               # e.g. "21114-21119, 2233"
     "bypass_ports_mode": "black",     # black = these ports bypass; white = only these enter
     "mss_clamp": "0",                 # TCP MSS clamp; 0 = off

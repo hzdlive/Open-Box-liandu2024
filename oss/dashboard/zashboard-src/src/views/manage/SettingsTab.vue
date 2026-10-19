@@ -60,7 +60,7 @@
     <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
       <label class="flex cursor-pointer items-center gap-3">
         <span class="font-bold">{{ $t('obx.directBypassKernel') }}</span>
-        <input v-model="s.direct_bypass" type="checkbox" class="toggle toggle-success" @change="saveBool('direct_bypass')" />
+        <input v-model="s.direct_bypass_kernel" type="checkbox" class="toggle toggle-success" @change="saveBool('direct_bypass_kernel')" />
       </label>
       <p class="mt-1 text-xs opacity-60">{{ $t('obx.directBypassHint') }}</p>
     </div>
@@ -222,7 +222,7 @@ import { onMounted, ref } from 'vue'
 
 const err = ref('')
 const s = ref<any>({
-  install_channel: 'keep', sub_direct: true, direct_bypass: true, block_quic: true,
+  install_channel: 'keep', sub_direct: true, direct_bypass_kernel: true, block_quic: true,
   ipv6: false, tun_stack: 'mixed', tun_mtu: '0', mss_clamp: '0',
   test_url: '', direct_test_url: '', test_expected: '*', retention_months: 3,
   bypass_ports: '', bypass_ports_white: '', port_list_mode: 'black',

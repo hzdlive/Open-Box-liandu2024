@@ -2190,6 +2190,26 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"region": region, "pending": True})
         return jsonify({"region": detected if region == "auto" else region, "pending": False})
 
+    @app.get("/api/openbox/entry-plan")
+    def ob_entry_plan():
+        """Get entry bypass plan (mode + reason).
+        
+        1:1 对标原版：自动模式选择（blacklist/whitelist），规则页显示模式及原因。
+        """
+        from core.entry_plan import entry_plan, plan_to_dict
+        from panel.db import get_setting
+        conn = db()
+        enabled = get_setting(conn, "direct_bypass_kernel", "1") == "1"
+        fakeip = get_setting(conn, "dns_fakeip", "0") == "1"
+        final = get_setting(conn, "final_outbound", "所有-自动")
+        # TODO: 从站点集提取 direct/proxy CIDRs（Phase C）
+        plan = entry_plan(
+            enabled=enabled,
+            fakeip_enabled=fakeip,
+            final_outbound=final,
+        )
+        return jsonify(plan_to_dict(plan))
+
     @app.post("/api/openbox/dns/region-detect")
     def ob_dns_region_post():
         """Detect region by exit IP geolocation (1:1).
