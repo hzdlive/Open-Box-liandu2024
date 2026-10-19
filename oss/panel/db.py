@@ -1011,9 +1011,9 @@ def load_app_config(conn: sqlite3.Connection):
     from core.ruleset import parse_ruleset_text
     nodes = [
         Node(tag=r[0], protocol=r[1], server=r[2], server_port=r[3],
-             params=json.loads(r[4]))
+             params=json.loads(r[4]), sub_id=r[5])
         for r in conn.execute(
-            "SELECT n.tag, n.protocol, n.server, n.port, n.params FROM nodes n"
+            "SELECT n.tag, n.protocol, n.server, n.port, n.params, n.sub_id FROM nodes n"
             " JOIN subscriptions s ON s.id = n.sub_id"
             " WHERE s.enabled = 1 AND n.disabled = 0 ORDER BY n.id")
     ]

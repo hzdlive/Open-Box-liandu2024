@@ -14,6 +14,7 @@ class Node:
     server: str
     server_port: int
     params: dict = field(default_factory=dict)
+    sub_id: int | None = None  # 所属订阅 ID
     # params carries protocol-specific fields, e.g.:
     #   uuid, password, method, security, sni, alpn, fingerprint,
     #   reality{public_key, short_id}, transport{type, path, host, service_name}
