@@ -339,7 +339,7 @@ def build_route_rules(cfg: AppConfig,
     from panel.db import get_setting as _gs
     # 注意：这里需要 conn，暂时用 cfg 中的设置判断
     # 实际的条件在调用处传入，这里先构建基础结构
-    _direct_bypass_on = getattr(cfg, '_direct_bypass_enabled', True)
+    _direct_bypass_on = False  # TEMP DISABLED: debugging unexpected EOF
     if _direct_bypass_on:
         # 收集代理站点集的 geosite（用于排除）
         _proxy_geosites = []
