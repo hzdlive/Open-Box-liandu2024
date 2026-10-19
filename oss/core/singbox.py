@@ -205,6 +205,28 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
 
     outbounds = [node_to_outbound(n) for n in cfg.nodes]
     outbounds += [chain_to_outbound(c) for c in cfg.chains]
+    # 订阅出站组：每个启用的订阅生成一个 urltest，包含该订阅的所有节点
+    # 供前置分流出口选择器选择整个订阅
+    sub_node_tags = {}
+    for n in cfg.nodes:
+        sid = getattr(n, 'sub_id', None)
+        if sid is not None:
+            sub_node_tags.setdefault(sid, []).append(n.tag)
+    for sub in (cfg.subscriptions or []):
+        if not sub.get("enabled", True):
+            continue
+        sid = sub.get("id")
+        tags = sub_node_tags.get(sid, [])
+        if not tags:
+            continue
+        outbounds.append({
+            "type": "urltest",
+            "tag": f"sub-{sid}",
+            "outbounds": tags,
+            "url": cfg.speedtest_url,
+            "interval": "300s",
+            "tolerance": 100,
+        })
     for g in groups:
         if not g.enabled:
             continue

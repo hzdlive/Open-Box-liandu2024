@@ -169,6 +169,7 @@ class AppConfig:
     share_servers: list = field(default_factory=list)
     # 1:1 original: LAN shadowsocks inbounds [{name, address, port, method, password, enabled}]
     front_rules: list = field(default_factory=list)  # list[dict], before site sets
+    subscriptions: list = field(default_factory=list)  # list[dict] {id, name, enabled}
     speedtest_url: str = "http://www.gstatic.com/generate_204"
     sub_node_direct: bool = False  # subscription/node server domains go direct
     sub_domains: list = field(default_factory=list)  # subscription URL hostnames

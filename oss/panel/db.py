@@ -1127,8 +1127,11 @@ def load_app_config(conn: sqlite3.Connection):
                 enabled=bool(r[6]), position=r[7] or 0))
     except Exception:
         pass
+    _subs = [{"id": s["id"], "name": s["name"], "enabled": bool(s.get("enabled", 1))}
+             for s in list_subscriptions(conn)]
     return AppConfig(
         nodes=nodes, site_sets=site_sets, groups=groups, chains=chains, dns=dns,
+        subscriptions=_subs,
         dns_rewrites=rewrites, terminals=terminals, terminal_rules=terminal_rules,
         front_rules=([r for r in list_front_rules(conn) if r["enabled"]]
                      if get_setting(conn, "front_rules_enabled", "1") == "1"

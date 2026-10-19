@@ -518,7 +518,7 @@
               class="input input-bordered input-sm relative w-32 pr-8 text-left"
               @click="openObSel(r)"
             >
-              <span class="block truncate">{{ r.target || '' }}</span>
+              <span class="block truncate">{{ targetDisplay(r.target) }}</span>
               <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-60">▾</span>
             </button>
             <button
@@ -655,6 +655,14 @@
           >
             {{ $t('obx.nodeGroups') }} ({{ obSel.groups.length }})
           </button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            :class="obSel.tab === 'subs' ? 'btn-success' : 'btn-ghost'"
+            @click="obSel.tab = 'subs'; obSel.search = ''"
+          >
+            {{ $t('obx.subscriptions') }} ({{ obSel.subs.length }})
+          </button>
           <div class="relative flex-1">
             <input
               v-model="obSel.search"
@@ -736,7 +744,7 @@
         </div>
         <!-- 节点组列表 -->
         <div
-          v-else
+          v-else-if="obSel.tab === 'groups'"
           class="max-h-96 overflow-y-auto"
         >
           <div
@@ -753,6 +761,28 @@
             @click="selectOb(g.name)"
           >
             <span class="truncate">{{ g.name }}</span>
+          </button>
+        </div>
+        <!-- 订阅列表 -->
+        <div
+          v-else-if="obSel.tab === 'subs'"
+          class="max-h-96 overflow-y-auto"
+        >
+          <div
+            v-if="obSel.loading"
+            class="p-4 text-center opacity-60"
+          >
+            {{ $t('obx.loading') }}
+          </div>
+          <button
+            v-for="s in filteredObSubs"
+            :key="s.id"
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
+            @click="selectOb('sub-' + s.id)"
+          >
+            <span class="truncate">{{ s.name }}</span>
+            <span class="badge badge-ghost badge-xs">{{ s.node_count }}</span>
           </button>
         </div>
       </div>
@@ -878,15 +908,16 @@ const frontRules = ref<any[]>([])
 const frontEnabled = ref(true)
 const groupOptions = ref<string[]>([])
 
-// 出口选择器（节点/节点组双页签）
+// 出口选择器（节点/节点组/订阅三页签）
 const obSel = ref({
   show: false,
   rule: null as any,
-  tab: 'nodes' as 'nodes' | 'groups',
+  tab: 'nodes' as 'nodes' | 'groups' | 'subs',
   search: '',
   nodes: [] as any[],
   groups: [] as any[],
   chains: [] as any[],
+  subs: [] as any[],
   health: {} as Record<string, number>,
   loading: false,
 })
@@ -1038,14 +1069,20 @@ async function openObSel(rule: any) {
   obSel.value.tab = 'nodes'
   obSel.value.loading = true
   try {
-    const [nodes, groups, chains, health] = await Promise.all([
+    const [nodes, groups, chains, health, subs] = await Promise.all([
       obxGet<any[]>('/api/nodes'),
       obxGet<any[]>('/api/groups'),
       obxGet<any[]>('/api/chains').catch(() => []),
       obxGet<any[]>('/api/health').catch(() => []),
+      obxGet<any[]>('/api/openbox/subscriptions').catch(() => []),
     ])
     obSel.value.nodes = nodes || []
     obSel.value.chains = chains || []
+    // 订阅列表（带节点数）
+    obSel.value.subs = (subs || []).map((s: any) => ({
+      ...s,
+      node_count: (nodes || []).filter((n: any) => n.sub_id === s.id).length,
+    }))
     // 过滤掉直连/拒绝（原版节点组页签没有这两项，它们在节点页签的内置区）
     obSel.value.groups = (groups || []).filter(
       (g: any) => g.name !== 'direct' && g.name !== 'block' && g.tag !== 'direct' && g.tag !== 'block',
@@ -1067,6 +1104,18 @@ function selectOb(value: string) {
   }
   obSel.value.show = false
 }
+// 显示目标名称（sub-{id} 显示为订阅名）
+function targetDisplay(target: string): string {
+  if (!target) return ''
+  if (target.startsWith('sub-')) {
+    const sid = parseInt(target.slice(4))
+    const sub = obSel.value.subs.find((s: any) => s.id === sid)
+    if (sub) return sub.name
+    // 如果 subs 未加载，尝试从已加载的数据中查找
+    return target
+  }
+  return target
+}
 const filteredObNodes = computed(() => {
   const q = obSel.value.search.trim().toLowerCase()
   let list = obSel.value.nodes
@@ -1077,6 +1126,12 @@ const filteredObGroups = computed(() => {
   const q = obSel.value.search.trim().toLowerCase()
   let list = obSel.value.groups
   if (q) list = list.filter((g: any) => (g.name || '').toLowerCase().includes(q))
+  return list
+})
+const filteredObSubs = computed(() => {
+  const q = obSel.value.search.trim().toLowerCase()
+  let list = obSel.value.subs
+  if (q) list = list.filter((s: any) => (s.name || '').toLowerCase().includes(q))
   return list
 })
 const filteredObChains = computed(() => {
