@@ -656,10 +656,12 @@ def list_nodes(conn: sqlite3.Connection) -> list[dict]:
         {"id": r[0], "tag": r[1], "protocol": r[2], "server": r[3],
          "port": r[4], "params": json.loads(r[5]), "sub_id": r[6],
          "orig_tag": r[7] or r[1], "custom_tag": r[8] or "",
-         "disabled": bool(r[9])}
+         "disabled": bool(r[9]), "sub_name": r[10] or ""}
         for r in conn.execute(
-            "SELECT id, tag, protocol, server, port, params, sub_id,"
-            " orig_tag, custom_tag, disabled FROM nodes ORDER BY id")
+            "SELECT n.id, n.tag, n.protocol, n.server, n.port, n.params, n.sub_id,"
+            " n.orig_tag, n.custom_tag, n.disabled, s.name"
+            " FROM nodes n LEFT JOIN subscriptions s ON s.id = n.sub_id"
+            " ORDER BY n.id")
     ]
 
 

@@ -312,9 +312,9 @@
                 <template v-if="hitTags.length">
                   <div
                     v-for="t in hitTags"
-                    :key="t"
+                    :key="t.tag"
                   >
-                    {{ t }}
+                    <span v-if="t.sub" class="badge badge-ghost badge-xs mr-1">{{ t.sub }}</span>{{ t.tag }}
                   </div>
                 </template>
                 <div
@@ -454,7 +454,7 @@
                       :value="t.tag"
                       class="checkbox checkbox-sm"
                     />
-                    <span class="flex-1 truncate text-sm">{{ t.tag }}</span>
+                    <span class="flex-1 truncate text-sm"><span v-if="t.sub" class="badge badge-ghost badge-xs mr-1">{{ t.sub }}</span>{{ t.tag }}</span>
                     <span class="badge badge-ghost badge-xs">{{ t.kind }}</span>
                   </label>
                 </div>
@@ -524,7 +524,7 @@
                       :value="t"
                       class="checkbox checkbox-sm"
                     />
-                    <span class="flex-1 truncate text-sm">{{ t }}</span>
+                    <span class="flex-1 truncate text-sm"><span v-if="tagSub(t)" class="badge badge-ghost badge-xs mr-1">{{ tagSub(t) }}</span>{{ t }}</span>
                   </label>
                 </div>
               </div>
@@ -672,12 +672,12 @@ function groupDetail(g: Group) {
   return `${t('obx.dynamicGroup')} · ${t('obx.memberCount', { n: g.member_count })}`
 }
 
-// 动态关键词命中预览
+// 动态关键词命中预览（带订阅名称）
 const hitTags = computed(() => {
   if (!dlg.value || dlg.value.mode !== 'dynamic') return []
   const kws = (dlg.value.keywords || '').split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean)
-  if (!kws.length) return allTags.value.map((x) => x.tag)
-  return allTags.value.filter((x) => kws.some((k: string) => x.tag.toLowerCase().includes(k))).map((x) => x.tag)
+  if (!kws.length) return allTags.value.map((x) => ({ tag: x.tag, sub: x.sub || '' }))
+  return allTags.value.filter((x) => kws.some((k: string) => x.tag.toLowerCase().includes(k))).map((x) => ({ tag: x.tag, sub: x.sub || '' }))
 })
 const hitCount = computed(() => hitTags.value.length)
 
@@ -702,6 +702,11 @@ const selList = computed<string[]>(() => {
   const f = selFilter.value.trim().toLowerCase()
   return curMembers.value.filter((m: string) => !f || m.toLowerCase().includes(f))
 })
+// 按 tag 查订阅名称
+function tagSub(tag: string): string {
+  const found = allTags.value.find((x) => x.tag === tag)
+  return found?.sub || ''
+}
 
 function selectAllAvail() { availChecked.value = availList.value.map((x) => x.tag) }
 function invertAvail() {

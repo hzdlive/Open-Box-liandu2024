@@ -704,7 +704,7 @@
             class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
             @click="selectOb(n.tag || n.name)"
           >
-            <span class="truncate">{{ n.name || n.tag }}</span>
+            <span class="truncate"><span v-if="n.sub_name" class="badge badge-ghost badge-xs mr-1">{{ n.sub_name }}</span>{{ n.name || n.tag }}</span>
             <span
               v-if="obLatency(n.tag || n.name)"
               class="text-sm"
