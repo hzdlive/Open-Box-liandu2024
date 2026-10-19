@@ -3111,7 +3111,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # ---- openbox dashboard config (for the zashboard-based UI auto-connect) ----
     @app.get("/api/openbox/clash-config")
     def openbox_clash_config():
-        cfg = dbmod.load_app_config(db())
+        cfg = dbmod.load_app_config(db(), with_blocked_domains=False)
         return jsonify({"port": cfg.clash_api_port,
                         "secret": cfg.clash_api_secret,
                         "listen": cfg.clash_api_listen})

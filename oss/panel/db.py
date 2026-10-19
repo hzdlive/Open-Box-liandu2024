@@ -1005,7 +1005,7 @@ def delete_device(conn: sqlite3.Connection, did: int) -> bool:
     return cur.rowcount > 0
 
 
-def load_app_config(conn: sqlite3.Connection):
+def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = True):
     from core.models import (AppConfig, Chain, DnsConfig, DnsRewrite, Group, Node,
                              SiteSet, TerminalPolicy, TerminalRule)
     from core.ruleset import parse_ruleset_text
@@ -1142,7 +1142,7 @@ def load_app_config(conn: sqlite3.Connection):
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         tun_address=get_setting(conn, "tun_address", "172.19.0.1/30"),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
-        blocked_domains=get_blocked_domains(conn),
+        blocked_domains=get_blocked_domains(conn) if with_blocked_domains else [],
         clash_api_port=int(get_setting(conn, "clash_api_port", "9090") or 9090),
         clash_api_listen=get_setting(conn, "clash_api_listen", "127.0.0.1"),
         clash_api_secret=get_setting(conn, "clash_api_secret", ""),
