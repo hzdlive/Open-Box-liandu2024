@@ -98,6 +98,13 @@ CREATE TABLE IF NOT EXISTS content_filters(
 );
 -- Content filter rule sets (Surge/QuantumultX manager, 1:1 对标原版).
 -- Replaces content_filters (domain blacklist) with ruleset snapshots.
+-- Direct-answer release set (入口绕过 direct-answer 集合).
+-- TTL 15min~1天，重启持久化，direct→proxy 时清空。
+CREATE TABLE IF NOT EXISTS direct_answer_ips(
+  ip TEXT PRIMARY KEY,
+  expires_at TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT ''  -- DNS 域名来源
+);
 CREATE TABLE IF NOT EXISTS cf_rulesets(
   id TEXT PRIMARY KEY,                    -- e.g. "2aec6f268d71d8f4" (16 hex)
   name TEXT NOT NULL,
