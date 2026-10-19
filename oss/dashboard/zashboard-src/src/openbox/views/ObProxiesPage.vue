@@ -1,106 +1,141 @@
 <template>
-  <div class="ob-proxies">
+  <div class="flex flex-col gap-3 p-3">
     <!-- 顶部 Tab：策略 / 节点 / 订阅 -->
-    <div class="ob-tabs">
-      <button
-        v-for="tab in tabs"
-        :key="tab.key"
-        class="ob-tab"
-        :class="{ active: activeTab === tab.key }"
-        @click="activeTab = tab.key"
-      >
-        {{ tab.label }}({{ tab.count }})
-      </button>
-      <div class="ob-search">
-        <input v-model="searchText" placeholder="搜索 | 多个关键词用空格分隔" />
-        <span v-if="searchText" class="ob-search-clear" @click="searchText = ''">×</span>
+    <div class="flex items-center gap-2 flex-wrap">
+      <div class="tabs tabs-boxed">
+        <a
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="tab whitespace-nowrap"
+          :class="{ 'tab-active': activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          {{ tab.label }}({{ tab.count }})
+        </a>
+      </div>
+      <div class="ml-auto relative">
+        <input
+          v-model="searchText"
+          class="input input-bordered input-sm rounded-full w-70 pr-8"
+          placeholder="搜索 | 多个关键词用空格分隔"
+        />
+        <span
+          v-if="searchText"
+          class="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer opacity-50 hover:opacity-100"
+          @click="searchText = ''"
+        >×</span>
       </div>
     </div>
 
     <!-- 策略 Tab：站点集 -->
-    <div v-if="activeTab === 'policy'" class="ob-cards">
-      <div v-for="site in filteredPolicies" :key="site.id" class="ob-card">
-        <div class="ob-card-head" @click="toggleExpand('policy', site.id)">
-          <div class="ob-card-icon">{{ mapIcon(site.icon, site.name) }}</div>
-          <div class="ob-card-title">
-            <span class="ob-card-name">{{ site.name }}</span>
-            <span class="ob-card-badge">域名穿透</span>
-            <span class="ob-card-type">Selector ({{ site.matched }}/{{ site.total }})</span>
+    <div v-if="activeTab === 'policy'" class="flex flex-col gap-3">
+      <div
+        v-for="site in filteredPolicies"
+        :key="site.id"
+        class="rounded-box border border-base-300/30 bg-base-100 p-4"
+      >
+        <div class="flex items-center gap-3 cursor-pointer" @click="toggleExpand('policy', site.id)">
+          <div class="text-3xl leading-none">{{ mapIcon(site.icon, site.name) }}</div>
+          <div class="flex-1 flex items-center gap-2 flex-wrap">
+            <span class="text-base font-semibold">{{ site.name }}</span>
+            <span class="badge badge-success badge-sm">域名穿透</span>
+            <span class="text-sm opacity-60">Selector ({{ site.matched }}/{{ site.total }})</span>
           </div>
-          <div class="ob-card-latency">{{ site.latency }}</div>
+          <div class="badge" :class="latencyClass(site.latency)">{{ site.latency }}</div>
         </div>
-        <div class="ob-card-chain">
+        <div class="mt-2 text-sm opacity-70">
           <span>🌍 {{ site.currentGroup }}</span>
           <span v-if="site.currentNode"> ⊕ {{ site.currentNode }}</span>
         </div>
-        <div class="ob-card-dots">
+        <div class="mt-2 flex gap-1.5">
           <span
             v-for="(d, i) in site.dots"
             :key="i"
-            class="ob-dot"
-            :class="d"
+            class="w-3 h-3 rounded-full bg-base-300"
+            :class="dotClass(d)"
           ></span>
         </div>
         <!-- 展开：出站选项 -->
-        <div v-if="expanded.policy === site.id" class="ob-options">
+        <div v-if="expanded.policy === site.id" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <div
             v-for="opt in site.options"
             :key="opt.name"
-            class="ob-option"
-            :class="{ selected: opt.name === site.selected }"
+            class="rounded-box border p-3 cursor-pointer transition-colors hover:border-success"
+            :class="opt.name === site.selected
+              ? 'bg-success text-success-content border-success'
+              : 'border-base-300/50 bg-base-100'"
             @click="selectPolicyOutbound(site, opt)"
           >
-            <div class="ob-option-name">{{ opt.icon }} {{ opt.name }}</div>
-            <div class="ob-option-meta">{{ opt.type }} / udp <span class="ob-lat">{{ opt.latency }}</span></div>
+            <div class="text-sm font-medium">{{ opt.icon }} {{ opt.name }}</div>
+            <div class="text-xs opacity-60 mt-1">
+              {{ opt.type }} / udp
+              <span class="badge badge-sm ml-1" :class="opt.name === site.selected ? 'badge-ghost' : latencyClass(opt.latency)">{{ opt.latency }}</span>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
     <!-- 节点 Tab：节点组 -->
-    <div v-if="activeTab === 'node'" class="ob-cards">
-      <div v-for="group in filteredNodes" :key="group.name" class="ob-card">
-        <div class="ob-card-head" @click="toggleExpand('node', group.name)">
-          <div class="ob-card-icon">{{ group.icon || '🎯' }}</div>
-          <div class="ob-card-title">
-            <span class="ob-card-name">{{ group.name }}</span>
-            <span class="ob-card-type">{{ group.typeLabel }} ({{ group.alive }}/{{ group.total }})</span>
+    <div v-if="activeTab === 'node'" class="flex flex-col gap-3">
+      <div
+        v-for="group in filteredNodes"
+        :key="group.name"
+        class="rounded-box border border-base-300/30 bg-base-100 p-4"
+      >
+        <div class="flex items-center gap-3 cursor-pointer" @click="toggleExpand('node', group.name)">
+          <div class="text-3xl leading-none">{{ group.icon || '🎯' }}</div>
+          <div class="flex-1 flex items-center gap-2 flex-wrap">
+            <span class="text-base font-semibold">{{ group.name }}</span>
+            <span class="text-sm opacity-60">{{ group.typeLabel }} ({{ group.alive }}/{{ group.total }})</span>
           </div>
-          <div class="ob-card-latency">{{ group.latency }}</div>
+          <div class="badge" :class="latencyClass(group.latency)">{{ group.latency }}</div>
         </div>
-        <div class="ob-card-sub">{{ group.now }}</div>
-        <div class="ob-card-meta">检测间隔 {{ group.interval }} 秒 · 容差 {{ group.tolerance }} 毫秒</div>
-        <div class="ob-card-dots">
-          <span v-for="(d, i) in group.dots" :key="i" class="ob-dot" :class="d"></span>
+        <div class="mt-1 text-sm opacity-70">{{ group.now }}</div>
+        <div class="mt-1 text-xs opacity-50 text-right">检测间隔 {{ group.interval }} 秒 · 容差 {{ group.tolerance }} 毫秒</div>
+        <div class="mt-2 flex gap-1.5">
+          <span v-for="(d, i) in group.dots" :key="i" class="w-3 h-3 rounded-full bg-base-300" :class="dotClass(d)"></span>
         </div>
         <!-- 展开：成员节点 -->
-        <div v-if="expanded.node === group.name" class="ob-options">
+        <div v-if="expanded.node === group.name" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           <div
             v-for="m in group.members"
             :key="m.name"
-            class="ob-option"
-            :class="{ selected: m.name === group.now }"
+            class="rounded-box border p-3 cursor-pointer transition-colors hover:border-success"
+            :class="m.name === group.now
+              ? 'bg-success text-success-content border-success'
+              : 'border-base-300/50 bg-base-100'"
             @click="selectNode(group, m)"
           >
-            <div class="ob-option-name">{{ m.name }}</div>
-            <div class="ob-option-meta">{{ m.protocol }} / udp <span class="ob-lat">{{ m.latency }}</span></div>
+            <div class="text-sm font-medium">{{ m.name }}</div>
+            <div class="text-xs opacity-60 mt-1">
+              {{ m.protocol }} / udp
+              <span class="badge badge-sm ml-1" :class="m.name === group.now ? 'badge-ghost' : latencyClass(m.latency)">{{ m.latency }}</span>
+            </div>
           </div>
         </div>
         <!-- 故障转移：车道 -->
-        <div v-if="group.isFailover && expanded.node === group.name" class="ob-lanes">
-          <div v-for="lane in group.lanes" :key="lane.name" class="ob-lane">
-            <div class="ob-lane-head">{{ lane.name }} ({{ lane.alive }}/{{ lane.total }})</div>
-            <div
-              v-for="m in lane.members"
-              :key="m.name"
-              class="ob-option"
-              :class="{ selected: m.selected }"
-            >
-              <div class="ob-option-name">{{ m.name }}</div>
-              <div class="ob-option-meta">{{ m.protocol }} / udp <span class="ob-lat">{{ m.latency }}</span></div>
+        <div v-if="group.isFailover && expanded.node === group.name" class="mt-3">
+          <div v-for="lane in group.lanes" :key="lane.name" class="mb-3">
+            <div class="text-sm font-semibold mb-2 opacity-80">{{ lane.name }} ({{ lane.alive }}/{{ lane.total }})</div>
+            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div
+                v-for="m in lane.members"
+                :key="m.name"
+                class="rounded-box border p-3"
+                :class="m.selected
+                  ? 'bg-success text-success-content border-success'
+                  : 'border-base-300/50 bg-base-100'"
+              >
+                <div class="text-sm font-medium">{{ m.name }}</div>
+                <div class="text-xs opacity-60 mt-1">
+                  {{ m.protocol }} / udp
+                  <span class="badge badge-sm ml-1" :class="m.selected ? 'badge-ghost' : latencyClass(m.latency)">{{ m.latency }}</span>
+                </div>
+              </div>
             </div>
           </div>
-          <div v-if="group.switchHistory" class="ob-history">
+          <div v-if="group.switchHistory" class="text-xs opacity-50 mt-2">
             最近切换：{{ group.switchHistory }}
           </div>
         </div>
@@ -108,25 +143,36 @@
     </div>
 
     <!-- 订阅 Tab -->
-    <div v-if="activeTab === 'sub'" class="ob-cards">
-      <div v-for="sub in filteredSubs" :key="sub.id" class="ob-card">
-        <div class="ob-card-head" @click="toggleExpand('sub', sub.id)">
-          <div class="ob-card-title">
-            <span class="ob-card-name">{{ sub.name }} ({{ sub.alive }}/{{ sub.total }})</span>
+    <div v-if="activeTab === 'sub'" class="flex flex-col gap-3">
+      <div
+        v-for="sub in filteredSubs"
+        :key="sub.id"
+        class="rounded-box border border-base-300/30 bg-base-100 p-4"
+      >
+        <div class="flex items-center gap-3 cursor-pointer" @click="toggleExpand('sub', sub.id)">
+          <div class="flex-1 flex items-center gap-2">
+            <span class="text-base font-semibold">{{ sub.name }} ({{ sub.alive }}/{{ sub.total }})</span>
           </div>
-          <div class="ob-card-actions">
-            <button @click.stop="speedtestSub(sub)" title="测速">⚡</button>
-            <button @click.stop="refreshSub(sub)" title="刷新">🔄</button>
+          <div class="flex gap-1">
+            <button class="btn btn-ghost btn-sm text-lg" @click.stop="speedtestSub(sub)" title="测速">⚡</button>
+            <button class="btn btn-ghost btn-sm text-lg" @click.stop="refreshSub(sub)" title="刷新">🔄</button>
           </div>
         </div>
-        <div class="ob-card-meta">更新于 {{ sub.updated }} · {{ sub.traffic }}</div>
-        <div class="ob-card-dots">
-          <span v-for="(d, i) in sub.dots" :key="i" class="ob-dot" :class="d"></span>
+        <div class="mt-1 text-xs opacity-50">更新于 {{ sub.updated }} · {{ sub.traffic }}</div>
+        <div class="mt-2 flex gap-1.5">
+          <span v-for="(d, i) in sub.dots" :key="i" class="w-3 h-3 rounded-full bg-base-300" :class="dotClass(d)"></span>
         </div>
-        <div v-if="expanded.sub === sub.id" class="ob-options">
-          <div v-for="m in sub.nodes" :key="m.name" class="ob-option">
-            <div class="ob-option-name">{{ m.name }}</div>
-            <div class="ob-option-meta">{{ m.protocol }} / udp <span class="ob-lat">{{ m.latency }}</span></div>
+        <div v-if="expanded.sub === sub.id" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            v-for="m in sub.nodes"
+            :key="m.name"
+            class="rounded-box border border-base-300/50 bg-base-100 p-3"
+          >
+            <div class="text-sm font-medium">{{ m.name }}</div>
+            <div class="text-xs opacity-60 mt-1">
+              {{ m.protocol }} / udp
+              <span class="badge badge-sm ml-1" :class="latencyClass(m.latency)">{{ m.latency }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -173,6 +219,24 @@ function mapIcon(iconId: string | undefined, name: string): string {
     'shield': '🛡️',
   }
   return iconMap[key] || '🌐'
+}
+
+// 延迟徽章颜色：按数值分档
+function latencyClass(lat: string | number | undefined): string {
+  const n = typeof lat === 'string' ? parseInt(lat) : (lat ?? NaN)
+  if (isNaN(n)) return 'badge-ghost'
+  if (n <= 0) return 'badge-ghost'
+  if (n < 150) return 'badge-success'
+  if (n < 300) return 'badge-warning'
+  return 'badge-error'
+}
+
+// 状态圆点颜色
+function dotClass(d: string): string {
+  if (d === 'ok') return 'bg-success'
+  if (d === 'warn') return 'bg-warning'
+  if (d === 'err') return 'bg-error'
+  return ''
 }
 
 // Tab 定义
@@ -411,82 +475,3 @@ onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
-
-<style scoped>
-.ob-proxies { padding: 12px; }
-.ob-tabs { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
-.ob-tab {
-  padding: 6px 16px; border-radius: 20px; cursor: pointer; font-size: 14px;
-  border: 1px solid var(--ob-border, #e5e7eb);
-  background: var(--ob-bg, #ffffff);
-  color: var(--ob-text, #374151);
-  transition: all 0.2s;
-}
-.ob-tab.active { background: #22c55e; color: #fff; border-color: #22c55e; }
-.ob-search { margin-left: auto; position: relative; }
-.ob-search input {
-  padding: 6px 12px; border-radius: 20px; font-size: 13px; width: 280px;
-  border: 1px solid var(--ob-border, #e5e7eb);
-  background: var(--ob-bg, #ffffff);
-  color: var(--ob-text, #374151);
-}
-.ob-search-clear { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #9ca3af; }
-.ob-cards { display: flex; flex-direction: column; gap: 12px; }
-.ob-card {
-  border-radius: 12px; padding: 16px;
-  background: var(--ob-bg, #ffffff);
-  border: 1px solid var(--ob-border, #f3f4f6);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-}
-.ob-card-head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
-.ob-card-icon { font-size: 32px; line-height: 1; }
-.ob-card-title { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ob-card-name { font-size: 16px; font-weight: 600; color: var(--ob-text, #111827); }
-.ob-card-badge {
-  font-size: 12px; padding: 2px 8px; border-radius: 10px;
-  background: #dcfce7; color: #16a34a;
-}
-.ob-card-type { font-size: 13px; color: #9ca3af; }
-.ob-card-latency {
-  padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
-  background: #dcfce7; color: #16a34a;
-}
-.ob-card-chain { margin-top: 8px; font-size: 13px; color: var(--ob-text2, #4b5563); }
-.ob-card-sub { margin-top: 4px; font-size: 13px; color: var(--ob-text2, #4b5563); }
-.ob-card-meta { margin-top: 4px; font-size: 12px; color: #9ca3af; text-align: right; }
-.ob-card-dots { margin-top: 8px; display: flex; gap: 6px; }
-.ob-dot { width: 12px; height: 12px; border-radius: 50%; background: #d1d5db; }
-.ob-dot.ok { background: #22c55e; }
-.ob-dot.warn { background: #facc15; }
-.ob-dot.err { background: #ef4444; }
-.ob-card-actions { display: flex; gap: 8px; }
-.ob-card-actions button {
-  border: none; background: none; cursor: pointer; font-size: 18px; color: #9ca3af;
-}
-.ob-card-actions button:hover { color: #4b5563; }
-.ob-options {
-  margin-top: 12px; display: grid; gap: 8px;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-}
-.ob-option {
-  border: 1px solid var(--ob-border, #e5e7eb); border-radius: 8px; padding: 10px;
-  cursor: pointer; transition: all 0.2s;
-  background: var(--ob-bg, #ffffff);
-}
-.ob-option:hover { border-color: #22c55e; }
-.ob-option.selected { background: #22c55e; color: #fff; border-color: #22c55e; }
-.ob-option-name { font-size: 14px; font-weight: 500; }
-.ob-option-meta { font-size: 12px; color: #9ca3af; margin-top: 4px; }
-.ob-option.selected .ob-option-meta { color: rgba(255,255,255,0.8); }
-.ob-lat { background: #dcfce7; color: #16a34a; padding: 1px 8px; border-radius: 8px; font-size: 12px; }
-.ob-option.selected .ob-lat { background: rgba(255,255,255,0.2); color: #fff; }
-.ob-lanes { margin-top: 12px; }
-.ob-lane { margin-bottom: 12px; }
-.ob-lane-head { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--ob-text, #374151); }
-.ob-history { font-size: 12px; color: #9ca3af; margin-top: 8px; }
-/* 深色模式 */
-.dark .ob-tab { --ob-border: #374151; --ob-bg: #1f2937; --ob-text: #e5e7eb; }
-.dark .ob-card { --ob-bg: #1f2937; --ob-border: #374151; --ob-text: #f9fafb; --ob-text2: #d1d5db; }
-.dark .ob-option { --ob-border: #374151; --ob-bg: #1f2937; }
-.dark .ob-search input { --ob-border: #374151; --ob-bg: #1f2937; --ob-text: #e5e7eb; }
-</style>
