@@ -1236,8 +1236,10 @@ def list_chains(conn: sqlite3.Connection) -> list[dict]:
 
 
 def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
-    if d.get("exit_protocol", "socks") not in ("socks", "socks5", "http", "https"):
-        raise ValueError("exit_protocol must be socks|socks5|http|https")
+    _allowed = ("socks", "socks5", "http", "https", "shadowsocks",
+                "vmess", "vless", "trojan", "tuic", "hysteria2", "anytls")
+    if d.get("exit_protocol", "socks") not in _allowed:
+        raise ValueError(f"exit_protocol must be one of {','.join(_allowed)}")
     front = d.get("front", "所有-自动")
     if isinstance(front, list):
         front = front[0] if front else "所有-自动"
@@ -1263,8 +1265,9 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
                      ("server", "server"), ("port", "port"), ("front", "front"),
                      ("enabled", "enabled")):
         if key in d:
-            if key == "exit_protocol" and d[key] not in ("socks", "http"):
-                raise ValueError("exit_protocol must be socks|socks5|http|https")
+            if key == "exit_protocol" and d[key] not in ("socks", "socks5", "http", "https",
+                    "shadowsocks", "vmess", "vless", "trojan", "tuic", "hysteria2", "anytls"):
+                raise ValueError("exit_protocol must be socks|socks5|http|https|shadowsocks|vmess|vless|trojan|tuic|hysteria2|anytls")
             v = d[key]
             if key == "front" and isinstance(v, list):
                 v = v[0] if v else "所有-自动"

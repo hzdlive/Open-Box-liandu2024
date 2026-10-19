@@ -154,6 +154,13 @@
                 <option value="http">HTTP</option>
                 <option value="https">HTTPS</option>
                 <option value="socks5">SOCKS5</option>
+                <option value="shadowsocks">Shadowsocks</option>
+                <option value="vmess">VMess</option>
+                <option value="vless">VLESS</option>
+                <option value="trojan">Trojan</option>
+                <option value="tuic">TUIC</option>
+                <option value="hysteria2">Hysteria2</option>
+                <option value="anytls">AnyTLS</option>
               </select>
               <input
                 v-model="dlg.server"
