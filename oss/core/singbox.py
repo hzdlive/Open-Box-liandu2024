@@ -113,18 +113,24 @@ def node_to_outbound(node: Node) -> dict:
 
 
 def chain_to_outbound(chain: Chain) -> dict:
-    """A chain proxy is an exit outbound (socks5/http) dialing through a front."""
-    ob: dict = {
-        "type": chain.exit_protocol,
-        "tag": chain.name,
-        "server": chain.server,
-        "server_port": chain.server_port,
-        "detour": chain.front,
-    }
-    if chain.params.get("username"):
-        ob["username"] = chain.params["username"]
-    if chain.params.get("password"):
-        ob["password"] = chain.params["password"]
+    """A chain proxy is an exit outbound dialing through a front.
+    
+    Supports all node protocols: socks, http, shadowsocks, vmess, vless,
+    trojan, tuic, hysteria2, anytls. Reuses node_to_outbound logic.
+    """
+    from .models import Node
+    # Convert Chain to Node for protocol handling, then add detour
+    node = Node(
+        tag=chain.name,
+        protocol=chain.exit_protocol,
+        server=chain.server,
+        server_port=chain.server_port,
+        params=chain.params,
+    )
+    ob = node_to_outbound(node)
+    # Override tag (node_to_outbound uses node.tag which is chain.name, OK)
+    # Add detour for chaining
+    ob["detour"] = chain.front
     return ob
 
 
@@ -339,7 +345,7 @@ def build_route_rules(cfg: AppConfig,
     from panel.db import get_setting as _gs
     # 注意：这里需要 conn，暂时用 cfg 中的设置判断
     # 实际的条件在调用处传入，这里先构建基础结构
-    _direct_bypass_on = False  # TEMP DISABLED: debugging unexpected EOF
+    _direct_bypass_on = getattr(cfg, '_direct_bypass_enabled', True)
     if _direct_bypass_on:
         # 收集代理站点集的 geosite（用于排除）
         _proxy_geosites = []

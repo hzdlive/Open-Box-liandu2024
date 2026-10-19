@@ -80,13 +80,17 @@ class Group:
 
 @dataclass
 class Chain:
-    """Chain proxy: exit (socks5/http) reached through a front node/group."""
+    """Chain proxy: exit reached through a front node/group.
+
+    exit_protocol supports: socks, http, shadowsocks, vmess, vless,
+    trojan, tuic, hysteria2, anytls (1:1 with node protocols).
+    """
 
     name: str
-    exit_protocol: str = "socks"  # socks | http
+    exit_protocol: str = "socks"  # socks | http | shadowsocks | vmess | vless | trojan | tuic | hysteria2 | anytls
     server: str = ""
     server_port: int = 0
-    params: dict = field(default_factory=dict)  # username, password
+    params: dict = field(default_factory=dict)  # protocol-specific params
     front: str = "所有-自动"  # tag of the node/group to detour through
 
 
