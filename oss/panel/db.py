@@ -2211,14 +2211,29 @@ def update_content_filter(conn: sqlite3.Connection, fid: int,
 
 
 def get_blocked_domains(conn: sqlite3.Connection) -> list[str]:
-    """All domains from enabled content filters."""
+    """All domains from enabled content filter rulesets (new) + legacy filters."""
     import json as _json
     domains = []
-    for r in conn.execute("SELECT domains FROM content_filters WHERE enabled=1"):
-        try:
-            domains.extend(_json.loads(r[0] or '[]'))
-        except Exception:
-            pass
+    # 新规则集表
+    try:
+        from core import cf_parser as _cfp
+        for r in conn.execute("SELECT rules FROM cf_rulesets WHERE enabled=1"):
+            try:
+                rules = _json.loads(r[0] or '[]')
+                domains.extend(_cfp.rules_to_domains(rules))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # 旧表兼容
+    try:
+        for r in conn.execute("SELECT domains FROM content_filters WHERE enabled=1"):
+            try:
+                domains.extend(_json.loads(r[0] or '[]'))
+            except Exception:
+                pass
+    except Exception:
+        pass
     return sorted(set(domains))
 
 
