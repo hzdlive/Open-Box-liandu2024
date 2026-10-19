@@ -340,15 +340,8 @@ def probe_lane(api_base: str, secret: str, lane: dict,
         req = urllib.request.Request(url, headers=_auth_headers(secret))
         with urllib.request.urlopen(req, timeout=timeout_ms / 1000) as r:
             data = json.loads(r.read())
-            # urltest proxies report delay via /proxies/{name}/delay
-            # For now, check if the proxy exists and get its history
-            history = data.get("history", [])
-            if history:
-                last = history[-1]
-                delay = last.get("delay", 0)
-                return {"ok": delay > 0, "latency_ms": delay,
-                        "reason": "" if delay > 0 else FAIL_TIMEOUT}
-            # No history: trigger a delay test
+            # Always run a fresh delay test; cached history may be stale
+            # (e.g. from before a failure) and would mask real outages.
             return _delay_test(api_base, secret, tag, timeout_ms)
     except urllib.error.HTTPError as e:
         if e.code == 404:
