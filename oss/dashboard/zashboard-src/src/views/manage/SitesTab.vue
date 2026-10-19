@@ -1202,6 +1202,12 @@ async function saveFront() {
     await obxPut('/api/front-rules', { rules })
     frontDlg.value = null
     await loadFront()
+    // 保存后自动应用配置（路由规则变更需要重建配置+重启内核才能生效）
+    try {
+      await obxPost('/api/config/apply?mode=full', {})
+    } catch (e) {
+      err.value = '规则已保存，但配置应用失败，请手动应用配置'
+    }
   } catch (e) { err.value = '保存失败' }
 }
 async function toggleFrontEnabled() {
