@@ -1419,6 +1419,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
         cfg = dbmod.load_app_config(c)
         rewrites = [(r.domain, r.target) for r in cfg.dns_rewrites]
         bypass_terms = [t.ident for t in cfg.terminals if t.policy == "bypass"]
+        # v0.1.340: proxy terminals ALWAYS enter kernel (skip all bypass)
+        proxy_terms = [t.ident for t in cfg.terminals if t.policy == "proxy"]
         # terminal_rules: direct -> bypass kernel; whitelist -> only listed enter
         whitelist_terms = []
         for tr in getattr(cfg, "terminal_rules", []) or []:
@@ -1427,6 +1429,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 bypass_terms.extend(tr.targets)
             elif tr.policy == "whitelist":
                 whitelist_terms.extend(tr.targets)
+            elif tr.policy == "proxy":
+                # v0.1.340: proxy rule terminals always enter kernel
+                proxy_terms.extend(tr.targets)
         site_domains = []
         for s in cfg.site_sets:
             # dnsmasq server=/domain/ matches the domain and its subdomains
@@ -1442,12 +1447,26 @@ def create_app(db_path: str = ":memory:") -> Flask:
         from core.entry_plan import entry_plan as _entry_plan
         direct_bypass = get_setting(c, "direct_bypass_kernel", "1") == "1"
         direct_ipset_domains = []
+        direct_ip_cidrs = []
         if direct_bypass:
             for s in cfg.site_sets:
                 if s.action == "direct":
                     direct_ipset_domains.extend(
                         x for x in list(s.domains) + list(s.domain_suffix) if x)
+                    # v0.1.341: direct ip_cidr bypass at ingress
+                    direct_ip_cidrs.extend(x for x in list(s.ip_cidr) if x)
+            # v0.1.341: front_rules ip_cidr with direct target
+            for fr in cfg.front_rules or []:
+                if not isinstance(fr, dict):
+                    continue
+                if (fr.get("rtype") or "") == "ip_cidr":
+                    target = (fr.get("target") or "").strip().lower()
+                    if target in ("direct", "直连"):
+                        val = (fr.get("domain") or "").strip()
+                        if val:
+                            direct_ip_cidrs.append(val)
             direct_ipset_domains = sorted(set(direct_ipset_domains))
+            direct_ip_cidrs = sorted(set(direct_ip_cidrs))
         # Entry bypass mode (1:1 对标原版)：自动选择 blacklist/whitelist
         _ep = _entry_plan(
             enabled=direct_bypass,
@@ -1464,12 +1483,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
             quic_block=cfg.quic_block,
             terminal_bypass=bypass_terms,
             terminal_whitelist=whitelist_terms,
+            terminal_proxy=proxy_terms,
             dns_rewrites=rewrites,
             dns_direct_ip=_strip_scheme(cfg.dns.direct_dns),
             dns_proxy_ip=_strip_scheme(cfg.dns.proxy_dns),
             site_domains=site_domains,
             dns_filter_conf=_dns_filter_conf_path(c),
             direct_ipset_domains=direct_ipset_domains,
+            direct_ip_cidrs=direct_ip_cidrs,
             bypass_ports=get_setting(c, "bypass_ports", ""),
             bypass_ports_mode=get_setting(c, "bypass_ports_mode", "black"),
             mss_clamp=int(get_setting(c, "mss_clamp", "0") or 0),

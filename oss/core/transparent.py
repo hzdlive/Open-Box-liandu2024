@@ -49,12 +49,14 @@ class TransparentConfig:
     mss_clamp: int = 0              # TCP MSS clamp value; 0 = off
     terminal_bypass: list = field(default_factory=list)  # idents (IP/CIDR) that never enter the kernel
     terminal_whitelist: list = field(default_factory=list)  # if non-empty, ONLY these enter kernel
+    terminal_proxy: list = field(default_factory=list)  # idents that ALWAYS enter kernel (skip all bypass)
     dns_rewrites: list = field(default_factory=list)     # (domain, target) for dnsmasq address=
     dns_direct_ip: str = ""         # direct upstream, for per-domain server= lines
     dns_proxy_ip: str = ""          # proxy upstream, for per-domain server= lines
     site_domains: list = field(default_factory=list)  # (action, [domains/suffixes]) for server= lines
     dns_filter_conf: str = ""       # path to dnsmasq-blocklist.conf ("" = filter off)
     direct_ipset_domains: list = field(default_factory=list)  # direct domains -> ipset (bypass kernel)
+    direct_ip_cidrs: list = field(default_factory=list)  # v0.1.341: direct ip_cidr bypass at ingress
     bypass_ports: str = ""          # e.g. "21114-21119, 2233"
     bypass_ports_mode: str = "black"  # black = these ports bypass; white = only these enter
     # Entry bypass mode (1:1 对标原版):
@@ -119,6 +121,34 @@ def nft_script(cfg: TransparentConfig) -> str:
         tbypass_rule += "\n        ip saddr @tbypass accept"
     if _mac_terms:
         tbypass_rule += "\n        ether saddr @macbypass accept"
+    # Proxy terminals (v0.1.340): ALWAYS enter kernel, skip all bypass rules.
+    # Placed BEFORE bypass rules so direct domains from these terminals
+    # still go into the kernel (other terminals continue to enjoy bypass).
+    _p_mac_terms, _p_ip_terms = _arp.split_mac_ip(cfg.terminal_proxy or [])
+    tproxy_terminals = ""
+    tproxy_rule = ""
+    if _p_ip_terms:
+        pelts = ",\n        ".join(_p_ip_terms)
+        tproxy_terminals += f"""
+        set tproxy4 {{
+            type ipv4_addr
+            flags interval
+            elements = {{
+                {pelts}
+            }}
+        }}"""
+        # Jump to tproxy directly, skipping all bypass accepts
+        tproxy_rule += "\n        ip saddr @tproxy4 goto tproxy_direct"
+    if _p_mac_terms:
+        pmel = ",\n        ".join(_p_mac_terms)
+        tproxy_terminals += f"""
+        set mactproxy {{
+            type ether_addr
+            elements = {{
+                {pmel}
+            }}
+        }}"""
+        tproxy_rule += "\n        ether saddr @mactproxy goto tproxy_direct"
     # Whitelist mode: only listed terminals enter the kernel; all other
     # LAN traffic bypasses (like OpenClash whitelist). DNS also bypasses
     # for non-whitelisted (handled by placing before DNS accept).
@@ -175,6 +205,20 @@ def nft_script(cfg: TransparentConfig) -> str:
             timeout 12h
         }"""
         direct_rule = "\n        ip daddr @obx_direct4 accept"
+    # v0.1.341: Direct IP CIDRs bypass at ingress (from site_sets/front_rules)
+    direct_ip_set = ""
+    direct_ip_rule = ""
+    if cfg.direct_ip_cidrs:
+        cidrs = ",\n        ".join(sorted(set(cfg.direct_ip_cidrs)))
+        direct_ip_set = f"""
+        set obx_direct_ip4 {{
+            type ipv4_addr
+            flags interval
+            elements = {{
+                {cidrs}
+            }}
+        }}"""
+        direct_ip_rule = "\n        ip daddr @obx_direct_ip4 accept"
     # Entry bypass mode (1:1 对标原版):
     # - blacklist: everything bypasses EXCEPT entry_cidrs → create set, accept if NOT in set
     # - whitelist: only entry_cidrs bypass (handled by direct_set above)
@@ -229,14 +273,20 @@ table inet openbox-oss {{
             elements = {{
                 {b4}
             }}
-        }}{v6_chain}{bypass_terminals}{whitelist_set}{direct_set}{entry_set}{da_set}
+        }}{v6_chain}{bypass_terminals}{tproxy_terminals}{whitelist_set}{direct_set}{direct_ip_set}{entry_set}{da_set}
 
     chain prerouting {{
         type filter hook prerouting priority mangle; policy accept;
-        iifname != "{cfg.lan_iface}" accept
-        ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}{da_rule}{entry_rule}
+        iifname != "{cfg.lan_iface}" accept{tproxy_rule}
+        ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}{direct_ip_rule}{da_rule}{entry_rule}
         tcp dport 53 accept
         udp dport 53 accept{port_rule}{quic_rule}{mss_rule}
+        meta l4proto tcp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept
+        meta l4proto udp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept
+    }}
+
+    # Proxy terminals jump here: skip all bypass, go directly to tproxy
+    chain tproxy_direct {{
         meta l4proto tcp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept
         meta l4proto udp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept
     }}{output_chain}
