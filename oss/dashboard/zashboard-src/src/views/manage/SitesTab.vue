@@ -908,6 +908,8 @@ const frontRules = ref<any[]>([])
 const frontEnabled = ref(true)
 const groupOptions = ref<string[]>([])
 
+// 订阅 ID -> 名称映射（用于 target 显示，不依赖弹窗状态）
+const subNameMap = ref<Record<number, string>>({})
 // 出口选择器（节点/节点组/订阅三页签）
 const obSel = ref({
   show: false,
@@ -942,7 +944,7 @@ function ruleSummary(s: SiteSet) {
 
 const frontSummary = computed(() => {
   if (!frontRules.value.length) return t('obx.noFrontRules')
-  return frontRules.value.slice(0, 3).map((r: any) => `${r.value} → ${r.target}`).join(' · ') + (frontRules.value.length > 3 ? '...' : '')
+  return frontRules.value.slice(0, 3).map((r: any) => `${r.value} → ${targetDisplay(r.target)}`).join(' · ') + (frontRules.value.length > 3 ? '...' : '')
 })
 
 function rulePh(type: string) {
@@ -1109,10 +1111,7 @@ function targetDisplay(target: string): string {
   if (!target) return ''
   if (target.startsWith('sub-')) {
     const sid = parseInt(target.slice(4))
-    const sub = obSel.value.subs.find((s: any) => s.id === sid)
-    if (sub) return sub.name
-    // 如果 subs 未加载，尝试从已加载的数据中查找
-    return target
+    return subNameMap.value[sid] || target
   }
   return target
 }
@@ -1329,5 +1328,11 @@ async function saveFallback() {
   fallbackDlg.value = null
 }
 
-onMounted(() => { load(); loadFront(); loadEntryPlan() })
+onMounted(() => {
+  load(); loadFront(); loadEntryPlan()
+  // 预加载订阅名称映射，供 targetDisplay 使用
+  obxGet<any[]>('/api/subscriptions').then((subs: any[]) => {
+    for (const s of subs || []) subNameMap.value[s.id] = s.name
+  }).catch(() => {})
+})
 </script>
