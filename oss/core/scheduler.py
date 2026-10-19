@@ -22,6 +22,10 @@ _lock = threading.Lock()
 def _open_db(dsn: str, uri: bool) -> sqlite3.Connection:
     c = sqlite3.connect(dsn, uri=uri, timeout=30)
     c.execute("PRAGMA foreign_keys=ON")
+    try:
+        c.execute("PRAGMA busy_timeout=30000")
+    except Exception:
+        pass
     return c
 
 

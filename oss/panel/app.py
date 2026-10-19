@@ -102,6 +102,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         _dsn, _uri = db_path, False
         _boot = sqlite3.connect(_dsn, timeout=30)
         _boot.execute("PRAGMA foreign_keys=ON")
+        # WAL 模式：允许多线程并发读 + 单写，避免 scheduler 线程写 failover_state
+        # 时阻塞 Web 请求线程导致 "database is locked" 白屏
+        try:
+            _boot.execute("PRAGMA journal_mode=WAL")
+            _boot.execute("PRAGMA busy_timeout=30000")
+            _boot.execute("PRAGMA synchronous=NORMAL")
+        except Exception:
+            pass
         dbmod.init_db(_boot)
         _boot.close()
 
@@ -118,6 +126,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if "db_conn" not in g:
             c = sqlite3.connect(_dsn, uri=_uri, timeout=30)
             c.execute("PRAGMA foreign_keys=ON")
+            try:
+                c.execute("PRAGMA busy_timeout=30000")
+            except Exception:
+                pass
             g.db_conn = c
         return g.db_conn
 
