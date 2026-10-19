@@ -96,6 +96,25 @@ CREATE TABLE IF NOT EXISTS content_filters(
   domains TEXT NOT NULL DEFAULT '[]',
   updated_at TEXT NOT NULL DEFAULT ''
 );
+-- Content filter rule sets (Surge/QuantumultX manager, 1:1 对标原版).
+-- Replaces content_filters (domain blacklist) with ruleset snapshots.
+CREATE TABLE IF NOT EXISTS cf_rulesets(
+  id TEXT PRIMARY KEY,                    -- e.g. "2aec6f268d71d8f4" (16 hex)
+  name TEXT NOT NULL,
+  dialect TEXT NOT NULL DEFAULT 'surge',  -- surge | quantumultx
+  source_url TEXT NOT NULL DEFAULT '',    -- HTTPS URL or "" for pasted/uploaded
+  text TEXT NOT NULL DEFAULT '',          -- original rule text (max 512 KiB)
+  rules TEXT NOT NULL DEFAULT '[]',       -- parsed rules JSON [{action, pattern, ...}]
+  hostnames TEXT NOT NULL DEFAULT '[]',   -- MITM hostnames
+  arguments TEXT NOT NULL DEFAULT '{}',    -- {values: {}, declared: []}
+  scripts TEXT NOT NULL DEFAULT '[]',     -- downloaded scripts [{url, sha256, content}]
+  enabled INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT '',
+  skipped_scripts INTEGER NOT NULL DEFAULT 0,
+  skipped_unsupported INTEGER NOT NULL DEFAULT 0,
+  skipped_routing INTEGER NOT NULL DEFAULT 0,
+  skipped_unrepresentable INTEGER NOT NULL DEFAULT 0
+);
 -- Front custom routing: domain patterns evaluated BEFORE all site sets.
 CREATE TABLE IF NOT EXISTS front_rules(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2034,6 +2053,60 @@ def _migrate_sub_position(conn: sqlite3.Connection):
 
 
 # ---- content filters (0.1.328) ----
+def _migrate_content_filters_to_rulesets(conn: sqlite3.Connection):
+    """一次性迁移：旧 content_filters（域名黑名单）→ cf_rulesets。
+    
+    每个旧条目转换为一个 quantumultx 风格的规则集，
+    域名转换为 reject 规则。
+    """
+    import json, hashlib, time
+    cur = conn.execute("SELECT COUNT(*) FROM cf_rulesets")
+    if cur.fetchone()[0] > 0:
+        return  # 已迁移
+    cur = conn.execute("SELECT name, description, enabled, snapshot_url, domains FROM content_filters")
+    for name, desc, enabled, url, domains_json in cur.fetchall():
+        try:
+            domains = json.loads(domains_json or "[]")
+        except:
+            domains = []
+        # 生成 id（16位 hex，对标原版格式）
+        rid = hashlib.sha256(f"cf-{name}".encode()).hexdigest()[:16]
+        # 域名 → reject 规则
+        rules = [{"action": "reject", "pattern": d, "type": "domain_suffix"} for d in domains]
+        # 生成文本（quantumultx filter_local 格式）
+        text_lines = [f"host-suffix, {d}, reject" for d in domains]
+        text = "\n".join(text_lines)
+        conn.execute("""INSERT OR IGNORE INTO cf_rulesets
+            (id, name, dialect, source_url, text, rules, hostnames, arguments, scripts,
+             enabled, updated_at, skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0)""",
+            (rid, name, "quantumultx", url or "", text[:524288],
+             json.dumps(rules, ensure_ascii=False), "[]", "{}" if False else '{"values": {}, "declared": []}', "[]",
+             enabled, time.strftime("%Y-%m-%dT%H:%M:%S")))
+    conn.commit()
+
+
+def list_cf_rulesets(conn: sqlite3.Connection) -> list[dict]:
+    """列出所有内容过滤规则集。"""
+    _migrate_content_filters_to_rulesets(conn)
+    cur = conn.execute("""SELECT id, name, dialect, source_url, enabled, updated_at,
+        skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable,
+        LENGTH(text) as text_len FROM cf_rulesets ORDER BY name""")
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def get_cf_ruleset(conn: sqlite3.Connection, rid: str) -> dict | None:
+    """获取规则集详情（含 rules/scripts）。"""
+    _migrate_content_filters_to_rulesets(conn)
+    cur = conn.execute("SELECT * FROM cf_rulesets WHERE id = ?", (rid,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    cols = [d[0] for d in cur.description]
+    return dict(zip(cols, row))
+
+
 def list_content_filters(conn: sqlite3.Connection) -> list[dict]:
     return [{"id": r[0], "name": r[1], "description": r[2], "enabled": bool(r[3]),
              "snapshot_url": r[4], "domain_count": len(__import__('json').loads(r[5] or '[]')),
