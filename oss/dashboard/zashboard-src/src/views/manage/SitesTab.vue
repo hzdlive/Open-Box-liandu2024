@@ -30,6 +30,53 @@
 
     <!-- 卡片列表（对标原版） -->
     <div class="flex flex-col gap-2">
+      <!-- 规则穿透测试 -->
+      <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
+        <div class="mb-2 flex items-center gap-2">
+          <span class="text-xl">🔍</span>
+          <span class="font-medium">{{ $t('obx.penetration') || '规则穿透测试' }}</span>
+        </div>
+        <div class="flex gap-2">
+          <input
+            v-model="penQuery"
+            class="input input-bordered input-sm flex-1"
+            :placeholder="$t('obx.penetrationPh') || '输入域名或 IP，如 google.com'"
+            @keyup.enter="doPenetrate"
+          />
+          <button
+            class="btn btn-primary btn-sm"
+            :disabled="!penQuery.trim() || penLoading"
+            @click="doPenetrate"
+          >
+            {{ $t('obx.test') || '测试' }}
+          </button>
+        </div>
+        <div v-if="penResult" class="mt-3 rounded-box bg-base-200/50 p-3 text-sm">
+          <div class="mb-1">
+            <span class="opacity-60">查询：</span>
+            <span class="font-mono">{{ penResult.query }}</span>
+            <span v-if="penResult.is_ip" class="badge badge-ghost badge-xs ml-1">IP</span>
+            <span v-else class="badge badge-ghost badge-xs ml-1">域名</span>
+          </div>
+          <div v-if="penResult.resolved_ips?.length" class="mb-1">
+            <span class="opacity-60">解析：</span>
+            <span class="font-mono">{{ penResult.resolved_ips.join(', ') }}</span>
+          </div>
+          <div v-if="penResult.matched" class="mb-1">
+            <span class="opacity-60">命中：</span>
+            <span class="badge badge-info badge-sm">{{ penResult.matched.source_name }}</span>
+            <span v-if="penResult.matched.rule_value" class="ml-1 font-mono text-xs">{{ penResult.matched.rule_type }}: {{ penResult.matched.rule_value }}</span>
+          </div>
+          <div class="mb-1">
+            <span class="opacity-60">出口：</span>
+            <span class="font-bold text-success">{{ targetDisplay(penResult.matched?.target || '') }}</span>
+          </div>
+          <div>
+            <span class="opacity-60">DNS：</span>
+            <span class="font-mono text-xs">{{ penResult.dns_server }}</span>
+          </div>
+        </div>
+      </div>
       <!-- 前置自定义分流（固定顶部） -->
       <div
         class="flex items-center gap-3 rounded-box border border-base-300/30 bg-base-100 px-4 py-3"
@@ -905,6 +952,23 @@ const dlgBusy = ref(false)
 const frontDlg = ref<any>(null)
 const fallbackDlg = ref<any>(null)
 const frontRules = ref<any[]>([])
+// 规则穿透测试
+const penQuery = ref('')
+const penResult = ref<any>(null)
+const penLoading = ref(false)
+async function doPenetrate() {
+  const q = penQuery.value.trim()
+  if (!q) return
+  penLoading.value = true
+  penResult.value = null
+  try {
+    penResult.value = await obxPost('/api/openbox/penetration', { query: q })
+  } catch (e) {
+    penResult.value = { query: q, error: String(e) }
+  } finally {
+    penLoading.value = false
+  }
+}
 const frontEnabled = ref(true)
 const groupOptions = ref<string[]>([])
 

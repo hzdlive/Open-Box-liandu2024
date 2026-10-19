@@ -2508,6 +2508,19 @@ def create_app(db_path: str = ":memory:") -> Flask:
             })
         return jsonify({"groups": result})
 
+    @app.post("/api/openbox/penetration")
+    def ob_penetration():
+        """规则穿透测试：输入域名/IP，返回匹配规则与出口。"""
+        from core import penetration as _pen
+        d = request.get_json(force=True, silent=True) or {}
+        query = str(d.get("query", d.get("domain", d.get("ip", "")))).strip()
+        if not query:
+            return jsonify({"ok": False, "error": "query required"}), 400
+        cfg = dbmod.load_app_config(db())
+        result = _pen.penetrate(cfg, query)
+        result["ok"] = True
+        return jsonify(result)
+
     @app.post("/api/openbox/failover/recheck")
     def ob_failover_recheck():
         from core import failover_sm as _fsm
