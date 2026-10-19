@@ -1,18 +1,11 @@
 <template>
   <div class="flex flex-col gap-3 p-3">
-    <!-- 顶部 Tab：策略 / 节点 / 订阅 -->
+    <!-- 顶部 Tab：策略 / 节点 / 订阅（zashboard SegmentedControl 风格） -->
     <div class="flex items-center gap-2 flex-wrap">
-      <div class="tabs tabs-boxed">
-        <a
-          v-for="tab in tabs"
-          :key="tab.key"
-          class="tab whitespace-nowrap"
-          :class="{ 'tab-active': activeTab === tab.key }"
-          @click="activeTab = tab.key"
-        >
-          {{ tab.label }}({{ tab.count }})
-        </a>
-      </div>
+      <SegmentedControl
+        v-model="activeTab"
+        :options="tabOptions"
+      />
       <div class="ml-auto relative">
         <input
           v-model="searchText"
@@ -183,6 +176,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { obxGet, obxPost } from '../api'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
 
 // 图标映射：原版的 icon 标识符 -> emoji
 function mapIcon(iconId: string | undefined, name: string): string {
@@ -436,6 +430,13 @@ async function refreshSub(sub: any) {
     console.error('refresh failed', e)
   }
 }
+
+// Tab 选项（SegmentedControl 格式）
+const tabOptions = computed(() => tabs.map((t) => ({
+  value: t.key,
+  label: t.label,
+  count: t.count.value,
+})))
 
 // 搜索过滤
 const filteredPolicies = computed(() => {
