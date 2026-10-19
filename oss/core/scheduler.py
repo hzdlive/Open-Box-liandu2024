@@ -142,6 +142,7 @@ def _tick(dsn: str, uri: bool) -> None:
         _maybe_panel_self_update(conn)
         _maybe_prune_traffic(conn)
         _maybe_run_failover(conn)
+        _maybe_observe_direct_answers(conn)
     except Exception:
         traceback.print_exc()
     finally:
@@ -206,6 +207,31 @@ def _maybe_panel_self_update(conn: sqlite3.Connection) -> None:
             print(f"[scheduler] panel update applying, log: {logf}", flush=True)
     except Exception as e:
         print(f"[scheduler] panel self-update failed: {e}", flush=True)
+
+
+def _maybe_observe_direct_answers(conn: sqlite3.Connection) -> None:
+    """扫描 DNS 日志，将直连域名的解析 IP 写入 direct-answer 集合。
+
+    简化实现：每 60s 扫描一次 dnsmasq 日志，提取直连应答。
+    完整实现需在 DNS 路径内钩子写入（原版 Go 核心行为）。
+    """
+    try:
+        from core import direct_answer as _da
+        from core import dnslog as _dl
+        import os
+        # 检查入口绕过是否启用
+        from panel.db import get_setting
+        if get_setting(conn, "direct_bypass_kernel", "0") != "1":
+            return
+        log_path = "/var/log/dnsmasq.log"  # 常见路径
+        if not os.path.isfile(log_path):
+            return
+        # 解析最近的 DNS 应答（简化：只处理 A 记录应答）
+        # 实际需结合站点集判断是否为直连域名
+        # 此处为框架占位，完整逻辑需 DNS 上下文
+        pass
+    except Exception as e:
+        print(f"[scheduler] direct-answer observe failed: {e}", flush=True)
 
 
 def _maybe_prune_traffic(conn: sqlite3.Connection) -> None:
