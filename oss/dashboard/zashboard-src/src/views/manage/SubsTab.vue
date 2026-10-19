@@ -50,11 +50,17 @@
         @dragover.prevent
         @drop="dragDrop(idx)"
       >
-        <!-- 卡片头 -->
+        <!-- 卡片头（点击名称区域展开/折叠） -->
         <div class="mb-2 flex items-center gap-2">
-          <span class="cursor-move opacity-40">≡</span>
-          <span class="font-bold">{{ s.name }}</span>
-          <span class="text-sm opacity-60">({{ s.node_count }}/{{ s.node_total }})</span>
+          <span class="cursor-move opacity-40" @click.stop>≡</span>
+          <button
+            class="flex min-w-0 flex-1 items-center gap-2 text-left"
+            @click="toggleExpand(s)"
+          >
+            <span class="text-sm opacity-60">{{ expandedSubs.has(s.id) ? '▾' : '▸' }}</span>
+            <span class="truncate font-bold">{{ s.name }}</span>
+            <span class="shrink-0 text-sm opacity-60">({{ s.node_count }}/{{ s.node_total }})</span>
+          </button>
           <span v-if="!s.enabled" class="badge badge-ghost badge-sm">{{ $t('obx.disabled') }}</span>
           <div class="flex-1" />
           <button class="btn btn-ghost btn-sm btn-square" :class="s.enabled ? 'text-success' : 'opacity-40'" :title="$t('obx.enable')+'/'+$t('obx.disable')" @click="toggleEnabled(s)">⏻</button>
@@ -74,8 +80,8 @@
             <div class="h-1 rounded-full bg-success" :style="{ width: s.traffic_percent + '%' }" />
           </div>
         </div>
-        <!-- 节点状态点 -->
-        <div v-if="s.node_dots?.length" class="flex flex-wrap gap-1">
+        <!-- 节点状态点（折叠时显示） -->
+        <div v-if="s.node_dots?.length && !expandedSubs.has(s.id)" class="flex flex-wrap gap-1">
           <span
             v-for="(d, i) in s.node_dots"
             :key="i"
@@ -83,6 +89,33 @@
             :class="d === 'g' ? 'bg-success' : d === 'y' ? 'bg-warning' : d === 'r' ? 'bg-error' : 'bg-base-300'"
             :title="d"
           />
+        </div>
+        <!-- 展开的节点网格 -->
+        <div v-if="expandedSubs.has(s.id)" class="mt-2">
+          <div v-if="expandingId === s.id" class="py-4 text-center text-sm opacity-60">
+            {{ $t('obx.loading') }}
+          </div>
+          <div v-else-if="(subNodesCache[s.id] || []).length" class="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            <div
+              v-for="n in subNodesCache[s.id]"
+              :key="n.id || n.tag"
+              class="rounded-box border border-base-300/30 bg-base-200/50 p-2"
+            >
+              <div class="truncate text-xs font-medium" :title="n.tag">{{ n.tag }}</div>
+              <div class="mt-1 flex items-center justify-between">
+                <span class="text-[10px] opacity-60">{{ n.protocol }}{{ n.params?.network ? ' / ' + n.params.network : '' }}</span>
+                <span
+                  v-if="subHealthCache[n.tag] != null"
+                  class="badge badge-xs"
+                  :class="Number(subHealthCache[n.tag]) < 300 ? 'badge-success' : Number(subHealthCache[n.tag]) < 800 ? 'badge-warning' : 'badge-error'"
+                >{{ Math.round(Number(subHealthCache[n.tag])) }}</span>
+                <span v-else class="badge badge-ghost badge-xs">-</span>
+              </div>
+            </div>
+          </div>
+          <div v-else class="py-4 text-center text-sm opacity-60">
+            {{ $t('obx.noData') }}
+          </div>
         </div>
         <div v-else-if="!s.enabled" class="text-xs opacity-60">
           {{ $t('obx.subDisabledHint') }}
@@ -553,6 +586,13 @@ const subs = ref<Sub[]>([])
 const loading = ref(false)
 const shareCollapsed = ref(true)
 const previewNodes = ref<any[]>([])
+// 展开状态：已展开的订阅 ID 集合
+const expandedSubs = ref<Set<number>>(new Set())
+// 订阅节点缓存：subId -> nodes
+const subNodesCache = ref<Record<number, any[]>>({})
+// 节点延迟缓存：tag -> latency_ms
+const subHealthCache = ref<Record<string, number | null>>({})
+const expandingId = ref<number | null>(null)
 const previewBusy = ref(false)
 const previewErr = ref('')
 let previewTimer: any = null
@@ -747,6 +787,35 @@ async function toggleEnabled(s: Sub) {
   }
 }
 
+// 展开/折叠订阅卡片，加载节点和延迟
+async function toggleExpand(s: Sub) {
+  if (expandedSubs.value.has(s.id)) {
+    expandedSubs.value.delete(s.id)
+    expandedSubs.value = new Set(expandedSubs.value)
+    return
+  }
+  expandedSubs.value.add(s.id)
+  expandedSubs.value = new Set(expandedSubs.value)
+  // 加载节点（缓存）
+  if (!subNodesCache.value[s.id]) {
+    expandingId.value = s.id
+    try {
+      const nodes = await obxGet<any[]>(`/api/subscriptions/${s.id}/nodes`)
+      subNodesCache.value[s.id] = nodes || []
+    } catch {
+      subNodesCache.value[s.id] = []
+    } finally {
+      expandingId.value = null
+    }
+  }
+  // 刷新延迟（每次展开都刷新）
+  try {
+    const health = await obxGet<any[]>('/api/health')
+    for (const h of health || []) {
+      if (h.tag) subHealthCache.value[h.tag] = h.latency_ms
+    }
+  } catch {}
+}
 async function speedTest(s: Sub) {
   busyId.value = s.id
   err.value = ''
