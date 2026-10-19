@@ -13,7 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-TCP_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks", "socks", "http", "anytls"}
+TCP_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks", "socks", "socks5", "http", "https", "anytls"}
 
 
 @dataclass

@@ -26,7 +26,7 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
                timeout: int = 15) -> dict:
     """Test a chain proxy by routing through it.
 
-    chain: {"name": ..., "exit_protocol": "socks"|"http",
+    chain: {"name": ..., "exit_protocol": "socks"|"http"|"shadowsocks"|"vmess"|"vless"|"trojan"|"tuic"|"hysteria2"|"anytls",
             "server": ..., "server_port": ..., "params": {...},
             "front": "tag of front node/group"}
     front_outbound: the sing-box outbound dict for the front (if any)
@@ -37,17 +37,18 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
               "error": str|None}
     """
     # Build a minimal sing-box config with the chain
-    chain_ob = {
-        "type": chain.get("exit_protocol", "socks"),
-        "tag": "chain-test",
-        "server": chain.get("server", ""),
-        "server_port": int(chain.get("server_port", 0)),
-    }
-    params = chain.get("params", {}) or {}
-    if params.get("username"):
-        chain_ob["username"] = params["username"]
-    if params.get("password"):
-        chain_ob["password"] = params["password"]
+    # 复用 chain_to_outbound 以支持全协议（ss/vmess/vless/trojan/tuic/hy2/anytls）
+    from .singbox import chain_to_outbound
+    from .models import Chain
+    _chain = Chain(
+        name="chain-test",
+        exit_protocol=chain.get("exit_protocol", "socks"),
+        server=chain.get("server", ""),
+        server_port=int(chain.get("server_port", 0)),
+        params=chain.get("params", {}) or {},
+        front=chain.get("front", "direct"),
+    )
+    chain_ob = chain_to_outbound(_chain)
 
     # If there's a front, the chain dials through it
     outbounds = [chain_ob, {"type": "direct", "tag": "direct"}]
