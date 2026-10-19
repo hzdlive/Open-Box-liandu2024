@@ -421,6 +421,13 @@
             v-for="(r, fri) in frontDlg.rules"
             :key="fri"
             class="flex items-center gap-2"
+            :class="{ 'ring-2 ring-primary': frontDragOver === fri }"
+            draggable="true"
+            @dragstart="onFrontDragStart(fri)"
+            @dragover.prevent="onFrontDragOver(fri)"
+            @dragleave="frontDragOver = -1"
+            @drop="onFrontDrop(fri)"
+            @dragend="frontDragOver = -1"
           >
             <span class="cursor-move opacity-40">≡</span>
             <select
@@ -889,6 +896,8 @@ const dragFrom = ref(-1)
 const dragOver = ref(-1)
 const ruleDragFrom = ref<number | string>(-1)
 const ruleDragOver = ref<number | string>(-1)
+const frontDragFrom = ref<number>(-1)
+const frontDragOver = ref<number>(-1)
 
 function ruleSummary(s: SiteSet) {
   const r = s.rules || {}
@@ -1203,6 +1212,18 @@ function onRuleDrop(i: number | string) {
   const [moved] = list.splice(from, 1)
   list.splice(to, 0, moved)
   dlg.value.rules = list
+}
+function onFrontDragStart(i: number) { frontDragFrom.value = i }
+function onFrontDragOver(i: number) { frontDragOver.value = i }
+function onFrontDrop(i: number) {
+  const from = frontDragFrom.value
+  const to = i
+  frontDragFrom.value = -1; frontDragOver.value = -1
+  if (from < 0 || from === to || !frontDlg.value) return
+  const list = [...frontDlg.value.rules]
+  const [moved] = list.splice(from, 1)
+  list.splice(to, 0, moved)
+  frontDlg.value.rules = list
 }
 
 // 前置规则
