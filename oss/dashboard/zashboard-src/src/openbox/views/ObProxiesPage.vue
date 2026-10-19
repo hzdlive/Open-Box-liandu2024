@@ -82,6 +82,12 @@
             <span class="text-base font-semibold">{{ group.name }}</span>
             <span class="text-sm opacity-60">{{ group.typeLabel }} ({{ group.alive }}/{{ group.total }})</span>
           </div>
+          <button
+            v-if="group.isFailover"
+            class="btn btn-ghost btn-xs"
+            title="故障转移检测"
+            @click.stop="recheckFailover(group)"
+          >⚡</button>
           <div class="badge" :class="latencyClass(group.latency)">{{ group.latency }}</div>
         </div>
         <div class="mt-1 text-sm opacity-70">{{ group.now }}</div>
@@ -368,6 +374,16 @@ async function loadNodes() {
   }
 }
 
+// 故障转移手动检测
+async function recheckFailover(group: any) {
+  try {
+    const res = await obxPost('/api/openbox/failover/recheck', { groupId: group.name })
+    // 刷新数据
+    await loadNodes()
+  } catch (e) {
+    console.error('failover recheck failed', e)
+  }
+}
 // 加载订阅
 async function loadSubs() {
   try {

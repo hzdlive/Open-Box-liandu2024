@@ -26,6 +26,8 @@ def _atomic_write_json(path: str, obj: dict) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(obj, f, ensure_ascii=False, indent=2)
+        # 1:1 原版 v0.1.334：配置文件 0600 权限（仅所有者可读写）
+        os.chmod(tmp, 0o600)
         os.replace(tmp, path)
     except BaseException:
         try:
