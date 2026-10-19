@@ -290,11 +290,19 @@ async function loadPolicies() {
 async function loadNodes() {
   try {
     // 经后端代理获取 clash proxies
-    const [clashData, groupsData] = await Promise.all([
+    const [clashData, groupsData, healthData] = await Promise.all([
       obxGet<any>('/api/openbox/clash-proxies'),
       obxGet<any>('/api/groups').catch(() => []),
+      obxGet<any[]>('/api/health').catch(() => []),
     ])
     const proxies = clashData.proxies || {}
+    // 健康数据：tag -> 是否存活（latency_ms > 0）
+    const aliveSet = new Set<string>()
+    for (const h of healthData || []) {
+      if (h.tag && h.latency_ms != null && Number(h.latency_ms) > 0) {
+        aliveSet.add(h.tag)
+      }
+    }
     const dbGroups = Array.isArray(groupsData) ? groupsData : (groupsData.groups || [])
     // 找出故障转移组
     const failoverNames = new Set(
@@ -318,11 +326,12 @@ async function loadNodes() {
         const isFailover = failoverNames.has(name)
         const lanes = (laneMap[name] || []).map(({ name: laneTag, info: laneInfo }: any) => {
           const laneName = laneTag.split('#')[1]
+          const laneMembers = laneInfo.all || []
           return {
             name: laneName,
             tag: laneTag,
-            alive: 0,
-            total: (laneInfo.all || []).length,
+            alive: laneMembers.filter((m: string) => aliveSet.has(m)).length,
+            total: laneMembers.length,
             members: (laneInfo.all || []).map((m: string) => {
               const p = proxies[m] || {}
               return { name: m, protocol: p.type || '', latency: p.latency || '', selected: laneInfo.now === m }
@@ -330,11 +339,13 @@ async function loadNodes() {
             now: laneInfo.now || '',
           }
         })
+        const members = info.all || []
+        const aliveCount = members.filter((m: string) => aliveSet.has(m)).length
         groups.push({
           name,
           typeLabel: isFailover ? '故障转移' : (info.type === 'URLTest' ? 'URLTest' : 'Selector'),
-          alive: info.alive || 0,
-          total: (info.all || []).length,
+          alive: aliveCount,
+          total: members.length,
           latency: info.latency || '',
           now: info.now || '',
           interval: info.interval || 300,
