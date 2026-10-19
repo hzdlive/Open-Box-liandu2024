@@ -2210,9 +2210,27 @@ def update_content_filter(conn: sqlite3.Connection, fid: int,
     return get_content_filter(conn, fid)
 
 
+# 缓存：cf_rulesets 可能很大（73k 规则/6MB JSON），每次 load_app_config 都全量解析会卡死。
+# 按 (db_path, cf_rulesets 最大 updated_at) 做缓存，规则集变更时自动失效。
+_blocked_domains_cache: dict = {}
+
 def get_blocked_domains(conn: sqlite3.Connection) -> list[str]:
     """All domains from enabled content filter rulesets (new) + legacy filters."""
     import json as _json
+    import time as _time
+    # 缓存检查：用规则集表的最大更新时间做失效依据
+    try:
+        db_path = conn.execute("PRAGMA database_list").fetchone()[2]
+        max_updated = conn.execute(
+            "SELECT MAX(updated_at) FROM cf_rulesets WHERE enabled=1").fetchone()[0] or ""
+        max_legacy = conn.execute(
+            "SELECT MAX(rowid) FROM content_filters WHERE enabled=1").fetchone()[0] or 0
+        cache_key = (db_path, max_updated, max_legacy)
+        cached = _blocked_domains_cache.get(cache_key)
+        if cached is not None and _time.time() - cached[0] < 300:
+            return cached[1]
+    except Exception:
+        cache_key = None
     domains = []
     # 新规则集表
     try:
@@ -2234,7 +2252,14 @@ def get_blocked_domains(conn: sqlite3.Connection) -> list[str]:
                 pass
     except Exception:
         pass
-    return sorted(set(domains))
+    result = sorted(set(domains))
+    if cache_key is not None:
+        try:
+            _blocked_domains_cache.clear()  # 只保留最新一份
+            _blocked_domains_cache[cache_key] = (_time.time(), result)
+        except Exception:
+            pass
+    return result
 
 
 def _migrate_share_enabled(conn: sqlite3.Connection):
