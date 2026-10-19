@@ -704,6 +704,26 @@
               {{ obLatency(n.tag || n.name) }}
             </span>
           </button>
+          <!-- 链式代理分组（对标原版） -->
+          <div v-if="filteredObChains.length" class="mb-1 mt-2 px-2 text-xs opacity-60">
+            {{ $t('obx.chains') || '链式代理' }}
+          </div>
+          <button
+            v-for="c in filteredObChains"
+            :key="c.id"
+            type="button"
+            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
+            @click="selectOb(c.name)"
+          >
+            <span class="truncate">{{ c.name }}</span>
+            <span
+              v-if="obLatency(c.name)"
+              class="text-sm"
+              :class="Number(obLatency(c.name)) < 300 ? 'text-success' : Number(obLatency(c.name)) < 800 ? 'text-warning' : 'text-error'"
+            >
+              {{ obLatency(c.name) }}
+            </span>
+          </button>
         </div>
         <!-- 节点组列表 -->
         <div
@@ -857,6 +877,7 @@ const obSel = ref({
   search: '',
   nodes: [] as any[],
   groups: [] as any[],
+  chains: [] as any[],
   health: {} as Record<string, number>,
   loading: false,
 })
@@ -984,12 +1005,14 @@ async function openObSel(rule: any) {
   obSel.value.tab = 'nodes'
   obSel.value.loading = true
   try {
-    const [nodes, groups, health] = await Promise.all([
+    const [nodes, groups, chains, health] = await Promise.all([
       obxGet<any[]>('/api/nodes'),
       obxGet<any[]>('/api/groups'),
+      obxGet<any[]>('/api/chains').catch(() => []),
       obxGet<any[]>('/api/health').catch(() => []),
     ])
     obSel.value.nodes = nodes || []
+    obSel.value.chains = chains || []
     // 过滤掉直连/拒绝（原版节点组页签没有这两项，它们在节点页签的内置区）
     obSel.value.groups = (groups || []).filter(
       (g: any) => g.name !== 'direct' && g.name !== 'block' && g.tag !== 'direct' && g.tag !== 'block',
@@ -1021,6 +1044,12 @@ const filteredObGroups = computed(() => {
   const q = obSel.value.search.trim().toLowerCase()
   let list = obSel.value.groups
   if (q) list = list.filter((g: any) => (g.name || '').toLowerCase().includes(q))
+  return list
+})
+const filteredObChains = computed(() => {
+  const q = obSel.value.search.trim().toLowerCase()
+  let list = obSel.value.chains || []
+  if (q) list = list.filter((c: any) => (c.name || '').toLowerCase().includes(q))
   return list
 })
 function obLatency(tag: string): string {
