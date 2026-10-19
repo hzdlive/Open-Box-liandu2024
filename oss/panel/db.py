@@ -1005,7 +1005,7 @@ def delete_device(conn: sqlite3.Connection, did: int) -> bool:
     return cur.rowcount > 0
 
 
-def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = True):
+def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = False):
     from core.models import (AppConfig, Chain, DnsConfig, DnsRewrite, Group, Node,
                              SiteSet, TerminalPolicy, TerminalRule)
     from core.ruleset import parse_ruleset_text

@@ -1323,7 +1323,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         mode = (request.args.get("mode") or "auto").lower()
         if mode not in ("auto", "hot", "full"):
             return jsonify({"error": "mode must be auto|hot|full"}), 400
-        cfg = dbmod.load_app_config(db())
+        cfg = dbmod.load_app_config(db(), with_blocked_domains=True)
         api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
         secret = getattr(cfg, "clash_api_secret", "") or ""
         try:
@@ -3111,7 +3111,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # ---- openbox dashboard config (for the zashboard-based UI auto-connect) ----
     @app.get("/api/openbox/clash-config")
     def openbox_clash_config():
-        cfg = dbmod.load_app_config(db(), with_blocked_domains=False)
+        cfg = dbmod.load_app_config(db())
         return jsonify({"port": cfg.clash_api_port,
                         "secret": cfg.clash_api_secret,
                         "listen": cfg.clash_api_listen})

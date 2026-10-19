@@ -39,7 +39,7 @@ def _atomic_write_json(path: str, obj: dict) -> None:
 
 def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
     """Build the config from DB and validate it. Returns (config, ok, message)."""
-    app_cfg = dbmod.load_app_config(conn)
+    app_cfg = dbmod.load_app_config(conn, with_blocked_domains=True)
     # Local .srs rule-sets referenced by site sets: fetch missing ones now.
     # Anything still missing is skipped so a missing geodata file can never
     # break validation (degraded routing, warning in the message).
