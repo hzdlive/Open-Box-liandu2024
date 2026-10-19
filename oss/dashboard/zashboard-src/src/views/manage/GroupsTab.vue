@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：出站节点组管理（1:1 对标原版 v0.1.331 出站节点页） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.groups') }}</h2>
       <div class="flex gap-2">
@@ -101,7 +101,7 @@
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-3xl">
+      <div class="modal-box max-w-2xl">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-lg font-bold">
             {{ dlg.id ? $t('obx.editGroup') : $t('obx.addGroup') }}

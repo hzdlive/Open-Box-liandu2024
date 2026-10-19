@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：订阅管理（1:1 对标原版订阅弹窗：订阅/规则/节点三 tab） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.subscriptions') }}</h2>
       <button
@@ -98,7 +98,7 @@
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-3xl">
+      <div class="modal-box max-w-2xl">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-lg font-bold">
             {{ dlg.id ? $t('obx.editSubscription') : $t('obx.addSubOrNode') }}

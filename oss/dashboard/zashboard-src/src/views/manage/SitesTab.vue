@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：目标分流（1:1 对标原版 v0.1.331） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.siteSets') }}</h2>
       <button
@@ -165,7 +165,7 @@
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-3xl">
+      <div class="modal-box max-w-2xl">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-lg font-bold">
             {{ dlg.id ? $t('obx.editSiteSet') : $t('obx.addSiteSet') }}

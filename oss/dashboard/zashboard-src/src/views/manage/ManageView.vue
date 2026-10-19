@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：管理中心。各模块由旧版自研 UI 移植；过渡期 /legacy/ 仍可用。 -->
 <template>
-  <div class="mx-auto max-w-6xl p-4">
+  <div class="flex flex-col gap-3 p-3">
     <div class="tabs tabs-boxed mb-4 w-fit max-w-full flex-wrap">
       <a
         v-for="t in tabs"

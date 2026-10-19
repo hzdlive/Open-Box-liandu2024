@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：链式代理（1:1 对标原版添加/编辑模态框） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.chains') }}</h2>
       <button

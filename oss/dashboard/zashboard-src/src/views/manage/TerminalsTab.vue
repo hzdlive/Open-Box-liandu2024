@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：终端分流（1:1 对标原版添加/编辑终端规则模态框） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.terminals') }}</h2>
       <button

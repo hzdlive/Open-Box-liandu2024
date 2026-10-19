@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：内容过滤 - Surge/QuantumultX 规则集管理器（1:1 对标原版） -->
 <template>
-  <div class="space-y-4">
+  <div class="flex flex-col gap-3">
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.contentFilter') }}</h2>
       <div class="flex gap-2">
@@ -25,9 +25,9 @@
       <div
         v-for="r in rulesets"
         :key="r.id"
-        class="card bg-base-100 shadow-sm border border-base-200"
+        class="rounded-box border border-base-300/30 bg-base-100 p-4"
       >
-        <div class="card-body p-4">
+        <div>
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-3">
               <span class="text-2xl">{{ r.dialect === 'surge' ? '🔷' : '🔶' }}</span>

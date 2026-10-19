@@ -1,6 +1,6 @@
 <!-- Open-Box 二开：共享网络（1:1 对标原版添加/编辑服务器模态框，5种协议） -->
 <template>
-  <div>
+  <div class="flex flex-col gap-3">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="text-lg font-bold">{{ $t('obx.shareNetwork') }}</h2>
       <button

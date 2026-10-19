@@ -1,9 +1,9 @@
 <!-- Open-Box 二开：备份管理。选择性导出/导入（对标原版 behavior-spec §5.8）。 -->
 <template>
-  <div class="space-y-4">
-    <div class="card bg-base-100 shadow">
-      <div class="card-body">
-        <h3 class="card-title text-base">{{ t('obx.backupExport') || '备份导出' }}</h3>
+  <div class="flex flex-col gap-3">
+    <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
+      <div>
+        <h3 class="text-base font-bold">{{ t('obx.backupExport') || '备份导出' }}</h3>
         <p class="text-sm opacity-70">{{ t('obx.backupExportDesc') || '必选分组总是包含，可选分组按需勾选。导出文件不含面板密码。' }}</p>
         <div v-if="loading" class="text-sm opacity-60">加载中…</div>
         <div v-else class="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
@@ -26,7 +26,7 @@
             </span>
           </label>
         </div>
-        <div class="card-actions mt-3">
+        <div class="mt-3 flex justify-end gap-2">
           <button class="btn btn-primary btn-sm" :disabled="exporting" @click="doExport">
             {{ exporting ? '导出中…' : (t('obx.backupDownload') || '下载备份') }}
           </button>
@@ -35,9 +35,9 @@
       </div>
     </div>
 
-    <div class="card bg-base-100 shadow">
-      <div class="card-body">
-        <h3 class="card-title text-base">{{ t('obx.backupImport') || '备份导入' }}</h3>
+    <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
+      <div>
+        <h3 class="text-base font-bold">{{ t('obx.backupImport') || '备份导入' }}</h3>
         <p class="text-sm opacity-70">{{ t('obx.backupImportDesc') || '选择备份文件恢复。导入后建议重启内核。' }}</p>
         <input
           ref="fileInput"
@@ -46,7 +46,7 @@
           class="file-input file-input-sm file-input-bordered w-full max-w-md mt-2"
           @change="onFile"
         />
-        <div class="card-actions mt-3">
+        <div class="mt-3 flex justify-end gap-2">
           <button class="btn btn-warning btn-sm" :disabled="!file || importing" @click="doImport">
             {{ importing ? '导入中…' : (t('obx.backupRestore') || '恢复备份') }}
           </button>
