@@ -57,6 +57,13 @@ class TransparentConfig:
     direct_ipset_domains: list = field(default_factory=list)  # direct domains -> ipset (bypass kernel)
     bypass_ports: str = ""          # e.g. "21114-21119, 2233"
     bypass_ports_mode: str = "black"  # black = these ports bypass; white = only these enter
+    # Entry bypass mode (1:1 对标原版):
+    # - "blacklist" (Default-release): everything bypasses EXCEPT entry_cidrs (proxy/reject sets)
+    # - "whitelist" (Default-enter): only entry_cidrs (direct sets) bypass
+    entry_mode: str = "whitelist"
+    entry_cidrs: list = field(default_factory=list)  # CIDRs for entry_mode
+    # Direct-answer release set: IPs from direct DNS answers, TTL 15min~1d
+    direct_answer_enabled: bool = False
 
 
 def nft_script(cfg: TransparentConfig) -> str:
@@ -168,6 +175,37 @@ def nft_script(cfg: TransparentConfig) -> str:
             timeout 12h
         }"""
         direct_rule = "\n        ip daddr @obx_direct4 accept"
+    # Entry bypass mode (1:1 对标原版):
+    # - blacklist: everything bypasses EXCEPT entry_cidrs → create set, accept if NOT in set
+    # - whitelist: only entry_cidrs bypass (handled by direct_set above)
+    entry_set = ""
+    entry_rule = ""
+    if cfg.entry_mode == "blacklist" and cfg.entry_cidrs:
+        ecidrs = ",\n        ".join(cfg.entry_cidrs)
+        entry_set = """
+        set obx_entry4 {
+            type ipv4_addr
+            flags interval
+            elements = {
+                %s
+            }
+        }""" % ecidrs
+        # Blacklist: accept (bypass) if NOT in the enter-kernel set
+        entry_rule = "\n        ip daddr != @obx_entry4 accept"
+    
+    # Direct-answer release set (blacklist mode only):
+    # IPs from direct DNS answers, TTL 15min~1d, accepted at ingress
+    da_set = ""
+    da_rule = ""
+    if cfg.direct_answer_enabled:
+        da_set = """
+        set obx_direct_answer4 {
+            type ipv4_addr
+            flags dynamic,timeout
+            timeout 1d
+        }"""
+        da_rule = "\n        ip daddr @obx_direct_answer4 accept"
+    
     # Port bypass: blacklist = listed ports bypass the kernel;
     # whitelist = only listed ports enter the kernel.
     port_rule = ""
@@ -191,12 +229,12 @@ table inet openbox-oss {{
             elements = {{
                 {b4}
             }}
-        }}{v6_chain}{bypass_terminals}{whitelist_set}{direct_set}
+        }}{v6_chain}{bypass_terminals}{whitelist_set}{direct_set}{entry_set}{da_set}
 
     chain prerouting {{
         type filter hook prerouting priority mangle; policy accept;
         iifname != "{cfg.lan_iface}" accept
-        ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}
+        ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}{da_rule}{entry_rule}
         tcp dport 53 accept
         udp dport 53 accept{port_rule}{quic_rule}{mss_rule}
         meta l4proto tcp tproxy to 127.0.0.1:{cfg.tproxy_port} meta mark set {cfg.mark:#x} accept

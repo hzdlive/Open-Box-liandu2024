@@ -1439,7 +1439,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 u = u.split("://", 1)[1]
             return u.split("/")[0].split("#")[0]
         from panel.db import get_setting
-        direct_bypass = get_setting(c, "direct_bypass_kernel", "0") == "1"
+        from core.entry_plan import entry_plan as _entry_plan
+        direct_bypass = get_setting(c, "direct_bypass_kernel", "1") == "1"
         direct_ipset_domains = []
         if direct_bypass:
             for s in cfg.site_sets:
@@ -1447,7 +1448,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
                     direct_ipset_domains.extend(
                         x for x in list(s.domains) + list(s.domain_suffix) if x)
             direct_ipset_domains = sorted(set(direct_ipset_domains))
+        # Entry bypass mode (1:1 对标原版)：自动选择 blacklist/whitelist
+        _ep = _entry_plan(
+            enabled=direct_bypass,
+            fakeip_enabled=get_setting(c, "dns_fakeip", "0") == "1",
+            final_outbound=get_setting(c, "final_outbound", "所有-自动"),
+        )
         return TransparentConfig(
+            entry_mode=_ep.mode,
+            direct_answer_enabled=_ep.direct_answer,
             tproxy_port=int(d.get("tproxy_port", 7893)),
             dns_port=int(d.get("dns_port", 1053)),
             lan_iface=d.get("lan_iface", "br-lan"),
