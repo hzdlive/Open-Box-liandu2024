@@ -311,6 +311,8 @@ const ru: LANG_MESSAGE = {
     backupDownload: 'Скачать',
     backupImport: 'Импорт',
     backupImportDesc: 'Выберите файл для восстановления. Перезапустите ядро после импорта.',
+    failoverPrimary: 'Основной',
+    failoverBackupN: 'Резервный {n}',
     backupRestore: 'Восстановить',
     contentFilter: 'Фильтрация контента',
     contentFilterDesc: 'Блокировка рекламных, трекинговых и вредоносных доменов на основе офлайн-снапшотов',

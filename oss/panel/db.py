@@ -1345,11 +1345,14 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
 
 
 def _normalize_lanes(lanes) -> list[dict]:
-    """Normalize failover lanes to [{name, icon, mode, members[]}].
+    """Normalize failover lanes to [{id, name, icon, mode, members[]}].
 
     1:1 对标原版：每页签有独立图标、名称（可选）、模式（auto=自动优选/urltest,
     manual=手动选择/selector）。
+    lane id: 稳定随机 id（对标原版 lane-<base36时间戳>-<5位随机>），
+    无 id 的 lane 自动生成（读时迁移，幂等）。
     """
+    from core.failover_sm import generate_lane_id
     out = []
     if not isinstance(lanes, list):
         return out
@@ -1362,7 +1365,10 @@ def _normalize_lanes(lanes) -> list[dict]:
             mode = "auto"
         members = [str(m).strip() for m in (ln.get("members") or [])
                    if str(m).strip()]
-        out.append({"name": name,
+        # id: 已有则保留，无则生成（存量迁移）
+        lane_id = str(ln.get("id") or "").strip() or generate_lane_id()
+        out.append({"id": lane_id,
+                    "name": name,
                     "icon": str(ln.get("icon") or "").strip(),
                     "mode": mode,
                     "members": members})

@@ -309,6 +309,8 @@ const en = {
     backupDownload: 'Download Backup',
     backupImport: 'Import Backup',
     backupImportDesc: 'Select a backup file to restore. Restart the kernel after import.',
+    failoverPrimary: 'Primary',
+    failoverBackupN: 'Backup {n}',
     backupRestore: 'Restore Backup',
     contentFilter: 'Content Filter',
     contentFilterDesc: 'Block ads, trackers and malware domains via offline snapshots',

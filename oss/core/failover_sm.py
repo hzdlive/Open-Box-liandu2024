@@ -24,6 +24,7 @@ import socket
 import time
 import urllib.request
 import urllib.error
+import uuid
 from dataclasses import dataclass, field, asdict
 
 
@@ -34,7 +35,49 @@ DEFAULT_PROBE_TIMEOUT_MS = 5000  # 探测超时
 DEFAULT_FAIL_THRESHOLD = 2        # 失败阈值（连续失败次数）
 DEFAULT_RESTORE_PRIMARY = True    # 恢复主通道
 DEFAULT_RESTORE_HOLD_MS = 60000   # 恢复保持
-DEFAULT_MAX_LANES = 3             # 最大通道数
+DEFAULT_MAX_LANES = 3
+
+
+def lane_display_name(lane: dict, index: int) -> str:
+    """Display name for a lane: custom name if set, else Primary/Backup n.
+    
+    Args:
+        lane: lane config dict with optional 'name' key
+        index: 0-based position (0=primary)
+    """
+    name = (lane.get("name") or "").strip()
+    if name:
+        return name
+    return "主用" if index == 0 else f"备用{index}"
+
+
+def failover_lane_tag(group_name: str, lane: dict, index: int) -> str:
+    """Unified lane tag generation (single source of truth).
+    
+    - Single member: use member tag directly
+    - Multi-member: {group_name}#{display_name}
+    
+    Both singbox.py and failover_sm.py must use this function.
+    """
+    members = lane.get("members", []) or []
+    if len(members) == 1:
+        return members[0]
+    return f"{group_name}#{lane_display_name(lane, index)}"
+
+
+def generate_lane_id() -> str:
+    """Generate stable random lane id (aligned with original format)."""
+    import time
+    ts = int(time.time() * 1000)
+    # base36 timestamp + 5 random chars
+    chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    b36 = ""
+    n = ts
+    while n > 0:
+        n, r = divmod(n, 36)
+        b36 = chars[r] + b36
+    rand = uuid.uuid4().hex[:5]
+    return f"lane-{b36}-{rand}"             # 最大通道数
 
 
 # ---- Decision reasons (from REA §24.5) ----
@@ -208,18 +251,17 @@ def failover_init(group_name: str, lanes_config: list[dict],
 
     lanes = []
     for i, lc in enumerate(lanes_config[:DEFAULT_MAX_LANES]):
-        lane_id = f"lane-{i}"
-        members = lc.get("members", []) or []
-        # 与 singbox.py 保持一致：单成员 lane 直接用成员 tag，多成员才生成 lane tag
-        if len(members) == 1:
-            lane_tag = members[0]
-        else:
-            lane_tag = f"{group_name}#{lc.get('name', f'lane{i}')}"
+        # id: 优先取配置中的稳定 id，无则生成（不再用位置式 lane-{i}）
+        lane_id = lc.get("id") or generate_lane_id()
+        # tag: 使用统一函数（单成员→成员tag，多成员→{group}#{display}）
+        lane_tag = failover_lane_tag(group_name, lc, i)
         lanes.append({
             "id": lane_id,
             "index": i,
             "tag": lane_tag,
-            "name": lc.get("name", f"通道{i+1}"),
+            # name: 保持原样（空即空），不再伪造"通道N"
+            "name": lc.get("name") or "",
+            "display_name": lane_display_name(lc, i),
             "members": lc.get("members", []),
             "valid": bool(lc.get("members")),
             "health": "unknown",
@@ -503,8 +545,8 @@ def failover_finish(state: FailoverState, decision: dict) -> dict:
         # Log the switch
         state.logs.append({
             "at": now,
-            "from": old_lane.get("name", "?"),
-            "to": new_lane.get("name", "?"),
+            "from": old_lane.get("display_name") or old_lane.get("name", "?"),
+            "to": new_lane.get("display_name") or new_lane.get("name", "?"),
             "reason": decision["reason"],
         })
         # Keep only last 50 logs

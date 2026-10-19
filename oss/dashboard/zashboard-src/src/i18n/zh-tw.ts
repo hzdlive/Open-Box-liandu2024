@@ -311,6 +311,8 @@ const zhTW: LANG_MESSAGE = {
     backupDownload: '下載備份',
     backupImport: '備份導入',
     backupImportDesc: '選擇備份文件恢復。導入後建議重啟內核。',
+    failoverPrimary: '主用',
+    failoverBackupN: '備用{n}',
     backupRestore: '恢復備份',
     contentFilter: '內容過濾',
     contentFilterDesc: '攔截廣告、追蹤器和惡意軟件域名，基於離線規則快照',

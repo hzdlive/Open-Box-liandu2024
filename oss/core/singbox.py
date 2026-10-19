@@ -10,6 +10,7 @@ from __future__ import annotations
 import ipaddress
 
 from .models import AppConfig, Chain, Group, Node
+from .failover_sm import failover_lane_tag
 
 
 def _is_ip_literal(host: str) -> bool:
@@ -222,8 +223,8 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                 # 收集所有 lane 的成员，顶层 urltest 统一健康检查
                 all_members = []
                 for i, ln in enumerate(g.lanes):
-                    lane_name = ln.get("name") or (f"备用{i}" if i > 0 else "主用")
-                    lane_tag = f"{g.name}#{lane_name}"
+                    # 使用统一函数（与 failover_sm.py 一致）
+                    lane_tag = failover_lane_tag(g.name, ln, i)
                     lane_members = [t for t in (ln.get("members") or [])
                                     if t in node_tags or t in chain_tags]
                     if not lane_members:

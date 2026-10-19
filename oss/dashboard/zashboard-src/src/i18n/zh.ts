@@ -311,6 +311,8 @@ const zh: LANG_MESSAGE = {
     backupDownload: '下载备份',
     backupImport: '备份导入',
     backupImportDesc: '选择备份文件恢复。导入后建议重启内核。',
+    failoverPrimary: '主用',
+    failoverBackupN: '备用{n}',
     backupRestore: '恢复备份',
     contentFilter: '内容过滤',
     contentFilterDesc: '拦截广告、跟踪器和恶意软件域名，基于离线规则快照',

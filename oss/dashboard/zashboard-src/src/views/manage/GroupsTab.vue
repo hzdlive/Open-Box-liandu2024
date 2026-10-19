@@ -642,10 +642,13 @@ const curMembers = computed<string[]>({
   },
 })
 function laneTabName(ln: any, i: number) {
-  return (ln?.name || '').trim() || (i === 0 ? '主用' : `备用 ${i}`)
+  const name = (ln?.name || '').trim()
+  if (name) return name
+  // 使用 i18n（对标原版 failoverPrimary / failoverBackupN）
+  return i === 0 ? t('obx.failoverPrimary') : t('obx.failoverBackupN', { n: i })
 }
 function addLane() {
-  dlg.value.lanes.push({ name: '', icon: '', mode: 'auto', members: [] })
+  dlg.value.lanes.push({ id: genLaneId(), name: '', icon: '', mode: 'auto', members: [] })
   activeLane.value = dlg.value.lanes.length - 1
 }
 function removeLane(i: number) {
@@ -806,10 +809,18 @@ function openAdd() {
   dlg.value = baseDlg()
   loadTags()
 }
+// 生成 lane id（对标原版格式）
+function genLaneId() {
+  const ts = Date.now().toString(36)
+  const rand = Math.random().toString(36).slice(2, 7)
+  return `lane-${ts}-${rand}`
+}
 // 切换到故障转移时自动创建主用页签
 function onTypeChange() {
   if (dlg.value?.type === 'failover' && !dlg.value.lanes.length) {
-    dlg.value.lanes.push({ name: '', icon: '', mode: 'auto', members: [] })
+    // 对标原版：转 failover 时播种两个空 lane
+    dlg.value.lanes.push({ id: genLaneId(), name: '', icon: '', mode: 'auto', members: [] })
+    dlg.value.lanes.push({ id: genLaneId(), name: '', icon: '', mode: 'auto', members: [] })
     activeLane.value = 0
   }
 }
