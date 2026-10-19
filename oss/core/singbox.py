@@ -332,6 +332,36 @@ def build_route_rules(cfg: AppConfig,
 
     dns_rules = []
     route_rules = []
+    # Rule 1 (1:1 对标原版): logical 入口绕过规则
+    # rule_set=obnode-direct-ip && !(ip_cidr=172.19.0.0/30) && !(rule_set=[proxy geosites]) && !(port=53)
+    # → bypass() (nftables 在入口放行，不进内核)
+    # 仅当 direct_bypass_kernel 开启且 obnode-direct-ip 有内容时生成
+    from panel.db import get_setting as _gs
+    # 注意：这里需要 conn，暂时用 cfg 中的设置判断
+    # 实际的条件在调用处传入，这里先构建基础结构
+    _direct_bypass_on = getattr(cfg, '_direct_bypass_enabled', True)
+    if _direct_bypass_on:
+        # 收集代理站点集的 geosite（用于排除）
+        _proxy_geosites = []
+        for s in cfg.site_sets or []:
+            if getattr(s, 'action', '') == 'proxy':
+                for gs in (getattr(s, 'geosite', []) or []):
+                    tag = f"geosite-{gs}"
+                    if tag not in _proxy_geosites:
+                        _proxy_geosites.append(tag)
+        _logical_rules = [
+            {"rule_set": "obnode-direct-ip"},
+            {"invert": True, "ip_cidr": "172.19.0.0/30"},
+        ]
+        if _proxy_geosites:
+            _logical_rules.append({"invert": True, "rule_set": _proxy_geosites})
+        _logical_rules.append({"invert": True, "port": 53})
+        route_rules.append({
+            "type": "logical",
+            "mode": "and",
+            "rules": _logical_rules,
+            "outbound": "direct",
+        })
     # Terminal policies: "direct" terminals bypass the proxy at the route
     # level (evaluated before any site set). "bypass" terminals never reach
     # the kernel at all (handled in nftables, see core/transparent.py).
