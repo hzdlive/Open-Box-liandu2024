@@ -962,7 +962,7 @@ async function doPenetrate() {
   penLoading.value = true
   penResult.value = null
   try {
-    penResult.value = await obxPost('/api/openbox/penetration', { query: q })
+    penResult.value = await obxPost('/api/openbox/penetration', { target: q })
   } catch (e) {
     penResult.value = { query: q, error: String(e) }
   } finally {

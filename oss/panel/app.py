@@ -867,16 +867,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/openbox/penetration")
     def ob_penetration():
+        from core import penetration as _pen
         d = request.get_json(force=True, silent=True) or {}
-        target = (d.get("target") or d.get("domain") or "").strip()
+        target = (d.get("target") or d.get("domain") or d.get("query") or "").strip()
         if not target:
             return jsonify({"error": "target is required"}), 400
         cfg = dbmod.load_app_config(db())
-        res = preview_route(cfg.site_sets, target)
-        if res["outbound"] is None:
-            res["outbound"] = cfg.final_outbound
-        # 补充规则集信息
-        res["target"] = target
+        # 新版穿透：前置规则 -> 站点集 -> 兜底
+        res = _pen.penetrate(cfg, target)
+        res["ok"] = True
         return jsonify(res)
 
     # ---- generated sing-box config ----
@@ -2507,19 +2506,6 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 "logs": st.logs[-10:],
             })
         return jsonify({"groups": result})
-
-    @app.post("/api/openbox/penetration")
-    def ob_penetration():
-        """规则穿透测试：输入域名/IP，返回匹配规则与出口。"""
-        from core import penetration as _pen
-        d = request.get_json(force=True, silent=True) or {}
-        query = str(d.get("query", d.get("domain", d.get("ip", "")))).strip()
-        if not query:
-            return jsonify({"ok": False, "error": "query required"}), 400
-        cfg = dbmod.load_app_config(db())
-        result = _pen.penetrate(cfg, query)
-        result["ok"] = True
-        return jsonify(result)
 
     @app.post("/api/openbox/failover/recheck")
     def ob_failover_recheck():
