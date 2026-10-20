@@ -47,7 +47,7 @@
           <div class="mb-2 text-sm font-semibold">{{ $t('obx.displayOrder') }}</div>
           <div class="flex flex-col gap-1">
             <div
-              v-for="(name, i) in orderList" :key="name"
+              v-for="(s, i) in orderList" :key="s.name"
               class="flex items-center gap-2 rounded bg-base-200/60 px-2 py-1.5 text-sm"
               :class="{ 'ring-2 ring-primary': dragOver === i }"
               draggable="true"
@@ -58,7 +58,8 @@
               @dragend="dragOver = -1"
             >
               <span class="cursor-move opacity-40">≡</span>
-              <span class="truncate">{{ name }}</span>
+              <span class="text-base leading-none">{{ siteIcon(s.icon, s.name) }}</span>
+              <span class="truncate">{{ s.name }}</span>
             </div>
             <div v-if="!orderList.length" class="text-sm opacity-50">{{ $t('obx.noData') }}</div>
           </div>
@@ -75,11 +76,12 @@
               <span class="truncate">{{ $t('obx.frontCustomShunt') }}</span>
             </div>
             <div
-              v-for="(s, i) in hitList" :key="s"
+              v-for="(s, i) in hitList" :key="s.name"
               class="flex items-center gap-2 rounded bg-base-200/60 px-2 py-1.5 text-sm"
             >
               <span class="w-5 text-right opacity-50">{{ i + 1 }}</span>
-              <span class="truncate">{{ s }}</span>
+              <span class="text-base leading-none">{{ siteIcon(s.icon, s.name) }}</span>
+              <span class="truncate">{{ s.name }}</span>
             </div>
             <div v-if="!hitList.length && !hasFrontRules" class="text-sm opacity-50">{{ $t('obx.noData') }}</div>
           </div>
@@ -103,8 +105,11 @@ import {
   displayOrder,
   PROXY_CARD_MIN_WIDTH_DEFAULT,
 } from '../composables/useProxySettings'
-import { visibleProxyGroups } from '../composables/useProxyGroupFilter'
+import { siteIcon } from '../composables/useSiteIcon'
 import { proxySortType, minProxyCardWidth, groupProxiesByProvider } from '@/store/settings'
+
+// "其他"：兜底策略，非站点集表的真实行，原版左右列表都展示（命中排序固定末位）
+const FALLBACK_SITE = { name: '其他', icon: 'globe:earth-americas' }
 
 const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{ 'update:show': [boolean] }>()
@@ -112,11 +117,31 @@ const emit = defineEmits<{ 'update:show': [boolean] }>()
 const sort = ref('latencyasc')
 const groupBy = ref(true)
 const cardWidth = ref(PROXY_CARD_MIN_WIDTH_DEFAULT)
-const orderList = ref<string[]>([])
-const hitList = ref<string[]>([])
+const orderList = ref<{ name: string; icon: string }[]>([])
+const hitList = ref<{ name: string; icon: string }[]>([])
 const hasFrontRules = ref(false)
 const dragFrom = ref(-1)
 const dragOver = ref(-1)
+
+function withFallback(sites: any[]): { name: string; icon: string }[] {
+  const list = (sites || [])
+    .map((s: any) => ({ name: s.name, icon: s.icon || '' }))
+    .filter((s: any) => s.name)
+  if (!list.some((s: any) => s.name === FALLBACK_SITE.name)) list.push({ ...FALLBACK_SITE })
+  return list
+}
+// 显示顺序：服务端保存顺序优先，未在保存名单的（新增）按站点集原相对顺序追加
+function sortByDisplayOrder(list: { name: string; icon: string }[]): { name: string; icon: string }[] {
+  const order = displayOrder.value
+  if (!order.length) return list
+  const idx = new Map(order.map((n, i) => [n, i]))
+  return [...list].sort((a, b) => {
+    const ia = idx.get(a.name) ?? Number.MAX_SAFE_INTEGER
+    const ib = idx.get(b.name) ?? Number.MAX_SAFE_INTEGER
+    if (ia !== ib) return ia - ib
+    return list.indexOf(a) - list.indexOf(b)
+  })
+}
 
 watch(
   () => props.show,
@@ -126,16 +151,18 @@ watch(
     sort.value = String(proxySortType.value)
     groupBy.value = !!groupProxiesByProvider.value
     cardWidth.value = minProxyCardWidth.value || PROXY_CARD_MIN_WIDTH_DEFAULT
-    orderList.value = [...visibleProxyGroups.value]
     try {
       const [sites, front] = await Promise.all([
         obxGet<any[]>('/api/sitesets').catch(() => []),
         obxGet<any[]>('/api/front-rules').catch(() => []),
       ])
-      hitList.value = (sites || []).map((s: any) => s.name).filter(Boolean)
+      const all = withFallback(sites)
+      hitList.value = all
+      orderList.value = sortByDisplayOrder(all)
       hasFrontRules.value = (front || []).length > 0
     } catch {
       hitList.value = []
+      orderList.value = []
       hasFrontRules.value = false
     }
   },
@@ -164,8 +191,8 @@ async function onOrderDrop(to: number) {
   const [moved] = list.splice(from, 1)
   list.splice(to, 0, moved)
   orderList.value = list
-  await saveProxySettings({ display_order: list })
-  orderList.value = [...displayOrder.value]
+  await saveProxySettings({ display_order: list.map((s) => s.name) })
+  orderList.value = sortByDisplayOrder(orderList.value)
 }
 function close() {
   emit('update:show', false)

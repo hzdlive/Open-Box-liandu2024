@@ -11,7 +11,7 @@ import { PROXY_SORT_TYPE } from '@/constant'
 
 export const PROXY_CARD_MIN_WIDTH_DEFAULT = 155
 
-// 显示顺序：策略组名数组（服务端 JSON）
+// 显示顺序：策略（站点集）名数组（服务端 JSON，含"其他"兜底名）
 export const displayOrder = ref<string[]>([])
 export const proxySettingsLoaded = ref(false)
 

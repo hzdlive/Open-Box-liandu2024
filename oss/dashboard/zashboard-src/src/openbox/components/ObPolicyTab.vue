@@ -1,7 +1,7 @@
 <template>
   <div class="flex flex-col gap-3">
     <div
-      v-for="site in sites"
+      v-for="site in orderedSites"
       :key="site.id"
       class="rounded-box border border-base-300/30 bg-base-100 p-4"
     >
@@ -40,33 +40,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { obxGet, obxPost } from '../api'
+import { siteIcon } from '../composables/useSiteIcon'
+import { displayOrder } from '../composables/useProxySettings'
 
 const props = defineProps<{ searchText?: string }>()
 
 function mapIcon(iconId: string | undefined, name: string): string {
-  if (!iconId) {
-    const n = name.toLowerCase()
-    if (n.includes('youtube')) return '▶️'
-    if (n.includes('tiktok')) return '🎵'
-    if (n.includes('netflix')) return '🎬'
-    if (n.includes('github')) return '🐙'
-    if (n.includes('google')) return '🔍'
-    if (n.includes('apple')) return '🍎'
-    if (n.includes('microsoft')) return '🪟'
-    if (n.includes('ai') || n.includes('openai')) return '🤖'
-    if (n.includes('game')) return '🎮'
-    if (n.includes('speed')) return '⏱️'
-    return '🌐'
-  }
-  const key = (iconId.split(':')[1] || '')
-  const iconMap: Record<string, string> = {
-    'stopwatch': '⏱️', 'openai-light': '🤖', 'youtube': '▶️', 'tiktok': '🎵',
-    'netflix-mono': '🎬', 'github-mono': '🐙', 'google': '🔍', 'apple': '🍎',
-    'microsoft': '🪟', 'game': '🎮', 'globe': '🌐', 'shield': '🛡️',
-  }
-  return iconMap[key] || '🌐'
+  return siteIcon(iconId, name)
 }
 
 function latencyClass(lat: string | number | undefined): string {
@@ -78,6 +60,19 @@ function latencyClass(lat: string | number | undefined): string {
 }
 
 const sites = ref<any[]>([])
+
+// 显示顺序（策略设置里拖拽保存）：已保存名单优先，未保存的按站点集原序追加
+const orderedSites = computed(() => {
+  const order = displayOrder.value
+  if (!order.length) return sites.value
+  const idx = new Map(order.map((n, i) => [n, i]))
+  return [...sites.value].sort((a, b) => {
+    const ia = idx.get(a.name) ?? Number.MAX_SAFE_INTEGER
+    const ib = idx.get(b.name) ?? Number.MAX_SAFE_INTEGER
+    if (ia !== ib) return ia - ib
+    return sites.value.indexOf(a) - sites.value.indexOf(b)
+  })
+})
 const expanded = ref<string | null>(null)
 
 async function load() {

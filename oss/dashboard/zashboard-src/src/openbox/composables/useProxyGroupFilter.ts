@@ -5,7 +5,6 @@
 // sub-*: 订阅 urltest 组（订阅 Tab 已展示）
 import { computed } from 'vue'
 import { renderProxyGroups } from '@/composables/proxies'
-import { displayOrder } from './useProxySettings'
 
 const HIDDEN_PREFIXES = ['flip-', 'obflip-', '__fo:', 'sub-']
 
@@ -15,16 +14,6 @@ export function isHiddenGroup(name: string): boolean {
   return HIDDEN_PREFIXES.some((p) => name.startsWith(p))
 }
 
-export const visibleProxyGroups = computed(() => {
-  const names = renderProxyGroups.value.filter((name) => !isHiddenGroup(name))
-  const order = displayOrder.value
-  if (!order.length) return names
-  const idx = new Map(order.map((n, i) => [n, i]))
-  // 已保存顺序的在前，未知组（新增/改名）按原相对顺序追加末尾
-  return [...names].sort((a, b) => {
-    const ia = idx.get(a) ?? Number.MAX_SAFE_INTEGER
-    const ib = idx.get(b) ?? Number.MAX_SAFE_INTEGER
-    if (ia !== ib) return ia - ib
-    return names.indexOf(a) - names.indexOf(b)
-  })
-})
+export const visibleProxyGroups = computed(() =>
+  renderProxyGroups.value.filter((name) => !isHiddenGroup(name)),
+)

@@ -36,7 +36,7 @@
 | `proxy_sort` | defaultsort \| nameasc \| namedesc \| latencyasc \| latencydesc | latencyasc（原版截图当前值） |
 | `proxy_group_by_provider` | 0 / 1 | 1（原版截图为开） |
 | `proxy_card_min_width` | 整数 px | 155 |
-| `proxy_display_order` | JSON 数组（策略组名，如 ["Speed","AI",...]） | 空 = 按 `visibleProxyGroups` 原生顺序 |
+| `proxy_display_order` | JSON 数组（站点集名，如 ["Speed","AI",...,"其他"]） | 空 = 按站点集原生顺序 |
 
 API（复用现有 settings 读写习惯）：
 - `GET /api/openbox/proxy-settings` → `{sort, group_by_provider, card_min_width, display_order[]}`

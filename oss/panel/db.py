@@ -321,7 +321,7 @@ DEFAULT_SETTINGS = {
     "proxy_sort": "latencyasc",      # defaultsort|nameasc|namedesc|latencyasc|latencydesc
     "proxy_group_by_provider": "1",  # 1 = group nodes by subscription in proxy groups
     "proxy_card_min_width": "155",   # px
-    "proxy_display_order": "[]",     # JSON: ordered group names for proxies page display
+    "proxy_display_order": "[]",     # JSON: 策略（站点集）显示顺序，含"其他"兜底名
     "update_auto": "0",           # panel self auto-update (original: updates.openbox.auto)
     "update_hour": "4",           # hour of day to check (original: updates.openbox.hour)
     "update_channel": "auto",     # release channel (original: updates.openbox.channel)
