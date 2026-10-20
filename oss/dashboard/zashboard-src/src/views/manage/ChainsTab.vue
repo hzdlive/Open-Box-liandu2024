@@ -253,83 +253,8 @@
       </div>
     </div>
 
-    <!-- 上游选择器 -->
-    <div
-      v-if="obSel.show"
-      class="modal modal-open"
-    >
-      <div class="modal-box max-w-lg">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-lg font-bold">{{ $t('obx.selectOutbound') }}</h3>
-          <button
-            class="btn btn-ghost btn-sm btn-square"
-            @click="obSel.show = false"
-          >
-            ✕
-          </button>
-        </div>
-        <div class="mb-3 flex gap-2">
-          <button
-            type="button"
-            class="btn btn-sm"
-            :class="obSel.tab === 'nodes' ? 'btn-success' : 'btn-ghost'"
-            @click="obSel.tab = 'nodes'; obSel.search = ''"
-          >
-            {{ $t('obx.nodes') }} ({{ obSel.nodes.length }})
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm"
-            :class="obSel.tab === 'groups' ? 'btn-success' : 'btn-ghost'"
-            @click="obSel.tab = 'groups'; obSel.search = ''"
-          >
-            {{ $t('obx.nodeGroups') }} ({{ obSel.groups.length }})
-          </button>
-          <div class="relative flex-1">
-            <input
-              v-model="obSel.search"
-              class="input input-bordered input-sm w-full pr-8"
-              :placeholder="$t('obx.search')"
-            />
-            <button
-              v-if="obSel.search"
-              class="btn btn-ghost btn-xs absolute right-1 top-1/2 -translate-y-1/2"
-              @click="obSel.search = ''"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        <div
-          v-if="obSel.tab === 'nodes'"
-          class="max-h-96 overflow-y-auto"
-        >
-          <button
-            v-for="n in filteredObNodes"
-            :key="n.id || n.tag"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb(n.tag || n.name)"
-          >
-            <span class="truncate">{{ n.name || n.tag }}</span>
-          </button>
-        </div>
-        <div
-          v-else
-          class="max-h-96 overflow-y-auto"
-        >
-          <button
-            v-for="g in filteredObGroups"
-            :key="g.id"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb(g.name)"
-          >
-            <span class="truncate">{{ g.name }}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- 上游选择器（共享组件，不含订阅/链式页签） -->
+    <ObOutboundSelector v-model:show="selShow" :show-subs="false" :show-chains="false" @select="onSelPick" />
   </div>
 </template>
 
@@ -337,6 +262,7 @@
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import ObOutboundSelector from '@/openbox/components/ObOutboundSelector.vue'
 
 const { t } = useI18n()
 
@@ -353,13 +279,7 @@ const dlgBusy = ref(false)
 const testing = ref(false)
 const testResult = ref<{ ok: boolean; latency_ms?: number | null; latency?: number | null; exit_ip?: string | null; country?: string | null; error?: string } | null>(null)
 
-const obSel = ref({
-  show: false,
-  tab: 'nodes' as 'nodes' | 'groups',
-  search: '',
-  nodes: [] as any[],
-  groups: [] as any[],
-})
+const selShow = ref(false)
 
 async function load() {
   err.value = ''
@@ -513,39 +433,14 @@ async function testDlgSpeed() {
 }
 
 // 上游选择器
-async function openObSel() {
-  obSel.value.show = true
-  obSel.value.search = ''
-  obSel.value.tab = 'nodes'
-  try {
-    const [nodes, groups] = await Promise.all([
-      obxGet<any[]>('/api/nodes'),
-      obxGet<any[]>('/api/groups'),
-    ])
-    obSel.value.nodes = nodes || []
-    obSel.value.groups = (groups || []).filter(
-      (g: any) => g.name !== 'direct' && g.name !== 'block',
-    )
-  } catch (e) { /* 忽略 */ }
+function openObSel() {
+  selShow.value = true
 }
 
-function selectOb(v: string) {
+function onSelPick(v: string) {
   if (dlg.value) dlg.value.front = v
-  obSel.value.show = false
 }
 
-const filteredObNodes = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.nodes
-  if (q) list = list.filter((n: any) => (n.name || n.tag || '').toLowerCase().includes(q))
-  return list
-})
-const filteredObGroups = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.groups
-  if (q) list = list.filter((g: any) => (g.name || '').toLowerCase().includes(q))
-  return list
-})
 
 onMounted(load)
 </script>

@@ -669,171 +669,8 @@
       </div>
     </div>
 
-    <!-- 出口选择器（节点/节点组） -->
-    <div
-      v-if="obSel.show"
-      class="modal modal-open"
-    >
-      <div class="modal-box max-w-lg">
-        <div class="mb-3 flex items-center justify-between">
-          <h3 class="text-lg font-bold">{{ $t('obx.selectOutbound') }}</h3>
-          <button
-            class="btn btn-ghost btn-sm btn-square"
-            @click="obSel.show = false"
-          >
-            ✕
-          </button>
-        </div>
-        <!-- 页签 -->
-        <div class="mb-3 flex gap-2">
-          <button
-            type="button"
-            class="btn btn-sm"
-            :class="obSel.tab === 'nodes' ? 'btn-success' : 'btn-ghost'"
-            @click="obSel.tab = 'nodes'; obSel.search = ''"
-          >
-            {{ $t('obx.nodes') }} ({{ obSel.nodes.length }})
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm"
-            :class="obSel.tab === 'groups' ? 'btn-success' : 'btn-ghost'"
-            @click="obSel.tab = 'groups'; obSel.search = ''"
-          >
-            {{ $t('obx.nodeGroups') }} ({{ obSel.groups.length }})
-          </button>
-          <button
-            type="button"
-            class="btn btn-sm"
-            :class="obSel.tab === 'subs' ? 'btn-success' : 'btn-ghost'"
-            @click="obSel.tab = 'subs'; obSel.search = ''"
-          >
-            {{ $t('obx.subscriptions') }} ({{ obSel.subs.length }})
-          </button>
-          <div class="relative flex-1">
-            <input
-              v-model="obSel.search"
-              class="input input-bordered input-sm w-full pr-8"
-              :placeholder="$t('obx.search')"
-            />
-            <button
-              v-if="obSel.search"
-              class="btn btn-ghost btn-xs absolute right-1 top-1/2 -translate-y-1/2"
-              @click="obSel.search = ''"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-        <!-- 节点列表 -->
-        <div
-          v-if="obSel.tab === 'nodes'"
-          class="max-h-96 overflow-y-auto"
-        >
-          <div class="mb-1 px-2 text-xs opacity-60">{{ $t('obx.builtin') }}</div>
-          <button
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb('direct')"
-          >
-            <span>{{ $t('obx.direct') }}</span>
-          </button>
-          <button
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb('reject')"
-          >
-            <span>{{ $t('obx.reject') }}</span>
-          </button>
-          <div class="mb-1 mt-2 px-2 text-xs opacity-60">{{ $t('obx.nodes') }}</div>
-          <div
-            v-if="obSel.loading"
-            class="p-4 text-center opacity-60"
-          >
-            {{ $t('obx.loading') }}
-          </div>
-          <button
-            v-for="n in filteredObNodes"
-            :key="n.id || n.tag"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb(n.tag || n.name)"
-          >
-            <span class="truncate"><span v-if="n.sub_name" class="badge badge-ghost badge-xs mr-1">{{ n.sub_name }}</span>{{ n.name || n.tag }}</span>
-            <span
-              v-if="obLatency(n.tag || n.name)"
-              class="text-sm"
-              :class="Number(obLatency(n.tag || n.name)) < 300 ? 'text-success' : Number(obLatency(n.tag || n.name)) < 800 ? 'text-warning' : 'text-error'"
-            >
-              {{ obLatency(n.tag || n.name) }}
-            </span>
-          </button>
-          <!-- 链式代理分组（对标原版） -->
-          <div v-if="filteredObChains.length" class="mb-1 mt-2 px-2 text-xs opacity-60">
-            {{ $t('obx.chains') || '链式代理' }}
-          </div>
-          <button
-            v-for="c in filteredObChains"
-            :key="c.id"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb(c.name)"
-          >
-            <span class="truncate">{{ c.name }}</span>
-            <span
-              v-if="obLatency(c.name)"
-              class="text-sm"
-              :class="Number(obLatency(c.name)) < 300 ? 'text-success' : Number(obLatency(c.name)) < 800 ? 'text-warning' : 'text-error'"
-            >
-              {{ obLatency(c.name) }}
-            </span>
-          </button>
-        </div>
-        <!-- 节点组列表 -->
-        <div
-          v-else-if="obSel.tab === 'groups'"
-          class="max-h-96 overflow-y-auto"
-        >
-          <div
-            v-if="obSel.loading"
-            class="p-4 text-center opacity-60"
-          >
-            {{ $t('obx.loading') }}
-          </div>
-          <button
-            v-for="g in filteredObGroups"
-            :key="g.id"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb(g.name)"
-          >
-            <span class="truncate">{{ g.name }}</span>
-          </button>
-        </div>
-        <!-- 订阅列表 -->
-        <div
-          v-else-if="obSel.tab === 'subs'"
-          class="max-h-96 overflow-y-auto"
-        >
-          <div
-            v-if="obSel.loading"
-            class="p-4 text-center opacity-60"
-          >
-            {{ $t('obx.loading') }}
-          </div>
-          <button
-            v-for="s in filteredObSubs"
-            :key="s.id"
-            type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="selectOb('sub-' + s.id)"
-          >
-            <span class="truncate">{{ s.name }}</span>
-            <span class="badge badge-ghost badge-xs">{{ s.node_count }}</span>
-          </button>
-        </div>
-      </div>
-    </div>
+    <!-- 出口选择器（共享组件） -->
+    <ObOutboundSelector v-model:show="selShow" @select="onSelPick" />
 
     <!-- 规则详情弹窗（geosite/geoip） -->
     <div
@@ -898,6 +735,7 @@ import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { computed, nextTick, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { GEOSITE_CATEGORIES, GEOIP_COUNTRIES } from './geodata'
+import ObOutboundSelector from '@/openbox/components/ObOutboundSelector.vue'
 
 const { t } = useI18n()
 
@@ -974,19 +812,9 @@ const groupOptions = ref<string[]>([])
 
 // 订阅 ID -> 名称映射（用于 target 显示，不依赖弹窗状态）
 const subNameMap = ref<Record<number, string>>({})
-// 出口选择器（节点/节点组/订阅三页签）
-const obSel = ref({
-  show: false,
-  rule: null as any,
-  tab: 'nodes' as 'nodes' | 'groups' | 'subs',
-  search: '',
-  nodes: [] as any[],
-  groups: [] as any[],
-  chains: [] as any[],
-  subs: [] as any[],
-  health: {} as Record<string, number>,
-  loading: false,
-})
+// 出口选择器（共享组件 ObOutboundSelector）
+const selShow = ref(false)
+const selRule = ref<any>(null)
 
 // 拖拽
 const dragFrom = ref(-1)
@@ -1128,47 +956,12 @@ const filteredDetailItems = computed(() => {
 
 // 站点集 CRUD
 // 出口选择器
-async function openObSel(rule: any) {
-  obSel.value.rule = rule
-  obSel.value.show = true
-  obSel.value.search = ''
-  obSel.value.tab = 'nodes'
-  obSel.value.loading = true
-  try {
-    const [nodes, groups, chains, health, subs] = await Promise.all([
-      obxGet<any[]>('/api/nodes'),
-      obxGet<any[]>('/api/groups'),
-      obxGet<any[]>('/api/chains').catch(() => []),
-      obxGet<any[]>('/api/health').catch(() => []),
-      obxGet<any[]>('/api/subscriptions').catch(() => []),
-    ])
-    obSel.value.nodes = nodes || []
-    obSel.value.chains = chains || []
-    // 订阅列表（带节点数）
-    obSel.value.subs = (subs || []).map((s: any) => ({
-      ...s,
-      node_count: (nodes || []).filter((n: any) => n.sub_id === s.id).length,
-    }))
-    // 过滤掉直连/拒绝（原版节点组页签没有这两项，它们在节点页签的内置区）
-    obSel.value.groups = (groups || []).filter(
-      (g: any) => g.name !== 'direct' && g.name !== 'block' && g.tag !== 'direct' && g.tag !== 'block',
-    )
-    const hm: Record<string, number> = {}
-    for (const h of (health || [])) {
-      if (h.latency_ms != null) hm[h.tag] = h.latency_ms
-    }
-    obSel.value.health = hm
-  } catch (e) {
-    // 忽略加载错误
-  } finally {
-    obSel.value.loading = false
-  }
+function openObSel(rule: any) {
+  selRule.value = rule
+  selShow.value = true
 }
-function selectOb(value: string) {
-  if (obSel.value.rule) {
-    obSel.value.rule.target = value
-  }
-  obSel.value.show = false
+function onSelPick(value: string) {
+  if (selRule.value) selRule.value.target = value
 }
 // 显示目标名称（sub-{id} 显示为订阅名）
 function targetDisplay(target: string): string {
@@ -1178,34 +971,6 @@ function targetDisplay(target: string): string {
     return subNameMap.value[sid] || target
   }
   return target
-}
-const filteredObNodes = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.nodes
-  if (q) list = list.filter((n: any) => (n.name || n.tag || '').toLowerCase().includes(q))
-  return list
-})
-const filteredObGroups = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.groups
-  if (q) list = list.filter((g: any) => (g.name || '').toLowerCase().includes(q))
-  return list
-})
-const filteredObSubs = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.subs
-  if (q) list = list.filter((s: any) => (s.name || '').toLowerCase().includes(q))
-  return list
-})
-const filteredObChains = computed(() => {
-  const q = obSel.value.search.trim().toLowerCase()
-  let list = obSel.value.chains || []
-  if (q) list = list.filter((c: any) => (c.name || '').toLowerCase().includes(q))
-  return list
-})
-function obLatency(tag: string): string {
-  const v = obSel.value.health[tag]
-  return v != null ? String(v) : ''
 }
 async function load() {
   try {
