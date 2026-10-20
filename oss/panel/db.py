@@ -318,6 +318,10 @@ DEFAULT_SETTINGS = {
     "router_region": "cn",               # router region code
     "share_lan_enabled": "0",   # expose a mixed inbound on LAN for other devices
     "share_lan_port": "8088",
+    "proxy_sort": "latencyasc",      # defaultsort|nameasc|namedesc|latencyasc|latencydesc
+    "proxy_group_by_provider": "1",  # 1 = group nodes by subscription in proxy groups
+    "proxy_card_min_width": "155",   # px
+    "proxy_display_order": "[]",     # JSON: ordered group names for proxies page display
     "update_auto": "0",           # panel self auto-update (original: updates.openbox.auto)
     "update_hour": "4",           # hour of day to check (original: updates.openbox.hour)
     "update_channel": "auto",     # release channel (original: updates.openbox.channel)

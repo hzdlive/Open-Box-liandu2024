@@ -2348,6 +2348,51 @@ def create_app(db_path: str = ":memory:") -> Flask:
         )
         return jsonify(plan_to_dict(plan))
 
+    @app.get("/api/openbox/proxy-settings")
+    def ob_proxy_settings_get():
+        """代理页策略设置（排序/分组/卡宽/显示顺序），服务端持久化。"""
+        from panel.db import get_setting
+        import json as _json
+        conn = db()
+        try:
+            order = _json.loads(get_setting(conn, "proxy_display_order", "[]") or "[]")
+            if not isinstance(order, list):
+                order = []
+        except ValueError:
+            order = []
+        return jsonify({
+            "sort": get_setting(conn, "proxy_sort", "latencyasc"),
+            "group_by_provider": get_setting(conn, "proxy_group_by_provider", "1") == "1",
+            "card_min_width": int(get_setting(conn, "proxy_card_min_width", "155") or 155),
+            "display_order": order,
+        })
+
+    @app.put("/api/openbox/proxy-settings")
+    def ob_proxy_settings_put():
+        """部分更新代理页策略设置。"""
+        from panel.db import get_setting, set_setting
+        import json as _json
+        d = request.get_json(force=True, silent=True) or {}
+        conn = db()
+        if "sort" in d and d["sort"] in ("defaultsort", "nameasc", "namedesc",
+                                         "latencyasc", "latencydesc"):
+            set_setting(conn, "proxy_sort", d["sort"])
+        if "group_by_provider" in d:
+            set_setting(conn, "proxy_group_by_provider",
+                        "1" if d["group_by_provider"] else "0")
+        if "card_min_width" in d:
+            try:
+                w = max(80, min(400, int(d["card_min_width"])))
+            except (TypeError, ValueError):
+                w = 155
+            set_setting(conn, "proxy_card_min_width", str(w))
+        if "display_order" in d and isinstance(d["display_order"], list):
+            names = [str(x) for x in d["display_order"] if isinstance(x, str)][:64]
+            set_setting(conn, "proxy_display_order",
+                        _json.dumps(names, ensure_ascii=False))
+        conn.commit()
+        return ob_proxy_settings_get()
+
     @app.post("/api/openbox/dns/region-detect")
     def ob_dns_region_post():
         """Detect region by exit IP geolocation (1:1).

@@ -32,7 +32,7 @@
     </template>
     <template v-slot:content>
       <Component
-        :is="groupProxiesByProvider ? ProxiesByProvider : ProxiesContent"
+        :is="groupProxiesByProvider ? ObProxiesBySub : ProxiesContent"
         :name="name"
         :now="proxyGroup.now"
         :render-proxies="renderProxies"
@@ -50,8 +50,10 @@ import { proxyMap } from '@/assembly/proxies'
 import { groupProxiesByProvider } from '@/store/settings'
 import { computed, ref } from 'vue'
 import CollapseCard from '../common/CollapseCard.vue'
-import ProxiesByProvider from './ProxiesByProvider.vue'
 import ProxiesContent from './ProxiesContent.vue'
+// Open-Box 二开：按订阅分段改用自研组件（原生按 provider-name 分组，
+// sing-box 出站无此字段不适用；groupProxiesByProvider 开关本身继续复用原生）
+import ObProxiesBySub from '@/openbox/components/ObProxiesBySub.vue'
 import ProxyGroupHeader from './ProxyGroupHeader.vue'
 import ProxyGroupHeaderForMobile from './ProxyGroupHeaderForMobile.vue'
 import ProxyPreview from './ProxyPreview.vue'
