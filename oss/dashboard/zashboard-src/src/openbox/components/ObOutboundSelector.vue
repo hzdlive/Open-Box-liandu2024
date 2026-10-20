@@ -17,7 +17,7 @@
         <button type="button" class="btn btn-sm" :class="tab === 'groups' ? 'btn-success' : 'btn-ghost'" @click="tab = 'groups'; search = ''">
           {{ $t('obx.nodeGroups') }} ({{ groups.length }})
         </button>
-        <button v-if="showSubs" type="button" class="btn btn-sm" :class="tab === 'subs' ? 'btn-success' : 'btn-ghost'" @click="tab = 'subs'; search = ''">
+        <button type="button" class="btn btn-sm" :class="tab === 'subs' ? 'btn-success' : 'btn-ghost'" @click="tab = 'subs'; search = ''">
           {{ $t('obx.subscriptions') }} ({{ subs.length }})
         </button>
         <div class="relative flex-1">
@@ -44,7 +44,7 @@
           <span class="truncate"><span v-if="n.sub_name" class="badge badge-ghost badge-xs mr-1">{{ n.sub_name }}</span>{{ n.name || n.tag }}</span>
           <span v-if="latency(n.tag || n.name)" class="text-sm" :class="latencyCls(n.tag || n.name)">{{ latency(n.tag || n.name) }}</span>
         </button>
-        <template v-if="showChains">
+        <template>
           <div v-if="filteredChains.length" class="mb-1 mt-2 px-2 text-xs opacity-60">
             {{ $t('obx.chains') || '链式代理' }}
           </div>
@@ -70,7 +70,7 @@
         </button>
       </div>
       <!-- 订阅列表 -->
-      <div v-else-if="tab === 'subs' && showSubs" class="max-h-96 overflow-y-auto">
+      <div v-else-if="tab === 'subs'" class="max-h-96 overflow-y-auto">
         <div v-if="loading" class="p-4 text-center opacity-60">{{ $t('obx.loading') }}</div>
         <button
           v-for="s in filteredSubs" :key="s.id" type="button"
@@ -89,18 +89,11 @@
 import { ref, computed, watch } from 'vue'
 import { obxGet } from '../api'
 
-const props = defineProps<{
-  show: boolean
-  showSubs?: boolean   // 订阅页签（默认显示；链式/终端用不到可关）
-  showChains?: boolean // 节点页签内的链式代理分组（默认显示）
-}>()
+const props = defineProps<{ show: boolean }>()
 const emit = defineEmits<{
   (e: 'update:show', v: boolean): void
   (e: 'select', value: string): void
 }>()
-
-const showSubs = computed(() => props.showSubs !== false)
-const showChains = computed(() => props.showChains !== false)
 
 const tab = ref<'nodes' | 'groups' | 'subs'>('nodes')
 const search = ref('')

@@ -229,7 +229,7 @@
     </div>
 
     <!-- 出口选择器（共享组件，不含订阅/链式页签） -->
-    <ObOutboundSelector v-model:show="selShow" :show-chains="false" @select="onSelPick" />
+    <ObOutboundSelector v-model:show="selShow" @select="onSelPick" />
   </div>
 </template>
 
