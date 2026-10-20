@@ -44,19 +44,17 @@
           <span class="truncate"><span v-if="n.sub_name" class="badge badge-ghost badge-xs mr-1">{{ n.sub_name }}</span>{{ n.name || n.tag }}</span>
           <span v-if="latency(n.tag || n.name)" class="text-sm" :class="latencyCls(n.tag || n.name)">{{ latency(n.tag || n.name) }}</span>
         </button>
-        <template>
-          <div v-if="filteredChains.length" class="mb-1 mt-2 px-2 text-xs opacity-60">
-            {{ $t('obx.chains') || '链式代理' }}
-          </div>
-          <button
-            v-for="c in filteredChains" :key="c.id" type="button"
-            class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
-            @click="pick(c.name)"
-          >
-            <span class="truncate">{{ c.name }}</span>
-            <span v-if="latency(c.name)" class="text-sm" :class="latencyCls(c.name)">{{ latency(c.name) }}</span>
-          </button>
-        </template>
+        <div v-if="filteredChains.length" class="mb-1 mt-2 px-2 text-xs opacity-60">
+          {{ $t('obx.chains') || '链式代理' }}
+        </div>
+        <button
+          v-for="c in filteredChains" :key="c.id" type="button"
+          class="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-base-200"
+          @click="pick(c.name)"
+        >
+          <span class="truncate">{{ c.name }}</span>
+          <span v-if="latency(c.name)" class="text-sm" :class="latencyCls(c.name)">{{ latency(c.name) }}</span>
+        </button>
       </div>
       <!-- 节点组列表 -->
       <div v-else-if="tab === 'groups'" class="max-h-96 overflow-y-auto">
