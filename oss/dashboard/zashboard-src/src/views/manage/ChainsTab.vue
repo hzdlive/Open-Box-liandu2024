@@ -254,7 +254,7 @@
     </div>
 
     <!-- 上游选择器（共享组件，不含订阅/链式页签） -->
-    <ObOutboundSelector v-model:show="selShow" :show-subs="false" :show-chains="false" @select="onSelPick" />
+    <ObOutboundSelector v-model:show="selShow" :show-chains="false" @select="onSelPick" />
   </div>
 </template>
 
