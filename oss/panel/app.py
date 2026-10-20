@@ -81,6 +81,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     app = Flask(__name__)
 
+    # 内置出站组 id 为 0（直连）/-1（拒绝），Flask 的 <int:> 不匹配负数，
+    # 注册有符号整型转换器供 /api/groups/<sint:gid> 使用。
+    from werkzeug.routing import IntegerConverter
+
+    class SignedIntConverter(IntegerConverter):
+        regex = r"-?\d+"
+
+    app.url_map.converters["sint"] = SignedIntConverter
+
     # Threading: a single sqlite3 connection handle must never be used from
     # two threads at once (the Flask dev server is threaded; concurrent
     # execute() on one handle fails with "bad parameter or other API
@@ -1182,7 +1191,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except sqlite3.IntegrityError:
             return jsonify({"error": "name already exists"}), 400
 
-    @app.put("/api/groups/<int:gid>")
+    @app.put("/api/groups/<sint:gid>")
     def group_update(gid: int):
         d = request.get_json(force=True, silent=True) or {}
         try:

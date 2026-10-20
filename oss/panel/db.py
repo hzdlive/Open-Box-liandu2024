@@ -1338,16 +1338,24 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     # built-in groups: 直连 first (原版默认排第一个), 拒绝 last
     # 1:1 对标原版：内置组也可拖拽排序，顺序持久化在 group_order setting
     # （0=直连, -1=拒绝, 正数=用户组 id）
-    builtin_direct = {"id": 0, "name": "direct", "type": "builtin", "members": [],
-                "dynamic_keywords": [], "position": -1, "enabled": True,
+    def _builtin(gid: int, tag: str, desc: str, detail: str, pos: int) -> dict:
+        prefix = "builtin_direct" if gid == 0 else "builtin_block"
+        try:
+            scale = int(get_setting(conn, f"{prefix}_icon_scale", "0") or 0)
+        except ValueError:
+            scale = 0
+        return {"id": gid, "name": get_setting(conn, f"{prefix}_name", "") or tag,
+                "type": "builtin", "members": [],
+                "dynamic_keywords": [], "position": pos, "enabled": True,
                 "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
-                "dynamic": False, "builtin": True, "desc": "直连",
-                "detail": "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。"}
-    builtin_block = {"id": -1, "name": "block", "type": "builtin", "members": [],
-                "dynamic_keywords": [], "position": 9999, "enabled": True,
-                "interval_s": 0, "tolerance_ms": 0, "member_count": 0,
-                "dynamic": False, "builtin": True, "desc": "拒绝",
-                "detail": "命中的流量直接丢弃。"}
+                "dynamic": False, "builtin": True, "desc": desc,
+                "detail": detail,
+                "icon": get_setting(conn, f"{prefix}_icon", ""),
+                "icon_scale": scale}
+    builtin_direct = _builtin(
+        0, "direct", "直连", "流量不经代理，直接从路由器出去。内核离不开它，停用只是站点集里选不到。", -1)
+    builtin_block = _builtin(
+        -1, "block", "拒绝", "命中的流量直接丢弃。", 9999)
     # 按 group_order setting 排序（包含内置组）
     try:
         order = json.loads(get_setting(conn, "group_order", "") or "[]")
@@ -1454,6 +1462,24 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
 
 
 def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
+    # 内置组（0=直连, -1=拒绝）不在 groups 表中：名称/图标存 settings。
+    if gid in (0, -1):
+        prefix = "builtin_direct" if gid == 0 else "builtin_block"
+        if "name" in d and isinstance(d["name"], str) and d["name"].strip():
+            set_setting(conn, f"{prefix}_name", d["name"].strip())
+        if "icon" in d:
+            set_setting(conn, f"{prefix}_icon", str(d["icon"] or ""))
+        if "icon_scale" in d:
+            try:
+                set_setting(conn, f"{prefix}_icon_scale", str(int(d["icon_scale"])))
+            except (TypeError, ValueError):
+                pass
+        conn.commit()
+        bump_rev(conn)
+        for g in list_groups(conn):
+            if g["id"] == gid:
+                return g
+        return None
     row = conn.execute("SELECT id FROM groups WHERE id=?", (gid,)).fetchone()
     if not row:
         return None
