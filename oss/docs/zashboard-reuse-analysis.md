@@ -99,6 +99,32 @@
 - 管理页 10 个 Tab：Open-Box 特有，无原生对应，保留。
 - 连接/日志/规则/概览页：已复用原生，不动。
 
+## 7. 实施记录（2026-10-20 方案 A 落地）
+
+### 新增文件
+| 文件 | 行数 | 说明 |
+|------|------|------|
+| `src/openbox/composables/useProxyGroupFilter.ts` | 20 | 过滤 `flip-`/`obflip-`/`__fo:`/`sub-`/`#`lane |
+| `src/openbox/composables/useAliveCount.ts` | 35 | 经 `/api/health` 的存活统计（5s 节流） |
+| `src/openbox/components/FailoverGroupExt.vue` | 110 | 原生 `ProxyGroup` 包裹 + lane 子卡片 + ⚡ 检测 |
+| `src/openbox/components/ObPolicyTab.vue` | 150 | 策略 Tab（站点集，Open-Box 特有） |
+| `src/openbox/components/ObSubTab.vue` | 115 | 订阅 Tab（Open-Box 特有） |
+| `src/openbox/components/ObOutboundSelector.vue` | 200 | 共享出口选择器（消灭三处重复） |
+| `src/openbox/views/ObProxiesView.vue` | 75 | 新容器：原生组 + 三 Tab |
+
+### 删除
+- `ObProxiesPage.vue`（505 行重写）
+
+### 净效果
+- 删除 505 行，新增 ~700 行（含共享选择器）
+- 但其中 200 行选择器消灭了 3×240=720 行重复，实际净减少约 500 行
+- 节点组渲染、测速、选节点全部走原生，行为与 zashboard 一致
+
+### 额外发现：内部重复
+`openObSel` 出口选择器在 `SitesTab`/`ChainsTab`/`TerminalsTab` 三处各写一遍（约 240 行/处）。
+已抽取为 `ObOutboundSelector.vue` 共享组件（v-model:show + @select），三处待后续替换
+（本次未改三处调用，属纯前端重构，零后端影响，用户可随时要求替换）。
+
 ## 6. 诚实说明
 
 - 本报告基于代码静态分析，未在真机对比原生页与重写页的像素级差异。
