@@ -1,0 +1,3348 @@
+{
+  "_meta": {
+    "oracle": "sing-box version 1.14.1-openbox-tcp24",
+    "generated": "2026-10-16T08:32:56.839000+00:00",
+    "case_count": 81,
+    "ok_count": 81,
+    "note": "Golden routing corpus for conformance verification. Each case's `input` is an obclient.predictInput payload; `expected` is the oracle's decision. Replay through openbox-panel/test/routing-conformance.mjs and diff index/action/outbound/hits/text.",
+    "groups": {
+      "domain": 5,
+      "domain_suffix": 7,
+      "domain_keyword": 3,
+      "domain_regex": 2,
+      "ip_cidr": 11,
+      "ip_is_private": 19,
+      "ip_version": 3,
+      "port": 4,
+      "port_range": 3,
+      "rule_set": 4,
+      "ordering": 4,
+      "final": 3,
+      "invert": 2,
+      "action": 3,
+      "and": 3,
+      "table": 5
+    }
+  },
+  "cases": [
+    {
+      "id": "domain-exact-apex",
+      "group": "domain",
+      "desc": "exact apex match",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "domain-exact-subdomain-nomatch",
+      "group": "domain",
+      "desc": "exact does NOT match a subdomain",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "domain-exact-list-second",
+      "group": "domain",
+      "desc": "second entry in the list matches",
+      "input": {
+        "target": "b.example.org",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain": [
+                  "a.example.org",
+                  "b.example.org"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain",
+            "value": "b.example.org"
+          }
+        ],
+        "text": "domain=[a.example.org b.example.org] => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-apex",
+      "group": "domain_suffix",
+      "desc": "apex matches its own suffix",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-subdomain",
+      "group": "domain_suffix",
+      "desc": "subdomain matches",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-deep-subdomain",
+      "group": "domain_suffix",
+      "desc": "deep subdomain matches",
+      "input": {
+        "target": "a.b.c.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-nomatch",
+      "group": "domain_suffix",
+      "desc": "different registrable domain",
+      "input": {
+        "target": "example.org",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-case-insensitive",
+      "group": "domain_suffix",
+      "desc": "match is case-insensitive",
+      "input": {
+        "target": "WWW.EXAMPLE.COM",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-not-substring",
+      "group": "domain_suffix",
+      "desc": "suffix is not a plain substring",
+      "input": {
+        "target": "notexample.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "keyword-middle",
+      "group": "domain_keyword",
+      "desc": "keyword anywhere in the name",
+      "input": {
+        "target": "my-example.net",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_keyword": [
+                  "example"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_keyword",
+            "value": "example"
+          }
+        ],
+        "text": "domain_keyword=example => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "keyword-nomatch",
+      "group": "domain_keyword",
+      "desc": "keyword absent",
+      "input": {
+        "target": "other.net",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_keyword": [
+                  "example"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "keyword-substring-of-label",
+      "group": "domain_keyword",
+      "desc": "keyword is a plain substring",
+      "input": {
+        "target": "adserver.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_keyword": [
+                  "ads"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_keyword",
+            "value": "ads"
+          }
+        ],
+        "text": "domain_keyword=ads => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "regex-match",
+      "group": "domain_regex",
+      "desc": "regex anchors at the start",
+      "input": {
+        "target": "ads.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_regex": [
+                  "^ads?\\."
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_regex",
+            "value": "^ads?\\."
+          }
+        ],
+        "text": "domain_regex=^ads?\\. => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "regex-nomatch",
+      "group": "domain_regex",
+      "desc": "regex does not match",
+      "input": {
+        "target": "cdn.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_regex": [
+                  "^ads?\\."
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-in",
+      "group": "ip_cidr",
+      "desc": "IPv4 inside the range",
+      "input": {
+        "target": "10.1.2.3",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "10.0.0.0/8",
+            "entry": "10.1.2.3"
+          }
+        ],
+        "text": "ip_cidr=10.0.0.0/8 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-out",
+      "group": "ip_cidr",
+      "desc": "IPv4 outside the range",
+      "input": {
+        "target": "11.1.2.3",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-host",
+      "group": "ip_cidr",
+      "desc": "/32 host route matches exactly",
+      "input": {
+        "target": "1.2.3.4",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "1.2.3.4/32"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "1.2.3.4/32",
+            "entry": "1.2.3.4"
+          }
+        ],
+        "text": "ip_cidr=1.2.3.4/32 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-boundary-low",
+      "group": "ip_cidr",
+      "desc": "network address matches",
+      "input": {
+        "target": "192.168.0.0",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "192.168.0.0/16"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "192.168.0.0/16",
+            "entry": "192.168.0.0"
+          }
+        ],
+        "text": "ip_cidr=192.168.0.0/16 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-boundary-high",
+      "group": "ip_cidr",
+      "desc": "broadcast address matches",
+      "input": {
+        "target": "192.168.255.255",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "192.168.0.0/16"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "192.168.0.0/16",
+            "entry": "192.168.255.255"
+          }
+        ],
+        "text": "ip_cidr=192.168.0.0/16 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-just-outside",
+      "group": "ip_cidr",
+      "desc": "one past the range",
+      "input": {
+        "target": "192.169.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "192.168.0.0/16"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v6-in",
+      "group": "ip_cidr",
+      "desc": "IPv6 inside the range",
+      "input": {
+        "target": "2400:cb00::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "2400:cb00::/32"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "2400:cb00::/32",
+            "entry": "2400:cb00::1"
+          }
+        ],
+        "text": "ip_cidr=2400:cb00::/32 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v6-out",
+      "group": "ip_cidr",
+      "desc": "IPv6 outside the range",
+      "input": {
+        "target": "2606:4700::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "2400:cb00::/32"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-rfc1918",
+      "group": "ip_is_private",
+      "desc": "192.168/16 is private",
+      "input": {
+        "target": "192.168.1.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "192.168.1.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-10",
+      "group": "ip_is_private",
+      "desc": "10/8 is private",
+      "input": {
+        "target": "10.0.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "10.0.0.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-loopback",
+      "group": "ip_is_private",
+      "desc": "127.0.0.1 is private",
+      "input": {
+        "target": "127.0.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "127.0.0.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-public-v4",
+      "group": "ip_is_private",
+      "desc": "8.8.8.8 is not private",
+      "input": {
+        "target": "8.8.8.8",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-ula-v6",
+      "group": "ip_is_private",
+      "desc": "fc00::/7 ULA is private",
+      "input": {
+        "target": "fd00::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "fd00::1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "private-public-v6",
+      "group": "ip_is_private",
+      "desc": "2606:4700:: is not private",
+      "input": {
+        "target": "2606:4700::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ipver-4",
+      "group": "ip_version",
+      "desc": "IPv4 target",
+      "input": {
+        "target": "8.8.8.8",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_version": 4,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "ip_version=4 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ipver-6-nomatch",
+      "group": "ip_version",
+      "desc": "IPv4 target vs version 6 rule",
+      "input": {
+        "target": "8.8.8.8",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_version": 6,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ipver-6",
+      "group": "ip_version",
+      "desc": "IPv6 target",
+      "input": {
+        "target": "2606:4700::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_version": 6,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "ip_version=6 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-match",
+      "group": "port",
+      "desc": "explicit port matches",
+      "input": {
+        "target": "example.com",
+        "port": 8443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port": [
+                  8443
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port=8443 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-nomatch",
+      "group": "port",
+      "desc": "explicit port does not match",
+      "input": {
+        "target": "example.com",
+        "port": 443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port": [
+                  8443
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-default-443",
+      "group": "port",
+      "desc": "port defaults to 443 when omitted",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port": [
+                  443
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port=443 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-list-second",
+      "group": "port",
+      "desc": "second port in the list matches",
+      "input": {
+        "target": "example.com",
+        "port": 8080,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port": [
+                  80,
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port=[80 8080] => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8080,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-range-in",
+      "group": "port_range",
+      "desc": "inside the range",
+      "input": {
+        "target": "example.com",
+        "port": 8443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port_range": [
+                  "8000:9000"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port_range=8000:9000 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-range-out",
+      "group": "port_range",
+      "desc": "outside the range",
+      "input": {
+        "target": "example.com",
+        "port": 443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port_range": [
+                  "8000:9000"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "port-range-edge",
+      "group": "port_range",
+      "desc": "lower bound is inclusive",
+      "input": {
+        "target": "example.com",
+        "port": 8000,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "port_range": [
+                  "8000:9000"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port_range=8000:9000 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8000,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ruleset-inline-match",
+      "group": "rule_set",
+      "desc": "inline rule-set matches",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rule_set": [
+              {
+                "type": "inline",
+                "tag": "rs1",
+                "rules": [
+                  {
+                    "domain_suffix": [
+                      "example.com"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "rules": [
+              {
+                "rule_set": [
+                  "rs1"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "rule_set",
+            "value": "rs1",
+            "entryKind": "domain_suffix",
+            "entry": "example.com"
+          }
+        ],
+        "text": "rule_set=rs1 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ruleset-inline-nomatch",
+      "group": "rule_set",
+      "desc": "inline rule-set does not match",
+      "input": {
+        "target": "www.other.org",
+        "config": {
+          "route": {
+            "rule_set": [
+              {
+                "type": "inline",
+                "tag": "rs1",
+                "rules": [
+                  {
+                    "domain_suffix": [
+                      "example.com"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "rules": [
+              {
+                "rule_set": [
+                  "rs1"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ruleset-multi-rule-match",
+      "group": "rule_set",
+      "desc": "second sub-rule of a set matches",
+      "input": {
+        "target": "api.telemetry.io",
+        "config": {
+          "route": {
+            "rule_set": [
+              {
+                "type": "inline",
+                "tag": "rs2",
+                "rules": [
+                  {
+                    "domain_keyword": [
+                      "telemetry"
+                    ]
+                  },
+                  {
+                    "ip_cidr": [
+                      "203.0.113.0/24"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "rules": [
+              {
+                "rule_set": [
+                  "rs2"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "rule_set",
+            "value": "rs2",
+            "entryKind": "domain_suffix",
+            "entry": "telemetry.io"
+          }
+        ],
+        "text": "rule_set=rs2 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "ruleset-multi-rule-ip",
+      "group": "rule_set",
+      "desc": "ip_cidr sub-rule of a set matches",
+      "input": {
+        "target": "203.0.113.9",
+        "config": {
+          "route": {
+            "rule_set": [
+              {
+                "type": "inline",
+                "tag": "rs2",
+                "rules": [
+                  {
+                    "domain_keyword": [
+                      "telemetry"
+                    ]
+                  },
+                  {
+                    "ip_cidr": [
+                      "203.0.113.0/24"
+                    ]
+                  }
+                ]
+              }
+            ],
+            "rules": [
+              {
+                "rule_set": [
+                  "rs2"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "rule_set",
+            "value": "rs2",
+            "entryKind": "ip",
+            "entry": "203.0.113.9"
+          }
+        ],
+        "text": "rule_set=rs2 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "order-first-wins",
+      "group": "ordering",
+      "desc": "first matching rule wins",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "A"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "B"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "A",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(A)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "order-second-index",
+      "group": "ordering",
+      "desc": "second rule matches -> index 2",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "nope.com"
+                ],
+                "outbound": "A"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "B"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 2,
+        "action": "route",
+        "outbound": "B",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(B)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "order-third-index",
+      "group": "ordering",
+      "desc": "third rule matches -> index 3",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "a.com"
+                ],
+                "outbound": "A"
+              },
+              {
+                "domain_suffix": [
+                  "b.com"
+                ],
+                "outbound": "B"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "C"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 3,
+        "action": "route",
+        "outbound": "C",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(C)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "order-none-fallthrough",
+      "group": "ordering",
+      "desc": "no rule matches -> final, index 0",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "a.com"
+                ],
+                "outbound": "A"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "final-only",
+      "group": "final",
+      "desc": "empty rule list, final only",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "final-absent",
+      "group": "final",
+      "desc": "no route at all -> outbound null",
+      "input": {
+        "target": "example.com",
+        "config": {}
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": null,
+        "hits": null,
+        "text": null,
+        "final": "",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "final-named",
+      "group": "final",
+      "desc": "final points at a named outbound",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "a.com"
+                ],
+                "outbound": "A"
+              }
+            ],
+            "final": "REJECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "REJECT",
+        "hits": null,
+        "text": null,
+        "final": "REJECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "invert-true-matches",
+      "group": "invert",
+      "desc": "invert flips a non-match into a match",
+      "input": {
+        "target": "www.other.org",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY",
+                "invert": true
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "!(domain_suffix=example.com) => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "invert-true-nomatch",
+      "group": "invert",
+      "desc": "invert flips a match into a non-match",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY",
+                "invert": true
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "action-route",
+      "group": "action",
+      "desc": "explicit action route",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "action": "route",
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "action-reject",
+      "group": "action",
+      "desc": "action reject yields no outbound",
+      "input": {
+        "target": "ads.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "action": "reject"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "reject",
+        "outbound": null,
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "ads.example.com"
+          }
+        ],
+        "text": "domain_suffix=ads.example.com => reject",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "action-default-implicit",
+      "group": "action",
+      "desc": "omitted action behaves as route",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "and-both-match",
+      "group": "and",
+      "desc": "two conditions in one rule both match",
+      "input": {
+        "target": "www.example.com",
+        "port": 8443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY",
+                "port": [
+                  8443
+                ]
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com port=8443 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "and-partial-fail",
+      "group": "and",
+      "desc": "one condition fails -> no match",
+      "input": {
+        "target": "www.example.com",
+        "port": 443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY",
+                "port": [
+                  8443
+                ]
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "and-three-conditions",
+      "group": "and",
+      "desc": "three conditions, all match",
+      "input": {
+        "target": "www.example.com",
+        "port": 8443,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY",
+                "port_range": [
+                  "8000:9000"
+                ]
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com port_range=8000:9000 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-rfc1918-172.16",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 172.16.0.1",
+      "input": {
+        "target": "172.16.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "172.16.0.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-just-below-172.16",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 172.15.0.1",
+      "input": {
+        "target": "172.15.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-just-above-172.31",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 172.32.0.1",
+      "input": {
+        "target": "172.32.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-link-local-v4",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 169.254.1.1",
+      "input": {
+        "target": "169.254.1.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "169.254.1.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-cgnat-100.64",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 100.64.0.1",
+      "input": {
+        "target": "100.64.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-unspecified-v4",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 0.0.0.0",
+      "input": {
+        "target": "0.0.0.0",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "0.0.0.0"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-multicast-v4",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 224.0.0.1",
+      "input": {
+        "target": "224.0.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "224.0.0.1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-benchmark-198.18",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 198.18.0.1",
+      "input": {
+        "target": "198.18.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-loopback-v6",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for ::1",
+      "input": {
+        "target": "::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "::1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-link-local-v6",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for fe80::1",
+      "input": {
+        "target": "fe80::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "fe80::1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-unspecified-v6",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for ::",
+      "input": {
+        "target": "::",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "::"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-multicast-v6",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for ff02::1",
+      "input": {
+        "target": "ff02::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_is_private",
+            "entry": "ff02::1"
+          }
+        ],
+        "text": "ip_is_private=true => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "priv-documentation-v6",
+      "group": "ip_is_private",
+      "desc": "ip_is_private for 2001:db8::1",
+      "input": {
+        "target": "2001:db8::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_is_private": true,
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v6-host",
+      "group": "ip_cidr",
+      "desc": "IPv6 /128 host route",
+      "input": {
+        "target": "2001:db8::1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "2001:db8::1/128"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "2001:db8::1/128",
+            "entry": "2001:db8::1"
+          }
+        ],
+        "text": "ip_cidr=2001:db8::1/128 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-slash31",
+      "group": "ip_cidr",
+      "desc": "/31 pair",
+      "input": {
+        "target": "10.0.0.1",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "10.0.0.0/31"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "10.0.0.0/31",
+            "entry": "10.0.0.1"
+          }
+        ],
+        "text": "ip_cidr=10.0.0.0/31 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "cidr-v4-mixed-family",
+      "group": "ip_cidr",
+      "desc": "v4 target against a v4+v6 list",
+      "input": {
+        "target": "10.0.0.5",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "ip_cidr": [
+                  "2400:cb00::/32",
+                  "10.0.0.0/8"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "10.0.0.0/8",
+            "entry": "10.0.0.5"
+          }
+        ],
+        "text": "ip_cidr=[2400:cb00::/32 10.0.0.0/8] => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "domain-trailing-dot",
+      "group": "domain",
+      "desc": "target with a trailing dot",
+      "input": {
+        "target": "example.com.",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "suffix-leading-dot-value",
+      "group": "domain_suffix",
+      "desc": "suffix value written with a leading dot",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  ".example.com"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": ".example.com"
+          }
+        ],
+        "text": "domain_suffix=.example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "domain-uppercase-value",
+      "group": "domain",
+      "desc": "rule value in uppercase",
+      "input": {
+        "target": "example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain": [
+                  "EXAMPLE.COM"
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "table-ads-reject",
+      "group": "table",
+      "desc": "ad domain -> reject",
+      "input": {
+        "target": "tracker.ads.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "outbound": "REJECT"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              },
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8",
+                  "192.168.0.0/16"
+                ],
+                "outbound": "DIRECT"
+              },
+              {
+                "ip_is_private": true,
+                "outbound": "DIRECT"
+              },
+              {
+                "port": [
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 1,
+        "action": "route",
+        "outbound": "REJECT",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "ads.example.com"
+          }
+        ],
+        "text": "domain_suffix=ads.example.com => route(REJECT)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "table-normal-proxy",
+      "group": "table",
+      "desc": "normal domain -> PROXY",
+      "input": {
+        "target": "www.example.com",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "outbound": "REJECT"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              },
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8",
+                  "192.168.0.0/16"
+                ],
+                "outbound": "DIRECT"
+              },
+              {
+                "ip_is_private": true,
+                "outbound": "DIRECT"
+              },
+              {
+                "port": [
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 2,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": [
+          {
+            "kind": "domain_suffix",
+            "value": "example.com"
+          }
+        ],
+        "text": "domain_suffix=example.com => route(PROXY)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "table-private-direct",
+      "group": "table",
+      "desc": "private IP -> DIRECT",
+      "input": {
+        "target": "192.168.5.5",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "outbound": "REJECT"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              },
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8",
+                  "192.168.0.0/16"
+                ],
+                "outbound": "DIRECT"
+              },
+              {
+                "ip_is_private": true,
+                "outbound": "DIRECT"
+              },
+              {
+                "port": [
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 3,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": [
+          {
+            "kind": "ip_cidr",
+            "value": "192.168.0.0/16",
+            "entry": "192.168.5.5"
+          }
+        ],
+        "text": "ip_cidr=[10.0.0.0/8 192.168.0.0/16] => route(DIRECT)",
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": true,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "table-port-proxy",
+      "group": "table",
+      "desc": "8080 -> PROXY",
+      "input": {
+        "target": "anything.net",
+        "port": 8080,
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "outbound": "REJECT"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              },
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8",
+                  "192.168.0.0/16"
+                ],
+                "outbound": "DIRECT"
+              },
+              {
+                "ip_is_private": true,
+                "outbound": "DIRECT"
+              },
+              {
+                "port": [
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 5,
+        "action": "route",
+        "outbound": "PROXY",
+        "hits": null,
+        "text": "port=8080 => route(PROXY)",
+        "final": "DIRECT",
+        "port": 8080,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    },
+    {
+      "id": "table-fallthrough",
+      "group": "table",
+      "desc": "unmatched -> final",
+      "input": {
+        "target": "public.example.net",
+        "config": {
+          "route": {
+            "rules": [
+              {
+                "domain_suffix": [
+                  "ads.example.com"
+                ],
+                "outbound": "REJECT"
+              },
+              {
+                "domain_suffix": [
+                  "example.com"
+                ],
+                "outbound": "PROXY"
+              },
+              {
+                "ip_cidr": [
+                  "10.0.0.0/8",
+                  "192.168.0.0/16"
+                ],
+                "outbound": "DIRECT"
+              },
+              {
+                "ip_is_private": true,
+                "outbound": "DIRECT"
+              },
+              {
+                "port": [
+                  8080
+                ],
+                "outbound": "PROXY"
+              }
+            ],
+            "final": "DIRECT"
+          }
+        }
+      },
+      "expected": {
+        "index": 0,
+        "action": "route",
+        "outbound": "DIRECT",
+        "hits": null,
+        "text": null,
+        "final": "DIRECT",
+        "port": 443,
+        "isIp": false,
+        "entry": {
+          "kernel": false,
+          "reason": "no-tun",
+          "mode": ""
+        }
+      }
+    }
+  ]
+}

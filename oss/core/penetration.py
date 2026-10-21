@@ -16,12 +16,18 @@ def _is_ip(s: str) -> bool:
 
 
 def _match_domain(rule_type: str, rule_value: str, domain: str) -> bool:
-    """检查域名是否匹配规则。"""
-    domain = domain.lower().rstrip('.')
-    val = rule_value.lower().strip()
+    """检查域名是否匹配规则。
+
+    语义对标 sing-box（路由金标准 81 例验证）：
+    - domain 精确匹配：大小写敏感（大写规则值不命中），仅去尾点；
+    - domain_suffix / domain_keyword：大小写不敏感。
+    """
+    domain = domain.rstrip('.')
     if rule_type == 'domain':
-        return domain == val
-    elif rule_type == 'domain_suffix':
+        return domain == rule_value.strip()
+    domain = domain.lower()
+    val = rule_value.lower().strip()
+    if rule_type == 'domain_suffix':
         return domain == val or domain.endswith('.' + val.lstrip('.'))
     elif rule_type == 'domain_keyword':
         return val in domain
