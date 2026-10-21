@@ -252,6 +252,7 @@ const zh: LANG_MESSAGE = {
     deleteConfirm: '确定删除？',
     delGroupConfirm: '确定删除组「{name}」吗？',
     builtinOnlyNameIcon: '内置出站只能改名字和图标。',
+    restoreDefaults: '恢复默认',
     proxySettings: '策略设置',
     nodeSort: '节点排序方式',
     sortDefault: '默认排序',

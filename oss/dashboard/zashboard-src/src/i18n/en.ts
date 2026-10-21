@@ -250,6 +250,7 @@ const en = {
     deleteConfirm: 'Delete?',
     delGroupConfirm: 'Delete group "{name}"?',
     builtinOnlyNameIcon: 'Built-in outbounds can only change name and icon.',
+    restoreDefaults: 'Restore defaults',
     proxySettings: 'Proxy Settings',
     nodeSort: 'Node sort order',
     sortDefault: 'Default',

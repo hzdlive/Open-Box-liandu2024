@@ -1726,6 +1726,18 @@ def create_app(db_path: str = ":memory:") -> Flask:
         conn.commit()
         return jsonify({"updated": True})
 
+    @app.post("/api/openbox/content-filter/preset-defaults")
+    def cf_preset_defaults():
+        """预置默认规则集（仅补缺失的，不动已有条目）。"""
+        from panel.cf_defaults import preset_default_rulesets
+        return jsonify(preset_default_rulesets(db()))
+
+    @app.post("/api/openbox/content-filter/restore-defaults")
+    def cf_restore_defaults():
+        """恢复默认：重建 3 条默认规则集，用户自加的规则集保留。"""
+        from panel.cf_defaults import restore_defaults
+        return jsonify(restore_defaults(db()))
+
     # 旧版接口（兼容保留）
     @app.get("/api/content-filters")
     def content_filter_list():

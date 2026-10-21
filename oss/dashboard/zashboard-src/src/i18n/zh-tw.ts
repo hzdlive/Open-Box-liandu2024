@@ -252,6 +252,7 @@ const zhTW: LANG_MESSAGE = {
     deleteConfirm: '確定刪除？',
     delGroupConfirm: '確定刪除組「{name}」嗎？',
     builtinOnlyNameIcon: '內建出站只能改名字和圖標。',
+    restoreDefaults: '恢復默認',
     proxySettings: '策略設置',
     nodeSort: '節點排序方式',
     sortDefault: '默認排序',

@@ -7,6 +7,9 @@
         <button class="btn btn-sm btn-primary" @click="showAdd = true">
           + {{ $t('obx.add') || '添加' }}
         </button>
+        <button class="btn btn-sm btn-ghost" @click="restoreDefaults" :disabled="loading">
+          {{ $t('obx.restoreDefaults') || '恢复默认' }}
+        </button>
         <button class="btn btn-sm btn-ghost" @click="load" :disabled="loading">
           {{ $t('obx.refresh') }}
         </button>
@@ -174,6 +177,22 @@ async function load() {
     rulesets.value = await obxGet<any[]>('/api/openbox/content-filter')
   } catch (e: any) {
     console.error(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function restoreDefaults() {
+  if (!confirm('恢复默认规则集？（仅重建原版 3 条默认，你自己加的规则集保留）')) return
+  loading.value = true
+  try {
+    const r = await obxPost<any>('/api/openbox/content-filter/restore-defaults', {})
+    if (r.failed?.length) {
+      alert('部分默认规则集未能预置：' + r.failed.map((f: any) => `${f.name}（${f.reason}）`).join('；'))
+    }
+    await load()
+  } catch (e: any) {
+    alert(e.message || '恢复默认失败')
   } finally {
     loading.value = false
   }

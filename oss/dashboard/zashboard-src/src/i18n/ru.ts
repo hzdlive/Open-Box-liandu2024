@@ -252,6 +252,7 @@ const ru: LANG_MESSAGE = {
     deleteConfirm: 'Удалить?',
     delGroupConfirm: 'Удалить группу "{name}"?',
     builtinOnlyNameIcon: 'Встроенные группы: только имя и значок.',
+    restoreDefaults: 'Сбросить',
     proxySettings: 'Настройки прокси',
     nodeSort: 'Сортировка узлов',
     sortDefault: 'По умолчанию',
