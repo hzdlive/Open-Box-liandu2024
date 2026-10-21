@@ -218,7 +218,7 @@
               <td class="text-xs">{{ q.latency }}</td>
             </tr>
             <tr v-if="!filteredQueryLog.length">
-              <td colspan="7" class="text-center opacity-60">{{ $t('obx.noData') }}</td>
+              <td colspan="8" class="text-center opacity-60">{{ !queryLog.length && queryLogNote ? queryLogNote : $t('obx.noData') }}</td>
             </tr>
           </tbody>
         </table>
@@ -345,6 +345,8 @@ const filterEnabled = ref(false)
 
 // 查询日志
 const queryLog = ref<any[]>([])
+// 后端返回的日志源说明（无日志时解释原因，原先被丢弃导致空白表）
+const queryLogNote = ref('')
 const qSearch = ref('')
 const qFilter = ref('')
 const filteredQueryLog = computed(() => {
@@ -580,6 +582,7 @@ async function loadQueryLog() {
   try {
     const d = await obxGet<any>('/api/dns/query-log')
     queryLog.value = d.queries || d.logs || d.records || []
+    queryLogNote.value = d.note || ''
   } catch { /* 忽略 */ }
 }
 
