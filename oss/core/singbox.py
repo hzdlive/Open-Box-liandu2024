@@ -177,24 +177,36 @@ def obflip_tag(site_set) -> str:
     return f"obflip-{h}"
 
 
-def flip_outbound(site_set, group_names: set[str]) -> dict | None:
-    """A selector holding [primary, secondary] so the panel can flip a site
-    set between direct and proxy at runtime via the clash API (no restart).
+def flip_outbound(site_set, members: list[str]) -> dict | None:
+    """Per-policy selector (1:1 with the original's policy card): members are
+    ALL user-facing groups — direct first, enabled groups in config order
+    (customs/failovers, then 所有-自动/所有-手动), block last — so the card
+    offers every group, not just a binary proxy/direct flip.
 
-    primary = the action's target; secondary = the other side.
-    default = persisted flip state, else the action.
-    Only for proxy/direct actions; reject stays a static block."""
-    if site_set.action == "reject":
+    Rules route to this selector; the card's selection is its `now`
+    (hot-switched via the Clash API, persisted via the site set's
+    group/action by /api/sitesets/<id>/select). `default` is the fallback
+    when no live selection exists: legacy flip override first, then the
+    site set's action/group. Reject site sets keep a selector too
+    (default block) so the card can switch them back; their rules still
+    route to block directly.
+    """
+    if not members:
         return None
-    grp = site_set.group if site_set.group in group_names else "所有-自动"
-    if site_set.action == "direct":
-        primary, secondary = "direct", grp
+    grp = site_set.group if site_set.group in members else (
+        "所有-自动" if "所有-自动" in members else members[0])
+    if site_set.action == "reject":
+        default = "block" if "block" in members else members[0]
+    elif site_set.flip == "direct":
+        default = "direct" if "direct" in members else members[0]
+    elif site_set.flip == "proxy":
+        default = grp
+    elif site_set.action == "direct":
+        default = "direct" if "direct" in members else members[0]
     else:
-        primary, secondary = grp, "direct"
-    members = [primary] + ([secondary] if secondary != primary else [])
-    default = site_set.flip if site_set.flip in members else primary
+        default = grp
     return {"type": "selector", "tag": flip_tag(site_set),
-            "outbounds": members, "default": default}
+            "outbounds": list(members), "default": default}
 
 
 def build_outbounds(cfg: AppConfig) -> list[dict]:
@@ -303,10 +315,23 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         # REA 27.4: __fo:reject 为故障转移 reject 回退（all-failed 时切换到此）
         {"type": "block", "tag": "__fo:reject"},
     ]
-    # Hot-switch selectors, one per proxy/direct site set (see flip_outbound).
-    group_names = {g.name for g in groups}
+    # Hot-switch selectors, one per site set (see flip_outbound):
+    # members = all user-facing groups in display order, so the policy
+    # card offers every group (1:1 with the original), not a binary flip.
+    flip_members = ["direct"]
+    for g in groups:
+        if not g.enabled:
+            continue
+        if g.name in ("所有-自动", "所有-手动", "direct", "block"):
+            continue
+        if g.name not in flip_members:
+            flip_members.append(g.name)
+    for builtin in ("所有-自动", "所有-手动"):
+        if any(g.name == builtin and g.enabled for g in groups):
+            flip_members.append(builtin)
+    flip_members.append("block")
     for s in cfg.site_sets:
-        fo = flip_outbound(s, group_names)
+        fo = flip_outbound(s, flip_members)
         if fo:
             outbounds.append(fo)
     return outbounds

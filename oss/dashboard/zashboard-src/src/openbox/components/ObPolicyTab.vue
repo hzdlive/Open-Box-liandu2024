@@ -143,9 +143,11 @@ async function load() {
 
 async function selectOutbound(site: any, opt: any) {
   try {
-    await obxPost(`/api/sitesets/${site.id}/select`, { outbound: opt.name })
+    const res = await obxPost<any>(`/api/sitesets/${site.id}/select`, { outbound: opt.name })
     site.selected = opt.name
     site.currentNode = opt.name
+    // 后端把选择落盘为 group/action，卡片首行（group ⊕ now）随之同步
+    if (res?.site_set?.group) site.currentGroup = res.site_set.group
   } catch (e) {
     console.error('select failed', e)
   }

@@ -3091,6 +3091,51 @@ def create_app(db_path: str = ":memory:") -> Flask:
             pass
         return jsonify({"ok": True, "hot": ok, "detail": detail})
 
+    @app.post("/api/sitesets/<int:sid>/select")
+    def siteset_select(sid: int):
+        """Policy-card selection (1:1 with the original): pick any group
+        for a site set from its card. Hot-switches the flip-<id> selector
+        immediately, then persists the choice into the site set itself
+        (group/action) and clears the binary flip override, so the next
+        config regeneration keeps the same selection as its default.
+        The frontend already calls this endpoint; it previously 404'd
+        (only /flip existed), so card clicks silently did nothing."""
+        from core import clashapi
+        d = request.get_json(force=True, silent=True) or {}
+        outbound = (d.get("outbound") or "").strip()
+        c = db()
+        rows = [s for s in dbmod.list_site_sets(c) if s["id"] == sid]
+        if not rows:
+            return jsonify({"error": "not found"}), 404
+        allowed = {"direct", "block"}
+        # 只认内核 tag：内置组在 list_groups 里是显示名（可改名），排除
+        allowed |= {g["name"] for g in dbmod.list_groups(c)
+                    if g.get("enabled", True) and not g.get("builtin")}
+        if outbound not in allowed:
+            return jsonify({"error": f"unknown outbound: {outbound}"}), 400
+        tag = f"flip-{sid}"
+        # Live switch first; persist regardless so apply() picks it up.
+        ok, detail = clashapi.switch_selector(tag, outbound)
+        if outbound == "direct":
+            dbmod.update_site_set(c, sid, {"action": "direct"})
+        elif outbound == "block":
+            dbmod.update_site_set(c, sid, {"action": "reject"})
+        else:
+            dbmod.update_site_set(c, sid, {"action": "proxy", "group": outbound})
+        dbmod.set_site_set_flip(c, sid, "")
+        try:
+            from core.singbox import build_config
+            cfg = dbmod.load_app_config(db())
+            new_cfg = build_config(cfg, set())
+            import os, json
+            workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            with open(os.path.join(workdir, "config.json"), "w") as f:
+                json.dump(new_cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        row = [s for s in dbmod.list_site_sets(c) if s["id"] == sid][0]
+        return jsonify({"ok": True, "hot": ok, "detail": detail, "site_set": row})
+
     # ---- component upgrade ----
     @app.get("/api/upgrade/status")
     def upgrade_status():

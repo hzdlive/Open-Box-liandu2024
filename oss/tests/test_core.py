@@ -36,7 +36,12 @@ def main() -> int:
     assert conf["route"]["rules"][2]["outbound"].startswith("flip-")
     assert conf["route"]["rules"][3]["outbound"] == "block"
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
-    assert len(flips) == 2, [o["tag"] for o in flips]
+    # proxy + direct + reject site sets each get a selector (reject defaults
+    # to block so the card can switch it back); rules still route reject
+    # site sets to block directly.
+    assert len(flips) == 3, [o["tag"] for o in flips]
+    # policy selector members = all user-facing groups (1:1 with original)
+    assert flips[0]["outbounds"] == ["direct", "所有-自动", "所有-手动", "block"], flips[0]
     assert {o["tag"] for o in conf["outbounds"]} >= {"所有-自动", "所有-手动", "direct", "block"}
     assert "dns-out" not in {o["tag"] for o in conf["outbounds"]}
     assert conf["dns"]["servers"][0]["tag"] == "dns-direct"

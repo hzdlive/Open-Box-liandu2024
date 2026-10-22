@@ -44,6 +44,19 @@ def main() -> int:
     # site-set hot-switch flip (no kernel -> persisted, hot=false)
     r = c.post(f"/api/sitesets/{ss['id']}/flip", json={"to": "direct"})
     assert r.status_code == 200 and r.get_json()["ok"], r.get_data(as_text=True)
+    # policy-card select (frontend calls this; it 404'd before it existed):
+    # group -> action=proxy + group set + flip cleared; direct/block mapped;
+    # unknown outbound rejected.
+    r = c.post(f"/api/sitesets/{ss['id']}/select", json={"outbound": "所有-自动"})
+    assert r.status_code == 200 and r.get_json()["ok"], r.get_data(as_text=True)
+    row = r.get_json()["site_set"]
+    assert row["action"] == "proxy" and row["group"] == "所有-自动", row
+    r = c.post(f"/api/sitesets/{ss['id']}/select", json={"outbound": "direct"})
+    assert r.status_code == 200 and r.get_json()["site_set"]["action"] == "direct"
+    r = c.post(f"/api/sitesets/{ss['id']}/select", json={"outbound": "block"})
+    assert r.status_code == 200 and r.get_json()["site_set"]["action"] == "reject"
+    r = c.post(f"/api/sitesets/{ss['id']}/select", json={"outbound": "no-such-group"})
+    assert r.status_code == 400, r.status_code
     # terminals + dns rewrite round-trip
     tid = c.post("/api/terminals", json={"ident": "192.168.1.9", "policy": "direct"}).get_json()["id"]
     rwid = c.post("/api/dns/rewrite", json={"domain": "x.test", "target": "1.1.1.1"}).get_json()["id"]
