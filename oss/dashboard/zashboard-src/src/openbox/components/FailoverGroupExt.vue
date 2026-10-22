@@ -1,7 +1,9 @@
 <template>
   <div>
     <ProxyGroup :name="name" />
-    <div v-if="isFailover && lanes.length" class="mt-2 ml-4 flex flex-col gap-2">
+    <!-- lane 区跟随卡片展开状态：收起时不显示（原生 CollapseCard 默认收起，
+         点标题才展开；之前这里无条件渲染，收起时 lane 照样“掉”在卡片外面） -->
+    <div v-if="isFailover && lanes.length && expanded" class="mt-2 ml-4 flex flex-col gap-2">
       <div
         v-for="lane in lanes"
         :key="lane.tag"
@@ -36,10 +38,14 @@
 import { computed, ref } from 'vue'
 import ProxyGroup from '@/components/proxies/ProxyGroup.vue'
 import { proxyMap } from '@/assembly/proxies'
+import { collapseGroupMap } from '@/store/settings'
 import { obxGet, obxPost } from '../api'
 import { isAlive, aliveCount, refreshAlive } from '../composables/useAliveCount'
 
 const props = defineProps<{ name: string }>()
+
+// 与原生 CollapseCard 共用同一展开状态：默认收起（map 默认空），点标题才展开
+const expanded = computed(() => !!collapseGroupMap.value[props.name])
 
 // 故障转移组判定：后端 /api/groups 中 type=failover
 const failoverNames = ref<Set<string>>(new Set())
