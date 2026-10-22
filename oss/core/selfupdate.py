@@ -33,6 +33,117 @@ REPO_URL_MIRROR = "https://ghfast.top/https://github.com/hzdlive/Open-Box-liandu
 
 TS_FMT = "%Y-%m-%dT%H:%M:%S"
 
+# Update run status file（对标原版 /tmp/openbox-update.status 的 key=value 形态）：
+# 面板自己不装东西——apply 只起一个 detached applier，进度靠这个文件读回。
+# 关键语义（原版 Wave 4 实锤）：running 必须 pid 还活着，否则被杀留下的
+# stage 会永久锁死升级按钮；status 读取永不失败。
+STATUS_FILE = "/tmp/openbox-oss-update.status"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # EPERM 算活着
+    except OSError:
+        return False
+    return True
+
+
+def write_status(stage: str, pid: int | None = None, message: str = "",
+                 ref: str = "") -> None:
+    """写运行状态文件（原子替换，读侧永不看到半截文件）。"""
+    import tempfile
+    at = int(time.time() * 1000)
+    lines = [f"stage={stage}", f"at={at}"]
+    if pid is not None:
+        lines.append(f"pid={pid}")
+    if message:
+        lines.append(f"message={message}")
+    if ref:
+        lines.append(f"ref={ref}")
+    try:
+        fd, tmp = tempfile.mkstemp(dir="/tmp", prefix=".obx-update-status-")
+        with os.fdopen(fd, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        os.replace(tmp, STATUS_FILE)
+    except OSError:
+        pass
+
+
+def read_status() -> dict:
+    """读运行状态。永不抛错；running 只认 pid 存活，不认 stage 字面量。"""
+    out = {"stage": "idle", "pid": None, "running": False,
+           "at": 0, "message": "", "ref": ""}
+    try:
+        with open(STATUS_FILE) as f:
+            for ln in f.read().splitlines():
+                if "=" not in ln:
+                    continue
+                k, v = ln.split("=", 1)
+                if k == "pid":
+                    try:
+                        out["pid"] = int(v)
+                    except ValueError:
+                        out["pid"] = None
+                elif k == "at":
+                    try:
+                        out["at"] = int(v)
+                    except ValueError:
+                        pass
+                elif k in out:
+                    out[k] = v
+    except OSError:
+        return out
+    pid = out["pid"]
+    out["running"] = bool(pid is not None and out["stage"] == "running"
+                           and _pid_alive(pid))
+    return out
+
+
+def cancel_update() -> dict:
+    """取消进行中的更新：杀 applier（先 TERM，3 秒后仍活着则 KILL），写 cancelled。"""
+    import signal
+    st = read_status()
+    if not st["running"] or st["pid"] is None:
+        return {"cancelled": False, "reason": "no update in progress"}
+    pid = st["pid"]
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+    deadline = time.time() + 3
+    while time.time() < deadline and _pid_alive(pid):
+        time.sleep(0.2)
+    if _pid_alive(pid):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    write_status("cancelled", pid=pid, ref=st.get("ref", ""))
+    return {"cancelled": True, "pid": pid}
+
+
+def recent_commits(n: int = 20) -> list[dict]:
+    """本地最近 n 条提交（原版 notes 的对等物：我们没有 GitHub releases，
+    更新内容就是仓库提交历史）。永不抛错。"""
+    try:
+        r = subprocess.run(
+            ["git", "log", "--format=%H%x1f%s%x1f%cI", f"-{n}"],
+            cwd=repo_dir(), capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if r.returncode != 0:
+        return []
+    out = []
+    for ln in r.stdout.splitlines():
+        parts = ln.split("\x1f")
+        if len(parts) == 3:
+            out.append({"sha": parts[0], "subject": parts[1], "date": parts[2]})
+    return out
+
 
 def repo_dir() -> str:
     """Repo root: env override, else derived from this file's location."""
@@ -182,15 +293,20 @@ def check_for_update(conn) -> dict:
 
 
 def apply_update_async(ref: str = "refs/heads/oss") -> str:
-    """Spawn the detached self-update applier. Returns the log path."""
+    """Spawn the detached self-update applier. Returns the log path.
+
+    同时写运行状态（stage=running + applier pid），status 侧靠 pid 存活判定
+    是否还在跑——applier 被杀也不会把升级按钮永久锁死。
+    """
     repo = repo_dir()
     script = os.path.join(repo, "oss", "scripts", "selfupdate-apply.sh")
     logf = "/tmp/openbox-oss-selfupdate.log"
     port = os.environ.get("PORT", "8080")
-    subprocess.Popen(
+    proc = subprocess.Popen(
         ["bash", script, repo, sys.executable, port, ref],
         stdout=open(logf, "ab"), stderr=subprocess.STDOUT,
         start_new_session=True)
+    write_status("running", pid=proc.pid, ref=ref)
     return logf
 
 

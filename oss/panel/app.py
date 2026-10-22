@@ -1511,10 +1511,23 @@ def create_app(db_path: str = ":memory:") -> Flask:
             dns_filter_conf=_dns_filter_conf_path(c),
             direct_ipset_domains=direct_ipset_domains,
             direct_ip_cidrs=direct_ip_cidrs,
-            bypass_ports=get_setting(c, "bypass_ports", ""),
-            bypass_ports_mode=get_setting(c, "bypass_ports_mode", "black"),
+            # 端口黑白名单分开存（原版语义：两个字段不合并）：
+            # 前端存 port_list_mode + bypass_ports_white，旧键 bypass_ports_mode 兼容。
+            bypass_ports=_port_list_for_mode(c),
+            bypass_ports_mode=_port_list_mode(c),
             mss_clamp=int(get_setting(c, "mss_clamp", "0") or 0),
         )
+
+    def _port_list_mode(c) -> str:
+        from panel.db import get_setting
+        mode = get_setting(c, "port_list_mode", "") or get_setting(c, "bypass_ports_mode", "black")
+        return "white" if mode == "white" else "black"
+
+    def _port_list_for_mode(c) -> str:
+        from panel.db import get_setting
+        if _port_list_mode(c) == "white":
+            return get_setting(c, "bypass_ports_white", "")
+        return get_setting(c, "bypass_ports", "")
 
     def _dns_filter_conf_path(c) -> str:
         from panel.db import get_setting
@@ -3145,6 +3158,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "last_result": res,
             "local_commit": _su.local_head(),
             "panel_version": VERSION,
+            # 进行中的更新（对标原版 update/status：running 只认 pid 存活）
+            "run": _su.read_status(),
         })
 
     @app.post("/api/panel/update/check")
@@ -3158,12 +3173,27 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def panel_update_apply():
         from core import selfupdate as _su
         c = db()
+        # 已有一次更新在进行中时拒绝重入（对标原版 run 的 409）
+        if _su.read_status()["running"]:
+            return jsonify({"error": "update already in progress"}), 409
         res = _su.last_result(c)
         if not res.get("available"):
             return jsonify({"error": "no update available (run a check first)"}), 409
         ref = res.get("ref") or "refs/heads/oss"
         logf = _su.apply_update_async(ref)
         return jsonify({"ok": True, "ref": ref, "log": logf})
+
+    @app.post("/api/panel/update/cancel")
+    def panel_update_cancel():
+        from core import selfupdate as _su
+        return jsonify(_su.cancel_update())
+
+    @app.get("/api/panel/update/notes")
+    def panel_update_notes():
+        from core import selfupdate as _su
+        c = db()
+        return jsonify({"commits": _su.recent_commits(20),
+                        "pending": _su.last_result(c)})
 
     @app.get("/api/panel/update/log")
     def panel_update_log():

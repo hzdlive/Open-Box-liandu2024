@@ -13,14 +13,73 @@ import re
 import subprocess
 
 _MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+_MAC_DASH_RE = re.compile(r"^([0-9a-fA-F]{2}-){5}[0-9a-fA-F]{2}$")
 
 
 def is_mac(s: str) -> bool:
-    return bool(_MAC_RE.match((s or "").strip()))
+    s = (s or "").strip()
+    return bool(_MAC_RE.match(s) or _MAC_DASH_RE.match(s))
 
 
-def normalize_mac(s: str) -> str:
-    return (s or "").strip().lower()
+def normalize_mac(s: str) -> str | None:
+    """MAC 规范化（对标原版 Tn）：短横线转冒号，小写，六组十六进制校验。
+
+    校验失败返回 None（调用方丢弃该条，不让坏值进 nft 脚本）。
+    """
+    s = (s or "").strip().lower().replace("-", ":")
+    return s if _MAC_RE.match(s) else None
+
+
+def normalize_cidr(s: str) -> str | None:
+    """CIDR 规范化（对标原版 Co）：裸地址补 /32（v4）或 /128（v6），前缀越界拒绝。
+
+    校验失败返回 None（调用方丢弃该条，不让坏值进 nft 脚本）。
+    """
+    import ipaddress
+    s = (s or "").strip()
+    if not s:
+        return None
+    try:
+        if "/" in s:
+            # 只校验前缀合法性（越界拒绝），不改写主机位，原样保留
+            ipaddress.ip_network(s, strict=False)
+            return s
+        ip = ipaddress.ip_address(s)
+        return f"{s}/{32 if ip.version == 4 else 128}"
+    except ValueError:
+        return None
+
+
+def parse_port_spec(spec: str) -> list[str] | None:
+    """端口串解析（对标原版 parsePortSpec）：单端口或 lo-hi 范围，逗号分隔。
+
+    一条坏项否决整串（返回 None，调用方整条规则不生成），不做部分应用。
+    """
+    out = []
+    for item in (spec or "").split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "-" in item:
+            parts = item.split("-")
+            if len(parts) != 2:
+                return None
+            try:
+                lo, hi = int(parts[0]), int(parts[1])
+            except ValueError:
+                return None
+            if not (1 <= lo <= hi <= 65535):
+                return None
+            out.append(f"{lo}-{hi}")
+        else:
+            try:
+                p = int(item)
+            except ValueError:
+                return None
+            if not (1 <= p <= 65535):
+                return None
+            out.append(str(p))
+    return out or None
 
 
 def arp_table() -> dict[str, str]:

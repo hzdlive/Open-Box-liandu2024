@@ -100,7 +100,13 @@ class KernelManager:
             return None
         try:
             os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
+        except ProcessLookupError:
+            return None
+        except PermissionError:
+            # EPERM 算活着（对标原版：pid 存活判定里 EPERM 视为在跑）：
+            # 进程属于其他用户、信号发不出去，但进程确实存在。
+            return pid
+        except OSError:
             return None
         return pid
 

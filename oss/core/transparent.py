@@ -68,6 +68,17 @@ class TransparentConfig:
     direct_answer_enabled: bool = False
 
 
+def _norm_idents(idents):
+    """终端标识规范化（对标原版 Of/Pf/Tn/Co）：
+    MAC 短横线转冒号+六组校验，IP/CIDR 裸地址补掩码+前缀越界拒绝。
+    坏项直接丢弃，不让坏值进 nft 脚本（坏值会让整条脚本加载失败）。"""
+    from core import arp as _arp
+    macs, ips = _arp.split_mac_ip(idents or [])
+    good_macs = [m for m in (_arp.normalize_mac(x) for x in macs) if m]
+    good_ips = [c for c in (_arp.normalize_cidr(x) for x in ips) if c]
+    return good_macs, good_ips
+
+
 def nft_script(cfg: TransparentConfig) -> str:
     b4 = ",\n        ".join(cfg.bypass_v4)
     b6 = ",\n        ".join(cfg.bypass_v6)
@@ -95,7 +106,7 @@ def nft_script(cfg: TransparentConfig) -> str:
     # IP/CIDR idents go into an ipv4 set; MAC idents match directly on the
     # Ethernet source address (no ARP resolution needed, never goes stale).
     from core import arp as _arp
-    _mac_terms, _ip_terms = _arp.split_mac_ip(cfg.terminal_bypass or [])
+    _mac_terms, _ip_terms = _norm_idents(cfg.terminal_bypass or [])
     bypass_terminals = ""
     if _ip_terms:
         elts = ",\n        ".join(_ip_terms)
@@ -124,7 +135,7 @@ def nft_script(cfg: TransparentConfig) -> str:
     # Proxy terminals (v0.1.340): ALWAYS enter kernel, skip all bypass rules.
     # Placed BEFORE bypass rules so direct domains from these terminals
     # still go into the kernel (other terminals continue to enjoy bypass).
-    _p_mac_terms, _p_ip_terms = _arp.split_mac_ip(cfg.terminal_proxy or [])
+    _p_mac_terms, _p_ip_terms = _norm_idents(cfg.terminal_proxy or [])
     tproxy_terminals = ""
     tproxy_rule = ""
     if _p_ip_terms:
@@ -152,7 +163,7 @@ def nft_script(cfg: TransparentConfig) -> str:
     # Whitelist mode: only listed terminals enter the kernel; all other
     # LAN traffic bypasses (like OpenClash whitelist). DNS also bypasses
     # for non-whitelisted (handled by placing before DNS accept).
-    _wmac_terms, _wip_terms = _arp.split_mac_ip(cfg.terminal_whitelist or [])
+    _wmac_terms, _wip_terms = _norm_idents(cfg.terminal_whitelist or [])
     whitelist_set = ""
     whitelist_rule = ""
     if _wip_terms or _wmac_terms:
@@ -190,8 +201,10 @@ def nft_script(cfg: TransparentConfig) -> str:
     # QUIC block: proxied UDP/443 is often poorly forwarded; rejecting it
     # makes browsers fall back to TCP. Placed before the tproxy rule.
     quic_rule = "\n        udp dport 443 reject" if cfg.quic_block else ""
-    # TCP MSS clamp (helps MTU-blackhole paths, e.g. hardware offload NICs).
-    mss_rule = f"\n        tcp flags syn tcp option maxseg size set {cfg.mss_clamp}" if cfg.mss_clamp else ""
+    # TCP MSS clamp（对标原版 tunTcpMss）：0 关，合法域 536–65495；域外值直接关掉，
+    # 不把坏值写进脚本（坏值会让整条脚本加载失败）。
+    _mss = cfg.mss_clamp if (cfg.mss_clamp == 0 or 536 <= cfg.mss_clamp <= 65495) else 0
+    mss_rule = f"\n        tcp flags syn tcp option maxseg size set {_mss}" if _mss else ""
     # Direct-bypass: dnsmasq puts resolved IPs of direct domains into this
     # dynamic set (see dnsmasq_conf ipset= lines); traffic to them is
     # accepted at ingress and never enters the kernel.
@@ -209,8 +222,10 @@ def nft_script(cfg: TransparentConfig) -> str:
     direct_ip_set = ""
     direct_ip_rule = ""
     if cfg.direct_ip_cidrs:
-        cidrs = ",\n        ".join(sorted(set(cfg.direct_ip_cidrs)))
-        direct_ip_set = f"""
+        _dc = [c for c in (_arp.normalize_cidr(x) for x in cfg.direct_ip_cidrs) if c]
+        if _dc:
+            cidrs = ",\n        ".join(sorted(set(_dc)))
+            direct_ip_set = f"""
         set obx_direct_ip4 {{
             type ipv4_addr
             flags interval
@@ -218,15 +233,17 @@ def nft_script(cfg: TransparentConfig) -> str:
                 {cidrs}
             }}
         }}"""
-        direct_ip_rule = "\n        ip daddr @obx_direct_ip4 accept"
+            direct_ip_rule = "\n        ip daddr @obx_direct_ip4 accept"
     # Entry bypass mode (1:1 对标原版):
     # - blacklist: everything bypasses EXCEPT entry_cidrs → create set, accept if NOT in set
     # - whitelist: only entry_cidrs bypass (handled by direct_set above)
     entry_set = ""
     entry_rule = ""
     if cfg.entry_mode == "blacklist" and cfg.entry_cidrs:
-        ecidrs = ",\n        ".join(cfg.entry_cidrs)
-        entry_set = """
+        _ec = [c for c in (_arp.normalize_cidr(x) for x in cfg.entry_cidrs) if c]
+        if _ec:
+            ecidrs = ",\n        ".join(_ec)
+            entry_set = """
         set obx_entry4 {
             type ipv4_addr
             flags interval
@@ -234,8 +251,8 @@ def nft_script(cfg: TransparentConfig) -> str:
                 %s
             }
         }""" % ecidrs
-        # Blacklist: accept (bypass) if NOT in the enter-kernel set
-        entry_rule = "\n        ip daddr != @obx_entry4 accept"
+            # Blacklist: accept (bypass) if NOT in the enter-kernel set
+            entry_rule = "\n        ip daddr != @obx_entry4 accept"
     
     # Direct-answer release set (blacklist mode only):
     # IPs from direct DNS answers, TTL 15min~1d, accepted at ingress
@@ -252,14 +269,18 @@ def nft_script(cfg: TransparentConfig) -> str:
     
     # Port bypass: blacklist = listed ports bypass the kernel;
     # whitelist = only listed ports enter the kernel.
+    # 对标原版 parsePortSpec：一条坏项否决整串（整条端口规则不生成，
+    # 不把坏值写进脚本——坏值会让整条脚本加载失败）。
     port_rule = ""
     if cfg.bypass_ports.strip():
-        ports = cfg.bypass_ports.strip()
-        if cfg.bypass_ports_mode == "white":
-            port_rule = (f"\n        tcp dport != {{{ports}}} accept"
-                         f"\n        udp dport != {{{ports}}} accept")
-        else:
-            port_rule = f"\n        tcp dport {{{ports}}} accept\n        udp dport {{{ports}}} accept"
+        _ports = _arp.parse_port_spec(cfg.bypass_ports)
+        if _ports:
+            ports = ", ".join(_ports)
+            if cfg.bypass_ports_mode == "white":
+                port_rule = (f"\n        tcp dport != {{{ports}}} accept"
+                             f"\n        udp dport != {{{ports}}} accept")
+            else:
+                port_rule = f"\n        tcp dport {{{ports}}} accept\n        udp dport {{{ports}}} accept"
     return f"""#!/usr/sbin/nft -f
 # Generated by openbox-oss. Review before applying. Requires root.
 # Applies TPROXY transparent proxying for traffic arriving on {cfg.lan_iface}.

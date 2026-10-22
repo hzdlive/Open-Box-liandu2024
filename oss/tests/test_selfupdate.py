@@ -1,6 +1,7 @@
 """Tests for panel self-update: scheduler gating, check logic, API."""
 
 import json
+import os
 import sqlite3
 import sys
 import time
@@ -169,6 +170,64 @@ def test_api_endpoints():
         assert r.get_json()["ok"] is True
     finally:
         su._run_git, su.apply_update_async = orig_git, orig_apply
+
+
+def test_run_status_pid_liveness(monkeypatch, tmp_path):
+    """对标原版：running 只认 pid 存活；死 pid 的 stage 不锁死按钮；status 永不抛错。"""
+    st_file = tmp_path / "update.status"
+    monkeypatch.setattr(su, "STATUS_FILE", str(st_file))
+    # 无文件 -> idle、不跑
+    assert su.read_status()["running"] is False
+    # 活 pid（当前进程）-> running
+    su.write_status("running", pid=os.getpid(), ref="refs/heads/oss")
+    st = su.read_status()
+    assert st["running"] is True and st["stage"] == "running"
+    # 死 pid -> stage 仍是 running，但 running 为 False（僵尸状态不锁死）
+    su.write_status("running", pid=999999, ref="refs/heads/oss")
+    st = su.read_status()
+    assert st["running"] is False and st["stage"] == "running"
+    # 坏文件 -> 永不抛错
+    st_file.write_text("garbage without equals\npid=abc\n")
+    assert su.read_status()["running"] is False
+
+
+def test_cancel_noop_when_idle(monkeypatch, tmp_path):
+    st_file = tmp_path / "update.status"
+    monkeypatch.setattr(su, "STATUS_FILE", str(st_file))
+    assert su.cancel_update()["cancelled"] is False
+
+
+def test_apply_blocked_while_running(monkeypatch, tmp_path):
+    """进行中再次 apply -> 409（对标原版 run 的 409）；cancel 能杀掉 applier。"""
+    import subprocess
+    monkeypatch.setattr(su, "STATUS_FILE", str(tmp_path / "update.status"))
+    app = create_app(":memory:")
+    cl = app.test_client()
+    proc = subprocess.Popen(["sleep", "60"])
+    su.write_status("running", pid=proc.pid)
+    try:
+        r = cl.post("/api/panel/update/apply")
+        assert r.status_code == 409, r.get_data(as_text=True)
+        r = cl.post("/api/panel/update/cancel")
+        assert r.status_code == 200 and r.get_json()["cancelled"] is True
+        assert su.read_status()["running"] is False
+        assert proc.poll() is not None, "applier 应已被杀掉"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            os.remove(su.STATUS_FILE)
+        except OSError:
+            pass
+
+
+def test_notes_endpoint():
+    app = create_app(":memory:")
+    cl = app.test_client()
+    r = cl.get("/api/panel/update/notes")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert isinstance(body["commits"], list) and "pending" in body
 
 
 def test_traffic_prune_daily():

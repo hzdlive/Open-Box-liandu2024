@@ -310,6 +310,8 @@ DEFAULT_SETTINGS = {
     "direct_bypass_kernel": "1",      # direct traffic bypasses kernel at ingress (ipset); default ON
     "bypass_ports": "",               # e.g. "21114-21119, 2233"
     "bypass_ports_mode": "black",     # black = these ports bypass; white = only these enter
+    "bypass_ports_white": "",        # 白名单端口串（与黑名单分开存，不合并）
+    "port_list_mode": "black",       # 前端端口页签：black | white（与 bypass_ports_mode 同义，优先用它）
     "mss_clamp": "0",                 # TCP MSS clamp; 0 = off
     "speedtest_url": "http://www.gstatic.com/generate_204",
     "direct_speedtest_url": "http://connectivitycheck.platform.hicloud.com/generate_204",

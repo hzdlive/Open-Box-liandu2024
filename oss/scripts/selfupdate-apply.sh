@@ -8,6 +8,10 @@
 set -u
 REPO="${1:?repo dir}"; PY="${2:?python}"; PORT="${3:-8080}"; REF="${4:-refs/heads/oss}"
 LOG="/tmp/openbox-oss-selfupdate.log"
+STATUS="/tmp/openbox-oss-update.status"
+# 退出时写最终状态（对标原版：进度靠状态文件读回，面板不直接等 applier）。
+# trap 在面板重启之后才触发，写文件不受重启影响。
+trap 'code=$?; if [ "$code" -eq 0 ]; then st=done; else st=failed; fi; printf "stage=%s\nat=%s\nref=%s\nmessage=see %s\n" "$st" "$(date +%s%3N)" "$REF" "$LOG" > "$STATUS"' EXIT
 exec >>"$LOG" 2>&1
 echo "[selfupdate] start $(date '+%F %T') repo=$REPO ref=$REF"
 
