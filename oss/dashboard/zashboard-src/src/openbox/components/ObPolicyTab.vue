@@ -18,6 +18,16 @@
         <span>🌍 {{ site.currentGroup }}</span>
         <span v-if="site.currentNode"> ⊕ {{ site.currentNode }}</span>
       </div>
+      <!-- 成员存活圆点（对标原生 ProxyPreview：延迟>0 为存活，按延迟着色，选中带圈） -->
+      <div v-if="site.options.length" class="mt-2 flex gap-1.5">
+        <span
+          v-for="opt in site.options"
+          :key="opt.name"
+          class="inline-block h-2.5 w-2.5 rounded-full"
+          :class="dotClass(opt, site.selected)"
+          :title="`${opt.name}: ${opt.delay > 0 ? opt.delay + 'ms' : '未连通'}`"
+        />
+      </div>
       <div v-if="expanded === site.id" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
         <div
           v-for="opt in site.options"
@@ -59,6 +69,23 @@ function latencyClass(lat: string | number | undefined): string {
   return 'badge-error'
 }
 
+// 原生语义：存活 = 延迟不为 NOT_CONNECTED（0）。Clash API 不返 latency 字段，
+// 延迟取 history 最后一条的 delay；无 history 即未连通。
+function lastDelay(p: any): number {
+  const h = p?.history
+  if (!Array.isArray(h) || !h.length) return 0
+  const d = h[h.length - 1]?.delay
+  return typeof d === 'number' && d > 0 ? d : 0
+}
+
+function dotClass(opt: any, selected: string): string {
+  const ring = opt.name === selected ? 'ring-2 ring-offset-1 ring-success' : ''
+  if (!opt.delay || opt.delay <= 0) return `bg-base-300 ${ring}`
+  if (opt.delay < 150) return `bg-success ${ring}`
+  if (opt.delay < 300) return `bg-warning ${ring}`
+  return `bg-error ${ring}`
+}
+
 const sites = ref<any[]>([])
 
 // 显示顺序（策略设置里拖拽保存）：已保存名单优先，未保存的按站点集原序追加
@@ -90,20 +117,23 @@ async function load() {
         const flipTag = `flip-${s.id}`
         const flipInfo = proxies[flipTag] || {}
         const all = flipInfo.all || []
+        const options = all.map((name: string) => {
+          const p = proxies[name] || {}
+          const delay = lastDelay(p)
+          return { name, type: p.type || 'selector', latency: delay > 0 ? delay : '', delay }
+        })
         return {
           id: s.id,
           name: s.name,
           icon: s.icon,
-          matched: all.length,
+          // 原生语义：matched = 存活数（延迟>0），total = 成员数；此前两者都写 all.length，恒为 (N/N)
+          matched: options.filter((o: any) => o.delay > 0).length,
           total: all.length,
-          latency: flipInfo.latency || '',
+          latency: lastDelay(flipInfo) || '',
           currentGroup: s.group || '所有-自动',
           currentNode: flipInfo.now || '',
           selected: flipInfo.now || '',
-          options: all.map((name: string) => {
-            const p = proxies[name] || {}
-            return { name, type: p.type || 'selector', latency: p.latency || '' }
-          }),
+          options,
         }
       })
   } catch (e) {

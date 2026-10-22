@@ -45,10 +45,26 @@ const activeTab = ref('node')
 const searchText = ref('')
 const settingsShow = ref(false)
 
+// 策略/订阅计数（此前 tabOptions 只给节点加了计数，两处直接丢了）
+const policyCount = ref<number | null>(null)
+const subCount = ref<number | null>(null)
+async function loadTabCounts() {
+  try {
+    const sitesData = await obxGet<any>('/api/sitesets')
+    const list = Array.isArray(sitesData) ? sitesData : (sitesData.sitesets || [])
+    policyCount.value = list.length
+  } catch {}
+  try {
+    const subsData = await obxGet<any>('/api/subscriptions')
+    const list = Array.isArray(subsData) ? subsData : (subsData.subscriptions || [])
+    subCount.value = list.length
+  } catch {}
+}
+
 const tabOptions = computed(() => [
-  { value: 'policy', label: '策略' },
+  { value: 'policy', label: policyCount.value === null ? '策略' : `策略 (${policyCount.value})` },
   { value: 'node', label: `节点 (${filteredGroups.value.length})` },
-  { value: 'sub', label: '订阅' },
+  { value: 'sub', label: subCount.value === null ? '订阅' : `订阅 (${subCount.value})` },
 ])
 
 const failoverNames = ref<Set<string>>(new Set())
@@ -75,6 +91,7 @@ onMounted(() => {
   fetchProxies()
   loadFailoverNames()
   loadProxySettings()
+  loadTabCounts()
   refreshAlive()
   timer = setInterval(refreshAlive, 10000)
 })
