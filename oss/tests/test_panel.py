@@ -47,7 +47,9 @@ def main() -> int:
     r = c.post("/api/route/preview", json={"target": "114.114.114.114"})
     assert r.get_json() == {"site_set": "test-国内", "action": "direct", "outbound": "direct", "flip": None}, r.get_json()
     r = c.post("/api/route/preview", json={"target": "8.8.8.8"})
-    assert r.get_json() == {"site_set": None, "action": "final", "outbound": "所有-自动"}, r.get_json()
+    # 4a932e6: preview fallback now uses the effective final (direct),
+    # not the stale final_outbound default (所有-自动).
+    assert r.get_json() == {"site_set": None, "action": "final", "outbound": "direct"}, r.get_json()
     # domain must not match ip_cidr and vice versa
     r = c.post("/api/route/preview", json={"target": "114.114.114.114.example.com"})
     assert r.get_json()["site_set"] is None, r.get_json()
@@ -59,8 +61,11 @@ def main() -> int:
     # Just check flips count matches site sets with proxy action
     flips = [o for o in conf["outbounds"] if o["tag"].startswith("flip-")]
     assert len(flips) >= 2 and all(o["type"] == "selector" for o in flips), flips
-    # 1:1 original: unmatched traffic falls back to direct by default
-    assert conf["route"]["final"] == "direct"
+    # 4a932e6: unmatched traffic now routes to the 其他 fallback selector;
+    # its default preserves the old effective final (direct).
+    assert conf["route"]["final"] == "其他"
+    _fallback = [o for o in conf["outbounds"] if o["tag"] == "其他"]
+    assert len(_fallback) == 1 and _fallback[0]["default"] == "direct", _fallback
 
     # settings round-trip
     r = c.put("/api/settings", json={"dns_direct": "114.114.114.114"})
