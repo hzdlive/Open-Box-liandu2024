@@ -57,6 +57,16 @@ def main() -> int:
     assert r.status_code == 200 and r.get_json()["site_set"]["action"] == "reject"
     r = c.post(f"/api/sitesets/{ss['id']}/select", json={"outbound": "no-such-group"})
     assert r.status_code == 400, r.status_code
+    # fallback policy card (其他) select: persists to both final settings
+    r = c.post("/api/openbox/final-select", json={"outbound": "所有-自动"})
+    assert r.status_code == 200 and r.get_json()["final"] == "所有-自动", r.get_data(as_text=True)
+    settings = c.get("/api/settings").get_json()
+    assert settings["routing_fallback"] == "所有-自动", settings["routing_fallback"]
+    assert settings["final_outbound"] == "所有-自动", settings["final_outbound"]
+    r = c.post("/api/openbox/final-select", json={"outbound": "direct"})
+    assert r.status_code == 200 and r.get_json()["final"] == "direct"
+    r = c.post("/api/openbox/final-select", json={"outbound": "no-such-group"})
+    assert r.status_code == 400, r.status_code
     # terminals + dns rewrite round-trip
     tid = c.post("/api/terminals", json={"ident": "192.168.1.9", "policy": "direct"}).get_json()["id"]
     rwid = c.post("/api/dns/rewrite", json={"domain": "x.test", "target": "1.1.1.1"}).get_json()["id"]

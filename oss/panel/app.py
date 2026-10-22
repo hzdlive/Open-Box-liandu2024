@@ -883,7 +883,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
         cfg = dbmod.load_app_config(db())
         res = preview_route(cfg.site_sets, target)
         if res["outbound"] is None:
-            res["outbound"] = cfg.final_outbound
+            # Unmatched: report the effective final (the 其他 selector's
+            # default), not the shadowed final_outbound setting.
+            res["outbound"] = cfg.routing_fallback or cfg.final_outbound
         return jsonify(res)
 
     @app.post("/api/openbox/penetration")
@@ -3135,6 +3137,37 @@ def create_app(db_path: str = ":memory:") -> Flask:
             pass
         row = [s for s in dbmod.list_site_sets(c) if s["id"] == sid][0]
         return jsonify({"ok": True, "hot": ok, "detail": detail, "site_set": row})
+
+    @app.post("/api/openbox/final-select")
+    def ob_final_select():
+        """Fallback policy card (其他) selection: pick the final outbound
+        from the card. Hot-switches the 其他 selector immediately, then
+        persists the choice into both final settings (routing_fallback
+        drives route.final; final_outbound is read by entry-plan display)
+        and regenerates config so the selector default keeps it."""
+        from core import clashapi
+        d = request.get_json(force=True, silent=True) or {}
+        outbound = (d.get("outbound") or "").strip()
+        c = db()
+        allowed = {"direct", "block"}
+        allowed |= {g["name"] for g in dbmod.list_groups(c)
+                    if g.get("enabled", True) and not g.get("builtin")}
+        if outbound not in allowed:
+            return jsonify({"error": f"unknown outbound: {outbound}"}), 400
+        ok, detail = clashapi.switch_selector("其他", outbound)
+        dbmod.set_setting(c, "routing_fallback", outbound)
+        dbmod.set_setting(c, "final_outbound", outbound)
+        try:
+            from core.singbox import build_config
+            cfg = dbmod.load_app_config(db())
+            new_cfg = build_config(cfg, set())
+            import os, json
+            workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            with open(os.path.join(workdir, "config.json"), "w") as f:
+                json.dump(new_cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return jsonify({"ok": True, "hot": ok, "detail": detail, "final": outbound})
 
     # ---- component upgrade ----
     @app.get("/api/upgrade/status")

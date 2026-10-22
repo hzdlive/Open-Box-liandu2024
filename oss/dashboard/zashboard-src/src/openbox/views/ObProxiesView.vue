@@ -52,7 +52,8 @@ async function loadTabCounts() {
   try {
     const sitesData = await obxGet<any>('/api/sitesets')
     const list = Array.isArray(sitesData) ? sitesData : (sitesData.sitesets || [])
-    policyCount.value = list.length
+    // 策略卡 = 站点集 + 兜底其他卡（原版 13 张的构成）
+    policyCount.value = list.length + 1
   } catch {}
   try {
     const subsData = await obxGet<any>('/api/subscriptions')

@@ -77,4 +77,5 @@ def get_proxies(port: int | None = None) -> tuple[bool, dict]:
 def switch_selector(selector: str, target: str,
                     port: int | None = None) -> tuple[bool, object]:
     """Switch a selector's active outbound without restarting the kernel."""
-    return clash_put(f"/proxies/{selector}", {"name": target}, port)
+    from urllib.parse import quote
+    return clash_put(f"/proxies/{quote(selector, safe='')}", {"name": target}, port)

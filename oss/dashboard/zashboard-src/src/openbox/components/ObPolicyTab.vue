@@ -15,8 +15,11 @@
         <div class="badge" :class="latencyClass(site.latency)">{{ site.latency }}</div>
       </div>
       <div class="mt-2 text-sm opacity-70">
-        <span>🌍 {{ site.currentGroup }}</span>
-        <span v-if="site.currentNode"> ⊕ {{ site.currentNode }}</span>
+        <span v-if="site.isOther">🎯 {{ site.selected }}</span>
+        <span v-else>
+          <span>🌍 {{ site.currentGroup }}</span>
+          <span v-if="site.currentNode"> ⊕ {{ site.currentNode }}</span>
+        </span>
       </div>
       <!-- 成员存活圆点（对标原生 ProxyPreview：延迟>0 为存活，按延迟着色，选中带圈） -->
       <div v-if="site.options.length" class="mt-2 flex gap-1.5">
@@ -136,6 +139,31 @@ async function load() {
           options,
         }
       })
+    // 兜底策略卡（其他，1:1 对标原版第 13 张卡）：无规则命中时走 route.final，
+    // 后端把 final 做成含全部组的选择器（tag 其他），卡片与站点集卡同源渲染；
+    // 内核未重建前无此选择器时不渲染，避免 (0/0) 空卡。
+    const otherInfo = proxies['其他']
+    if (otherInfo && (!q || '其他'.includes(q))) {
+      const all = otherInfo.all || []
+      const options = all.map((name: string) => {
+        const p = proxies[name] || {}
+        const delay = lastDelay(p)
+        return { name, type: p.type || 'selector', latency: delay > 0 ? delay : '', delay }
+      })
+      sites.value.push({
+        id: 'other',
+        name: '其他',
+        icon: 'globe:earth-americas',
+        isOther: true,
+        matched: options.filter((o: any) => o.delay > 0).length,
+        total: all.length,
+        latency: lastDelay(otherInfo) || '',
+        currentGroup: '',
+        currentNode: otherInfo.now || '',
+        selected: otherInfo.now || '',
+        options,
+      })
+    }
   } catch (e) {
     console.error('load policies failed', e)
   }
@@ -143,6 +171,12 @@ async function load() {
 
 async function selectOutbound(site: any, opt: any) {
   try {
+    if (site.isOther) {
+      await obxPost<any>('/api/openbox/final-select', { outbound: opt.name })
+      site.selected = opt.name
+      site.currentNode = opt.name
+      return
+    }
     const res = await obxPost<any>(`/api/sitesets/${site.id}/select`, { outbound: opt.name })
     site.selected = opt.name
     site.currentNode = opt.name

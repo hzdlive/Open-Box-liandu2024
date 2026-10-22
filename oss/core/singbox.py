@@ -334,6 +334,16 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
         fo = flip_outbound(s, flip_members)
         if fo:
             outbounds.append(fo)
+    # Fallback policy card (其他, 1:1 with the original): unmatched traffic
+    # routes to this selector, so the policy tab can show and switch it
+    # like any other policy. Default = the previous effective final, so
+    # current behavior is unchanged (routing_fallback defaults to direct).
+    _final_default = cfg.routing_fallback or cfg.final_outbound
+    if _final_default not in flip_members:
+        _final_default = "所有-自动" if "所有-自动" in flip_members else flip_members[0]
+    outbounds.append({"type": "selector", "tag": "其他",
+                      "outbounds": list(flip_members),
+                      "default": _final_default})
     return outbounds
 
 
@@ -901,7 +911,9 @@ def build_config(cfg: AppConfig,
             # 4. 其余站点集规则
             "rules": _reorder_rules_for_original(route_rules),
             **({"rule_set": rule_set_decls} if rule_set_decls else {}),
-            "final": cfg.routing_fallback or cfg.final_outbound,
+            # Unmatched traffic goes to the 其他 selector (the fallback
+            # policy card); its default preserves the old effective final.
+            "final": "其他",
             "auto_detect_interface": True,
             # sing-box >= 1.12 requires an explicit resolver for outbound
             # server domain names (was implicit, removed in 1.14).
