@@ -1784,12 +1784,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         
+        from core.cfrefresh import check_caps, domain_count_of_rules
+        _nd = domain_count_of_rules(parsed["rules"])
+        _ok, _msg = check_caps(db(), _nd)
+        if not _ok:
+            return jsonify({"error": _msg}), 400
         rid = hashlib.sha256(f"cf-{name}-{time.time()}".encode()).hexdigest()[:16]
         conn = db()
         conn.execute("""INSERT INTO cf_rulesets
             (id, name, dialect, source_url, text, rules, hostnames, arguments, scripts,
-             enabled, updated_at, skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)""",
+             enabled, updated_at, skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable, domain_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)""",
             (rid, name, dialect, source_url, text[:524288],
              json.dumps(parsed["rules"], ensure_ascii=False),
              json.dumps(parsed["hostnames"], ensure_ascii=False),
@@ -1797,7 +1802,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
              json.dumps(parsed["scripts"], ensure_ascii=False),
              time.strftime("%Y-%m-%dT%H:%M:%S"),
              parsed["skipped_scripts"], parsed["skipped_unsupported"],
-             parsed["skipped_routing"], parsed["skipped_unrepresentable"]))
+             parsed["skipped_routing"], parsed["skipped_unrepresentable"], _nd))
         conn.commit()
         return jsonify({"id": rid, "parsed": parsed})
 
@@ -1819,14 +1824,52 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def cf_ruleset_patch(rid: str):
         data = request.get_json() or {}
         conn = db()
-        if "enabled" in data:
+        if "enabled" in data and data["enabled"]:
+            # Enabling emits this ruleset's domains into the config: the
+            # caps apply here just as at create/refresh.
+            from core.cfrefresh import (check_caps, domain_count_of_rules,
+                                        ensure_columns)
+            ensure_columns(conn)
+            row = conn.execute("SELECT rules, domain_count FROM cf_rulesets"
+                               " WHERE id = ?", (rid,)).fetchone()
+            if row is not None:
+                nd = row[1] if row[1] is not None else domain_count_of_rules(
+                    json.loads(row[0] or "[]"))
+                ok, msg = check_caps(conn, nd)
+                if not ok:
+                    return jsonify({"error": msg}), 400
             conn.execute("UPDATE cf_rulesets SET enabled = ? WHERE id = ?",
-                        (1 if data["enabled"] else 0, rid))
+                        (1, rid))
+        elif "enabled" in data:
+            conn.execute("UPDATE cf_rulesets SET enabled = ? WHERE id = ?",
+                        (0, rid))
         if "name" in data:
             conn.execute("UPDATE cf_rulesets SET name = ? WHERE id = ?",
                         (data["name"], rid))
         conn.commit()
         return jsonify({"updated": True})
+
+    @app.post("/api/openbox/content-filter/<rid>/refresh")
+    def cf_ruleset_refresh(rid: str):
+        """Re-fetch a URL ruleset's source (v6 #18 semantics).
+
+        Cooldown: a failed attempt blocks retry for 600s unless force=true.
+        Old rules are always kept on failure; cap rejections keep them too.
+        """
+        from core.cfrefresh import refresh_ruleset
+        data = request.get_json(force=True, silent=True) or {}
+        try:
+            result = refresh_ruleset(db(), rid,
+                                     force=bool(data.get("force", False)))
+        except KeyError:
+            return jsonify({"error": "not found"}), 404
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        if result["status"] == "failed":
+            return jsonify(result), 502
+        if result["status"] == "rejected":
+            return jsonify(result), 400
+        return jsonify(result)
 
     @app.post("/api/openbox/content-filter/preset-defaults")
     def cf_preset_defaults():

@@ -290,6 +290,7 @@ def rules_to_domains(rules: list[dict]) -> list[str]:
     Only includes reject rules with domain patterns.
     """
     domains = []
+    seen = set()
     for r in rules:
         if r.get("action") == "reject":
             pattern = r.get("pattern", "")
@@ -297,6 +298,7 @@ def rules_to_domains(rules: list[dict]) -> list[str]:
             if rtype in ("domain_suffix", "domain") and pattern:
                 # Normalize: remove leading dot/wildcard
                 d = pattern.lstrip('.').lstrip('*').lower()
-                if d and d not in domains:
+                if d and d not in seen:
+                    seen.add(d)
                     domains.append(d)
     return domains

@@ -38,6 +38,7 @@
                 <div class="font-bold">{{ r.name }}</div>
                 <div class="text-xs opacity-60">
                   {{ r.dialect }} · {{ formatSize(r.text_len) }}
+                  <span v-if="r.domain_count != null"> · {{ r.domain_count }} 域名</span>
                   <span v-if="r.source_url" class="truncate max-w-xs inline-block align-bottom" :title="r.source_url">
                     · {{ r.source_url }}
                   </span>
@@ -55,6 +56,9 @@
               </label>
               <button class="btn btn-xs btn-ghost" @click="showDetail(r)">
                 {{ $t('obx.viewDetails') }}
+              </button>
+              <button v-if="r.source_url" class="btn btn-xs btn-ghost" @click="refreshRuleset(r)">
+                {{ $t('obx.refreshSource') || '刷新来源' }}
               </button>
               <button class="btn btn-xs btn-ghost text-error" @click="delRuleset(r)">
                 {{ $t('obx.delete') }}
@@ -252,6 +256,21 @@ async function delRuleset(r: any) {
     load()
   } catch (e: any) {
     console.error(e)
+  }
+}
+
+async function refreshRuleset(r: any) {
+  try {
+    const x: any = await obxPost(`/api/openbox/content-filter/${r.id}/refresh`, {})
+    if (x.status === 'updated') alert(`已更新：${x.domains} 个域名`)
+    else if (x.status === 'unchanged') alert('来源内容未变，无需更新')
+    else if (x.status === 'cooldown') alert(`上次刷新失败，${x.retry_after} 秒后可重试（${x.last_error}）`)
+    else if (x.status === 'rejected') alert(`未更新：${x.reason}`)
+    await load()
+  } catch (e: any) {
+    // 502 = 拉取失败，旧规则已保留；冷却已开始计时
+    alert(e.message || '刷新失败，旧规则已保留')
+    await load()
   }
 }
 

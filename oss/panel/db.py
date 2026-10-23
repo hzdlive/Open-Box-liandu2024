@@ -450,6 +450,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     _migrate_sub_position(conn)
     _migrate_share_params(conn)
     _migrate_share_enabled(conn)
+    # Content-filter refresh state (cooldown + domain counts, v6 #18)
+    from core.cfrefresh import ensure_columns as _cf_ensure_columns
+    _cf_ensure_columns(conn)
     # Content filtering: three offline snapshots (0.1.328)
     conn.execute(
         "INSERT OR IGNORE INTO content_filters(name, description, enabled, snapshot_url, domains, updated_at)"
@@ -2166,11 +2169,27 @@ def _migrate_content_filters_to_rulesets(conn: sqlite3.Connection):
 def list_cf_rulesets(conn: sqlite3.Connection) -> list[dict]:
     """列出所有内容过滤规则集。"""
     _migrate_content_filters_to_rulesets(conn)
+    from core.cfrefresh import ensure_columns, domain_count_of_rules
+    ensure_columns(conn)
     cur = conn.execute("""SELECT id, name, dialect, source_url, enabled, updated_at,
         skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable,
-        LENGTH(text) as text_len FROM cf_rulesets ORDER BY name""")
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, r)) for r in cur.fetchall()]
+        LENGTH(text) as text_len, last_attempt_at, last_error, domain_count,
+        rules FROM cf_rulesets ORDER BY name""")
+    out = []
+    for r in cur.fetchall():
+        d = dict(zip([c[0] for c in cur.description], r))
+        rules_json = d.pop("rules")
+        if d["domain_count"] is None:
+            try:
+                d["domain_count"] = domain_count_of_rules(
+                    json.loads(rules_json or "[]"))
+            except Exception:
+                d["domain_count"] = 0
+            conn.execute("UPDATE cf_rulesets SET domain_count=? WHERE id=?",
+                         (d["domain_count"], d["id"]))
+        out.append(d)
+    conn.commit()
+    return out
 
 
 def get_cf_ruleset(conn: sqlite3.Connection, rid: str) -> dict | None:
