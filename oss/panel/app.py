@@ -1291,7 +1291,12 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": str(e),
                             "verify": _sv.verify_start(m, before, settle_s=0)}), 409
         d = m.to_dict()
-        d["verify"] = _sv.verify_start(m, before)
+        verify = _sv.verify_start(m, before)
+        d["verify"] = verify
+        # start() 的存活窗口拦不住窗口后死掉的进程：以 verify 为准，
+        # 内核最终没跑起来就按失败回（verify 已含精确 FATAL 行）。
+        if verify["state"] == "failed":
+            return jsonify({"error": verify["message"], "verify": verify}), 409
         return jsonify(d)
 
     @app.post("/api/service/stop")
@@ -1311,7 +1316,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": str(e),
                             "verify": _sv.verify_start(m, before, settle_s=0)}), 409
         d = m.to_dict()
-        d["verify"] = _sv.verify_start(m, before)
+        verify = _sv.verify_start(m, before)
+        d["verify"] = verify
+        if verify["state"] == "failed":
+            return jsonify({"error": verify["message"], "verify": verify}), 409
         return jsonify(d)
 
     @app.get("/api/service/log")
