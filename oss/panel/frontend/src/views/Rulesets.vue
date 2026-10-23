@@ -5,6 +5,7 @@
     <h3>内置规则数据 <span class="muted">geosite / geoip（sing-box 本地规则集，站点集分流引用）</span></h3>
     <div style="margin-bottom:8px">
       <button class="small ghost" @click="ensureGeo">下载缺失</button>
+      <button class="small ghost" @click="refreshGeo" style="margin-left:6px">刷新规则数据（24h）</button>
       <span class="muted" style="margin-left:8px">目录：{{ geo.dir }}</span>
     </div>
     <p v-if="geo.missing && geo.missing.length" class="muted">缺失 {{ geo.missing.length }} 个：{{ geo.missing.join(', ') }}</p>
@@ -77,6 +78,15 @@ async function ensureGeo() {
   try {
     const x = await post('/api/geodata/ensure', {})
     toast(`已下载 ${x.downloaded.length} 个` + (x.missing.length ? `，缺失 ${x.missing.length} 个` : ''))
+    load()
+  } catch (e) { toast(e.message) }
+}
+async function refreshGeo() {
+  try {
+    const x = await post('/api/geodata/refresh', {})
+    toast(`复用 ${x.reused.length} 个，新下载 ${x.downloaded.length} 个`
+      + (x.kept_old.length ? `，沿用旧文件 ${x.kept_old.length} 个` : '')
+      + (x.missing.length ? `，缺失 ${x.missing.length} 个` : ''))
     load()
   } catch (e) { toast(e.message) }
 }

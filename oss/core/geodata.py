@@ -125,6 +125,137 @@ def ensure(names: list[str], db_path: str | None = None,
     return ok, missing
 
 
+# ---------------------------------------------------------------------------
+# Deploy-time refresh (v6 #14 deploy-rulesets 对照，适配本地 .srs 模型)
+#
+# v6 的 Oi 是部署前的规则集阶段：24h TTL + URL 匹配 + 文件在盘上才复用；
+# 失败三支（无本地副本 → 致命、无本地副本 + optional → 跳过、有本地副本 →
+# 沿用旧记录）；keepOthers 默认 false（表只描述刚部署的 profile）；
+# 只有字符串化形式变了才写表。
+#
+# 适配点（与原版不同处，均有意）：
+# - 原版的表是 rule-lists.json；我们用 DB 表 geodata_state(name, url, at)。
+# - 原版的“两个半边”(<tag>.srs / <tag>-ip.srs)不适用：上游 geo 二进制
+#   本来就是按名分文件的（geosite-*.srs 域名、geoip-*.srs IP），每名一文件。
+# - 原版的“老版式离线重编”不适用：我们不从文本本地编译 geo 文件，
+#   上游 .srs 即二进制成品；损坏文件由启动验证的 FATAL 兜底。
+# - 原版失败无副本是致命；我们沿用既有降级语义：缺失只进 missing，
+#   build 跳过该规则集并告警，绝不让一次上游不通打断 apply。
+# - 首次刷新没有记录时，用文件 mtime 认作 at（文件就是我们 ensure 写下的，
+#   mtime 即下载时间），避免全量重下一遍；mtime 也超 24h 的照常重下。
+# ---------------------------------------------------------------------------
+
+TTL_SECONDS = 24 * 3600
+REFRESH_WORKERS = 8
+
+
+def ensure_state_table(conn) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS geodata_state("
+        " name TEXT PRIMARY KEY,"
+        " url TEXT NOT NULL DEFAULT '',"
+        " at INTEGER NOT NULL DEFAULT 0)")
+
+
+def read_states(conn, names: list[str] | None = None) -> dict:
+    """{name: {"url": str, "at": int}} for recorded names (all if names None)."""
+    ensure_state_table(conn)
+    if names is None:
+        rows = conn.execute("SELECT name, url, at FROM geodata_state")
+    else:
+        rows = conn.execute(
+            "SELECT name, url, at FROM geodata_state WHERE name IN (%s)"
+            % ",".join("?" * len(names)), list(names)) if names else []
+    return {r[0]: {"url": r[1], "at": r[2] or 0} for r in rows}
+
+
+def _try_download(name: str, urls: list[str], timeout: int) -> tuple[bool, str]:
+    """Try candidate URLs in order. Returns (ok, used_url_or_error)."""
+    last_err = "no candidate url"
+    for url in urls:
+        try:
+            _download(url, local_path(name), timeout)
+            return True, url
+        except Exception as e:
+            last_err = str(e) or e.__class__.__name__
+    return False, last_err
+
+
+def refresh_names(conn, names: list[str], keep_others: bool = False,
+                  timeout: int = 30, now: float | None = None) -> dict:
+    """TTL-aware refresh of local .srs files, v6 #14 semantics.
+
+    Returns {"reused", "downloaded", "kept_old" ([{name, error}]),
+    "missing", "local", "pruned"}. Per-file failures never raise:
+    a stale file that cannot be re-downloaded is kept as-is (kept_old)
+    and only a file missing entirely lands in missing.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    now = time.time() if now is None else now
+    ensure_state_table(conn)
+    os.makedirs(geodata_dir(), exist_ok=True)
+    ordered = list(dict.fromkeys(n for n in (names or []) if n))
+    states = read_states(conn, ordered)
+    reused, downloaded, kept_old, missing, local = [], [], [], [], []
+    stale: list[str] = []
+    for name in ordered:
+        if name in INLINE_RULE_SETS:
+            continue
+        urls = _urls(name)
+        path = local_path(name)
+        present = os.path.isfile(path) and os.path.getsize(path) > 0
+        if not urls:
+            # Not downloadable by us (custom local name): present = usable.
+            (local if present else missing).append(name)
+            continue
+        row = states.get(name)
+        if row is None and present:
+            # First refresh: adopt the file mtime as provenance (see header).
+            try:
+                row = {"url": urls[0],
+                       "at": int(os.stat(path).st_mtime)}
+            except OSError:
+                row = None
+            if row is not None:
+                conn.execute(
+                    "INSERT OR REPLACE INTO geodata_state(name, url, at)"
+                    " VALUES (?, ?, ?)", (name, row["url"], row["at"]))
+        if (present and row is not None and row["url"] in urls
+                and now - row["at"] < TTL_SECONDS):
+            reused.append(name)  # fresh: zero further writes for this name
+        else:
+            stale.append(name)
+    if stale:
+        with ThreadPoolExecutor(max_workers=REFRESH_WORKERS) as pool:
+            results = list(pool.map(
+                lambda n: (n, _try_download(n, _urls(n), timeout)), stale))
+        for name, (ok, info) in results:
+            present = os.path.isfile(local_path(name)) \
+                and os.path.getsize(local_path(name)) > 0
+            if ok:
+                conn.execute(
+                    "INSERT OR REPLACE INTO geodata_state(name, url, at)"
+                    " VALUES (?, ?, ?)", (name, info, int(now)))
+                downloaded.append(name)
+            elif present:
+                kept_old.append({"name": name, "error": info})
+            else:
+                missing.append(name)
+    pruned: list[str] = []
+    if not keep_others:
+        keep = set(ordered)
+        for row_name in list(read_states(conn).keys()):
+            if row_name not in keep:
+                conn.execute("DELETE FROM geodata_state WHERE name=?",
+                             (row_name,))
+                pruned.append(row_name)
+    conn.commit()
+    return {"reused": reused, "downloaded": downloaded,
+            "kept_old": kept_old, "missing": missing, "local": local,
+            "pruned": pruned}
+
+
 def list_local(db_path: str | None = None) -> list[dict]:
     """Local .srs inventory for the ruleset page."""
     d = geodata_dir(db_path)

@@ -217,8 +217,12 @@ CREATE TABLE IF NOT EXISTS traffic_daily(
   conns INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (day, client, proxy, host)
 );
-CREATE TABLE IF NOT EXISTS failover_state(
-  group_name TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS geodata_state(
+  name TEXT PRIMARY KEY,
+  url TEXT NOT NULL DEFAULT '',
+  at INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS failover_state(  group_name TEXT PRIMARY KEY,
   current_tag TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL DEFAULT '',
   last_switch_at TEXT,

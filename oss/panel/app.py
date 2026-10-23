@@ -1010,6 +1010,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "referenced": referenced,
             "files": _gd.list_local(),
             "missing": [n for n in referenced if n not in local],
+            "states": _gd.read_states(db(), referenced),
         })
 
     @app.post("/api/geodata/ensure")
@@ -1020,6 +1021,25 @@ def create_app(db_path: str = ":memory:") -> Flask:
         names = d.get("names") or _gd.referenced_rule_sets(cfg)
         ok, missing = _gd.ensure([n for n in names if isinstance(n, str)])
         return jsonify({"downloaded": ok, "missing": missing})
+
+    @app.post("/api/geodata/refresh")
+    def geodata_refresh():
+        """TTL-aware refresh of referenced .srs files (v6 #14 semantics).
+
+        24h TTL + URL match reuse; stale files re-downloaded (CDN, then
+        mirror); a failed re-download keeps the old file (kept_old) and
+        only a wholly missing file lands in missing. State rows for
+        no-longer-referenced names are pruned unless keep_others is true.
+        Files on disk are never deleted.
+        """
+        from core import geodata as _gd
+        d = request.get_json(force=True, silent=True) or {}
+        cfg = dbmod.load_app_config(db())
+        names = d.get("names") or _gd.referenced_rule_sets(cfg)
+        result = _gd.refresh_names(
+            db(), [n for n in names if isinstance(n, str)],
+            keep_others=bool(d.get("keep_others", False)))
+        return jsonify(result)
 
     @app.get("/api/geodata/detail/<name>")
     def geodata_detail(name: str):
