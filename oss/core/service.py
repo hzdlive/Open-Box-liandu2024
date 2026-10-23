@@ -197,8 +197,13 @@ class KernelManager:
             if self._read_pid() is None:
                 raise RuntimeError("sing-box exited during startup; see log")
             time.sleep(0.2)
-            # process survived the grace window -> consider started
+            # process survived the grace window -> consider started, but
+            # re-check liveness: a process that dies right after the
+            # window must not be reported as started (verify would catch
+            # it, but start() itself should not claim success).
             if time.time() - os.path.getmtime(self.pidfile) > 0.5:
+                if self._read_pid() is None:
+                    raise RuntimeError("sing-box exited during startup; see log")
                 break
         return self.status()
 
