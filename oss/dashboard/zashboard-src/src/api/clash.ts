@@ -11,6 +11,7 @@
 // 本层不做任何后端判断。
 import type { ProbeResult } from '@/helper/connectivity'
 import { getUrlFromBackend } from '@/helper/utils'
+import { obxPost } from '@/openbox/api'
 import { activeBackend } from '@/store/setup'
 import type {
   Backend,
@@ -38,8 +39,19 @@ export const fetchProxiesAPI = () => {
 }
 
 export const selectProxyAPI = (proxyGroup: string, name: string) => {
-  return axios.put(`/proxies/${encodeURIComponent(proxyGroup)}`, { name })
+  return axios.put(`/proxies/${encodeURIComponent(proxyGroup)}`, { name }).then((res) => {
+    // Open-Box 二开：原生组切换只写内核，不经过面板后端；600ms 尾随防抖后把内核的 now
+    // 写回 profile 默认值，否则下次 apply 会把这次切换复位（build 时 selector default
+    // 恒为 members[0]）。同步失败只静默丢弃（定时器里没有请求可答，apply 前还会再对账一次）。
+    syncSelectionDebounced()
+    return res
+  })
 }
+
+// 见 selectProxyAPI 注释。lodash debounce 默认尾随：连切多次只跑一次、跑最终状态。
+const syncSelectionDebounced = debounce(() => {
+  obxPost('/api/openbox/selection-sync', {}).catch(() => {})
+}, 600)
 
 export const deleteFixedProxyAPI = (proxyGroup: string) => {
   return axios.delete(`/proxies/${encodeURIComponent(proxyGroup)}`)

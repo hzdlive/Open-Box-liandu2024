@@ -1,0 +1,1 @@
+import{a as e,i as t}from"./rules-DXV6x5mM.js";var n=async()=>{e.value=[],t.value=[]};export{n as fetchRules};

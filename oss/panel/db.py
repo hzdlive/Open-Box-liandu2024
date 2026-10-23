@@ -419,7 +419,8 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("test_url", "TEXT NOT NULL DEFAULT ''"),
                      ("lanes", "TEXT NOT NULL DEFAULT '[]'"),
                      ("icon", "TEXT NOT NULL DEFAULT ''"),
-                     ("icon_scale", "INTEGER NOT NULL DEFAULT 0")):
+                     ("icon_scale", "INTEGER NOT NULL DEFAULT 0"),
+                     ("default_outbound", "TEXT NOT NULL DEFAULT ''")):
         if col not in gcols:
             conn.execute(f"ALTER TABLE groups ADD COLUMN {col} {ddl}")
     tcols = {r[1] for r in conn.execute("PRAGMA table_info(traffic_daily)")}
@@ -1082,12 +1083,14 @@ def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = False
                      idle_timeout=r[8] if len(r) > 8 and r[8] else "12h",
                      expected_status=r[9] if len(r) > 9 and r[9] else "",
                      test_url=r[10] if len(r) > 10 and r[10] else "",
-                     lanes=lanes if isinstance(lanes, list) else [])
+                     lanes=lanes if isinstance(lanes, list) else [],
+                     default_outbound=r[12] if len(r) > 12 and r[12] else "")
     groups = [
         _mk_group(r)
         for r in conn.execute(
             "SELECT name, type, members, dynamic_keywords, position, enabled,"
-            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes"
+            " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes,"
+            " default_outbound"
             " FROM groups ORDER BY position, id")
     ]
     chains = [
@@ -1318,7 +1321,8 @@ def _group_row(r) -> dict:
             "test_url": r[11] if len(r) > 11 and r[11] else "",
             "lanes": lanes if isinstance(lanes, list) else [],
             "icon": r[13] if len(r) > 13 and r[13] else "",
-            "icon_scale": r[14] if len(r) > 14 and r[14] else 0}
+            "icon_scale": r[14] if len(r) > 14 and r[14] else 0,
+            "default_outbound": r[15] if len(r) > 15 and r[15] else ""}
 
 
 def list_groups(conn: sqlite3.Connection) -> list[dict]:
@@ -1332,7 +1336,7 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     for r in conn.execute(
             "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
             " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes,"
-            " icon, icon_scale"
+            " icon, icon_scale, default_outbound"
             " FROM groups ORDER BY position, id"):
         g = _group_row(r)
         gm = _Group(name=g["name"], type=g["type"], members=g["members"],
@@ -1462,7 +1466,7 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     return _group_row(conn.execute(
         "SELECT id, name, type, members, dynamic_keywords, position, enabled,"
         " interval_s, tolerance_ms, idle_timeout, expected_status, test_url, lanes,"
-        " icon, icon_scale"
+        " icon, icon_scale, default_outbound"
         " FROM groups WHERE id=?",
         (cur.lastrowid,)).fetchone())
 
@@ -1496,6 +1500,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
                      ("idle_timeout", "idle_timeout"),
                      ("expected_status", "expected_status"),
                      ("test_url", "test_url"),
+                     ("default_outbound", "default_outbound"),
                      ("icon", "icon"), ("icon_scale", "icon_scale")):
         if key in d:
             if key == "type" and d[key] not in ("urltest", "selector", "failover"):
@@ -1504,7 +1509,8 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
             v = d[key]
             if key == "enabled" and not v:
                 v = 0
-            if key in ("expected_status", "test_url") and isinstance(v, str):
+            if key in ("expected_status", "test_url", "default_outbound") \
+                    and isinstance(v, str):
                 v = v.strip()
             vals.append(v)
     for key in ("members", "dynamic_keywords"):

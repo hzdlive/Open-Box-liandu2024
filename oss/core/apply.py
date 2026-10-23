@@ -37,6 +37,21 @@ def _atomic_write_json(path: str, obj: dict) -> None:
         raise
 
 
+def _sync_selection_before_build(conn) -> None:
+    """Best-effort selection sync before building config.
+
+    Native proxy-UI switches go straight to the kernel's Clash API, so the
+    stored group defaults would otherwise lag behind. Syncing here means an
+    apply never resets a live selector choice back to members[0]. Never
+    raises and never blocks the apply (reconcile itself is failure-proof).
+    """
+    try:
+        from core.selectionsync import reconcile
+        reconcile(conn, dbmod.load_app_config(conn))
+    except Exception:
+        pass
+
+
 def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
     """Build the config from DB and validate it. Returns (config, ok, message)."""
     app_cfg = dbmod.load_app_config(conn, with_blocked_domains=True)
@@ -65,6 +80,7 @@ def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
 def apply_config(conn, manager: KernelManager,
                  restart: bool = True) -> dict:
     """Full pipeline. Returns a result dict; raises on validation failure."""
+    _sync_selection_before_build(conn)
     cfg, ok, msg = build_and_validate(conn, manager)
     if not ok:
         from core.badnodes import ValidationError, locate_from_db

@@ -3236,6 +3236,24 @@ def create_app(db_path: str = ":memory:") -> Flask:
             pass
         return jsonify({"ok": True, "hot": ok, "detail": detail, "final": outbound})
 
+    @app.post("/api/openbox/selection-sync")
+    def ob_selection_sync():
+        """Reconcile kernel selector choices back to group defaults.
+
+        Native proxy-UI switches go straight to the kernel's Clash API, so
+        the panel profile never sees them. This endpoint reads the kernel's
+        current `now` per selector group and persists changed values as the
+        group's default (only selector groups, only members, only changes).
+        Called debounced from the dashboard after a native switch, and
+        automatically before every apply (so apply never resets a live
+        choice). Never fails the caller: an unreachable kernel yields
+        ok=False instead of an error status.
+        """
+        from core.selectionsync import reconcile
+        c = db()
+        cfg = dbmod.load_app_config(c)
+        return jsonify(reconcile(c, cfg))
+
     # ---- component upgrade ----
     @app.get("/api/upgrade/status")
     def upgrade_status():

@@ -1,1 +1,0 @@
-import{A as e,M as t}from"./backend-Cjr7fxxk.js";import{t as n}from"./config-B8LWnRfb.js";var r=async()=>{n.value=(await e()).data},i=async e=>{await t(e),r()};export{r as fetchConfigs,i as updateConfigs};

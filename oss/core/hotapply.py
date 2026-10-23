@@ -77,8 +77,9 @@ def hot_apply_config(conn: sqlite3.Connection, manager,
     force: 'auto' | 'hot' | 'full'. Returns a result dict with a 'mode'
     key ('hot' | 'full' | 'none').
     """
-    from core.apply import build_and_validate
+    from core.apply import build_and_validate, _sync_selection_before_build
 
+    _sync_selection_before_build(conn)
     cfg, ok, msg = build_and_validate(conn, manager)
     if not ok:
         from core.badnodes import ValidationError, locate_from_db

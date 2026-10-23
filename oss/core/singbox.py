@@ -244,9 +244,13 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
             continue
         tags = resolve_group_members(g, node_tags, chain_tags)
         if g.type == "selector":
+            # Persisted kernel choice wins when it is still a member;
+            # otherwise fall back to the first member (previous behavior).
+            default = g.default_outbound if g.default_outbound in tags \
+                else (tags[0] if tags else "direct")
             outbounds.append({"type": "selector", "tag": g.name,
                               "outbounds": tags or ["direct"],
-                              "default": tags[0] if tags else "direct"})
+                              "default": default})
         elif g.type == "failover":
             # sing-box 没有原生 failover 类型，用 urltest 实现故障转移：
             # 内核级健康检测 + 自动选择最优可用节点，不依赖面板存活。
