@@ -1099,9 +1099,10 @@ def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = False
     ]
     chains = [
         Chain(name=r[0], exit_protocol=r[1], server=r[2], server_port=r[3],
-              params=json.loads(r[4]), front=r[5])
+              params=json.loads(r[4]), front=r[5], enabled=bool(r[6]))
         for r in conn.execute(
-            "SELECT name, exit_protocol, server, port, params, front FROM chains ORDER BY id")
+            "SELECT name, exit_protocol, server, port, params, front, enabled"
+            " FROM chains WHERE enabled = 1 ORDER BY id")
     ]
     dns = DnsConfig(
         direct_dns=get_setting(conn, "dns_direct", DEFAULT_SETTINGS["dns_direct"]),
@@ -1261,6 +1262,8 @@ def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
     front = d.get("front", "所有-自动")
     if isinstance(front, list):
         front = front[0] if front else "所有-自动"
+    from core.chainvalidate import validate_front
+    validate_front(conn, d["name"], front)
     cur = conn.execute(
         "INSERT INTO chains(name, exit_protocol, server, port, params, front)"
         " VALUES (?, ?, ?, ?, ?, ?)",
@@ -1275,9 +1278,25 @@ def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
 
 
 def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
-    row = conn.execute("SELECT id FROM chains WHERE id=?", (cid,)).fetchone()
+    row = conn.execute(
+        "SELECT name, front, enabled FROM chains WHERE id=?",
+        (cid,)).fetchone()
     if not row:
         return None
+    # Front validation when the chain will be enabled and its name, its
+    # front, or its live-ness changes (disabling makes the front inert;
+    # re-enabling makes a legacy bad front live again). Unrelated edits
+    # never fail on a legacy bad front.
+    eff_name = d.get("name", row[0]) if "name" in d else row[0]
+    eff_front = d.get("front", row[1]) if "front" in d else row[1]
+    if isinstance(eff_front, list):
+        eff_front = eff_front[0] if eff_front else "所有-自动"
+    eff_enabled = d.get("enabled", row[2]) if "enabled" in d else row[2]
+    if eff_enabled and ("name" in d or "front" in d
+                        or (not row[2] and eff_enabled)):
+        from core.chainvalidate import validate_front
+        validate_front(conn, eff_name, eff_front,
+                       old_name=row[0] if "name" in d else None)
     fields, vals = [], []
     for col, key in (("name", "name"), ("exit_protocol", "exit_protocol"),
                      ("server", "server"), ("port", "port"), ("front", "front"),
@@ -1335,7 +1354,8 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
     node_tags = [r[0] for r in conn.execute(
         "SELECT n.tag FROM nodes n JOIN subscriptions s ON s.id = n.sub_id"
         " WHERE s.enabled = 1 ORDER BY n.id")]
-    chain_tags = [r[0] for r in conn.execute("SELECT name FROM chains ORDER BY id")]
+    chain_tags = [r[0] for r in conn.execute(
+        "SELECT name FROM chains WHERE enabled = 1 ORDER BY id")]
     out = []
     for r in conn.execute(
             "SELECT id, name, type, members, dynamic_keywords, position, enabled,"

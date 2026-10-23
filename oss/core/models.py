@@ -95,6 +95,7 @@ class Chain:
     server_port: int = 0
     params: dict = field(default_factory=dict)  # protocol-specific params
     front: str = "所有-自动"  # tag of the node/group to detour through
+    enabled: bool = True  # disabled chains are not built into the config
 
 
 @dataclass

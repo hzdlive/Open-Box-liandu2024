@@ -73,7 +73,7 @@ def main() -> int:
     assert c.get("/api/upgrade/status").status_code == 200
     gid = c.post("/api/groups", json={"name": "g1", "type": "selector"}).get_json()["id"]
     cid = c.post("/api/chains", json={"name": "c1", "server": "1.2.3.4",
-                                      "port": 1080, "front": "auto"}).get_json()["id"]
+                                      "port": 1080, "front": "direct"}).get_json()["id"]
     rid = c.post("/api/rulesets", json={"name": "r1", "url": ""}).get_json()["id"]
     assert c.post("/api/health/check", json={"timeout": 1}).status_code == 200
     for p in (f"/api/subscriptions/{sid}", f"/api/sitesets/{ss['id']}",
