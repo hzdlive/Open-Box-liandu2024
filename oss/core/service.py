@@ -173,6 +173,11 @@ class KernelManager:
             raise RuntimeError("sing-box not installed")
         if not os.path.isfile(self.config_path or ""):
             raise RuntimeError(f"config not found: {self.config_path}")
+        # Preflight (v5 deploy前置的 check 门)：配置无效时直接报校验结果，
+        # 而不是拉起进程再看它退出、让用户去翻日志。
+        ok, msg = self.check_config()
+        if not ok:
+            raise RuntimeError(f"配置校验失败：{msg}")
         logf = open(self.log_path, "a")
         try:
             proc = subprocess.Popen(

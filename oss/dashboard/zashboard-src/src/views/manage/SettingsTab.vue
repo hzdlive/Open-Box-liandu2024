@@ -36,9 +36,15 @@
           <option value="mirror">{{ $t('obx.mirrorAccel') }}</option>
         </select>
         <button class="btn btn-sm" :disabled="checking" @click="checkUpdate">{{ $t('obx.checkUpdate') }}</button>
+        <button class="btn btn-sm" :disabled="!updateAvailable || puBusy" @click="applyPanelUpdate">立即更新面板</button>
+        <button class="btn btn-sm" :disabled="puBusy" @click="cancelPanelUpdate">取消更新</button>
+        <button class="btn btn-sm" @click="loadPanelNotes">更新说明</button>
+        <button class="btn btn-sm" @click="loadPanelLog">更新日志</button>
         <span class="text-xs opacity-60">{{ $t('obx.channelHint') }}</span>
       </div>
       <div v-if="updateInfo" class="alert alert-info mb-2 py-2 text-sm"><span>{{ updateInfo }}</span></div>
+      <pre v-if="updateNotes" class="mb-2 overflow-auto whitespace-pre-wrap text-xs opacity-80">{{ updateNotes }}</pre>
+      <pre v-if="updateLog" class="mb-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs opacity-80">{{ updateLog }}</pre>
 
       <label class="flex cursor-pointer items-center gap-3">
         <span class="text-sm font-medium">{{ $t('obx.autoUpdate') }}</span>
@@ -310,13 +316,66 @@ async function kernelOp(op: string) {
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '操作失败' }
   finally { opBusy.value = false }
 }
+const updateAvailable = ref(false)
+const puBusy = ref(false)
+const updateNotes = ref('')
+const updateLog = ref('')
+function shortSha(v: unknown) { return String(v || '').slice(0, 12) }
+function formatCheckResult(r: any) {
+  if (!r || !Object.keys(r).length) return ''
+  if (r.error) return '检查失败：' + r.error
+  if (r.available) return `有可用更新：远端 ${shortSha(r.remote)}（本地 ${shortSha(r.local)}）`
+  return '已是最新' + (r.checked_at ? `（${r.checked_at}）` : '')
+}
+async function loadPanelUpdateStatus() {
+  try {
+    const st = await obxGet<any>('/api/panel/update/status')
+    updateAvailable.value = !!st.last_result?.available
+    if (!updateInfo.value) updateInfo.value = formatCheckResult(st.last_result)
+    if (st.run?.running) updateInfo.value += '（更新进行中）'
+  } catch { /* 面板自更新状态读不到时只影响按钮可用性，不阻塞设置页 */ }
+}
 async function checkUpdate() {
   checking.value = true; updateInfo.value = ''; err.value = ''
   try {
     const r = await obxPost<any>('/api/panel/update/check', {})
-    updateInfo.value = r.message || r.version || '已是最新'
+    updateAvailable.value = !!r.available
+    updateInfo.value = formatCheckResult(r)
   } catch (e) { err.value = e instanceof ObxApiError ? e.message : '检查失败' }
   finally { checking.value = false }
+}
+async function applyPanelUpdate() {
+  if (!confirm('将拉取远端更新并重启面板，确定？')) return
+  puBusy.value = true; err.value = ''
+  try {
+    await obxPost('/api/panel/update/apply', {})
+    updateAvailable.value = false
+    updateInfo.value = '更新已启动，面板即将重启'
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '应用更新失败' }
+  finally { puBusy.value = false }
+}
+async function cancelPanelUpdate() {
+  puBusy.value = true; err.value = ''
+  try {
+    const r = await obxPost<any>('/api/panel/update/cancel', {})
+    updateInfo.value = r.cancelled ? '已取消更新' : '没有进行中的更新'
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '取消更新失败' }
+  finally { puBusy.value = false }
+}
+async function loadPanelNotes() {
+  err.value = ''
+  try {
+    const r = await obxGet<any>('/api/panel/update/notes')
+    const lines = (r.commits || []).map((c: any) => `${shortSha(c.sha)} ${c.subject}`)
+    updateNotes.value = lines.length ? lines.join('\n') : '暂无更新说明'
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载更新说明失败' }
+}
+async function loadPanelLog() {
+  err.value = ''
+  try {
+    const r = await obxGet<any>('/api/panel/update/log')
+    updateLog.value = r.log || '暂无日志'
+  } catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载更新日志失败' }
 }
 async function saveTz() {
   try { await obxPut('/api/system/timezone', { timezone: tz.value }); await load() }
@@ -357,5 +416,5 @@ async function doDiag() {
   finally { diagBusy.value = false }
 }
 
-onMounted(load)
+onMounted(async () => { await load(); await loadPanelUpdateStatus() })
 </script>

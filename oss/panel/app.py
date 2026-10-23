@@ -1282,12 +1282,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/service/start")
     def service_start():
+        from core import startverify as _sv
         m = _manager()
+        before = _sv.snapshot_log(m.log_path)
         try:
             m.start()
         except RuntimeError as e:
-            return jsonify({"error": str(e)}), 409
-        return jsonify(m.to_dict())
+            return jsonify({"error": str(e),
+                            "verify": _sv.verify_start(m, before, settle_s=0)}), 409
+        d = m.to_dict()
+        d["verify"] = _sv.verify_start(m, before)
+        return jsonify(d)
 
     @app.post("/api/service/stop")
     def service_stop():
@@ -1297,12 +1302,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/service/restart")
     def service_restart():
+        from core import startverify as _sv
         m = _manager()
+        before = _sv.snapshot_log(m.log_path)
         try:
             m.restart()
         except RuntimeError as e:
-            return jsonify({"error": str(e)}), 409
-        return jsonify(m.to_dict())
+            return jsonify({"error": str(e),
+                            "verify": _sv.verify_start(m, before, settle_s=0)}), 409
+        d = m.to_dict()
+        d["verify"] = _sv.verify_start(m, before)
+        return jsonify(d)
 
     @app.get("/api/service/log")
     def service_log():
