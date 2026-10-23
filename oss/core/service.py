@@ -89,6 +89,9 @@ class KernelManager:
         except (OSError, subprocess.TimeoutExpired) as e:
             return False, str(e)
         msg = (out.stdout + out.stderr).strip() or "ok"
+        # sing-box wraps levels in ANSI SGR codes; strip for display
+        import re as _re
+        msg = _re.sub(r"\x1b\[[0-9;]*m", "", msg)
         return out.returncode == 0, msg
 
     # -- process control -----------------------------------------------
