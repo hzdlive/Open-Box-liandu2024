@@ -15,6 +15,10 @@
         <dt>配置修订</dt><dd>{{ svc.state_rev }} / 已应用 {{ svc.applied_rev || '—' }}
           <span v-if="svc.config_stale" class="pill warn">有未应用更改</span></dd>
       </dl>
+      <div v-if="svc.conflict" class="pill warn" style="margin:8px 0; display:block">
+        ⚠ 冲突：{{ svc.conflicts.map(c => c.message).join('；') }}
+        <span v-if="svc.conflict_auto_stopped">（内核因冲突未能启动）</span>
+      </div>
       <div style="margin-top:8px">
         <button class="small" @click="svcAct('/api/service/start', '启动')">启动</button>
         <button class="small ghost" @click="svcAct('/api/service/stop', '停止')">停止</button>

@@ -1266,9 +1266,44 @@ def create_app(db_path: str = ":memory:") -> Flask:
         from core.service import manager_from_env
         return manager_from_env()
 
+    def _conflict_record():
+        """Last conflict refusal record ('' when none)."""
+        try:
+            from panel.db import get_setting
+            return get_setting(db(), "conflict_stop_at", "")
+        except Exception:
+            return ""
+
+    def _record_conflict(conflicts):
+        try:
+            from panel.db import set_setting
+            import json as _json, datetime as _dt
+            c = db()
+            set_setting(c, "conflict_stop_at",
+                        _dt.datetime.now().isoformat(timespec="seconds"))
+            set_setting(c, "conflict_stop_detail",
+                        _json.dumps(conflicts, ensure_ascii=False))
+        except Exception:
+            pass
+
+    def _clear_conflict_record():
+        try:
+            from panel.db import set_setting
+            c = db()
+            set_setting(c, "conflict_stop_at", "")
+            set_setting(c, "conflict_stop_detail", "")
+        except Exception:
+            pass
+
     @app.get("/api/service")
     def service_status():
         d = _manager().to_dict()
+        try:
+            from core.conflicts import conflict_auto_stopped
+            d["conflict_auto_stopped"] = conflict_auto_stopped(
+                d["running"], d["conflicts"], _conflict_record())
+        except Exception:
+            d["conflict_auto_stopped"] = False
         try:
             c = db()
             from panel.db import get_setting
@@ -1283,10 +1318,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/service/start")
     def service_start():
         from core import startverify as _sv
+        from core.conflicts import ConflictError
         m = _manager()
         before = _sv.snapshot_log(m.log_path)
         try:
             m.start()
+        except ConflictError as e:
+            _record_conflict(e.conflicts)
+            return jsonify({"error": str(e), "conflicts": e.conflicts}), 409
         except RuntimeError as e:
             return jsonify({"error": str(e),
                             "verify": _sv.verify_start(m, before, settle_s=0)}), 409
@@ -1297,6 +1336,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         # 内核最终没跑起来就按失败回（verify 已含精确 FATAL 行）。
         if verify["state"] == "failed":
             return jsonify({"error": verify["message"], "verify": verify}), 409
+        _clear_conflict_record()
         return jsonify(d)
 
     @app.post("/api/service/stop")
@@ -1308,10 +1348,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/service/restart")
     def service_restart():
         from core import startverify as _sv
+        from core.conflicts import ConflictError
         m = _manager()
         before = _sv.snapshot_log(m.log_path)
         try:
             m.restart()
+        except ConflictError as e:
+            _record_conflict(e.conflicts)
+            return jsonify({"error": str(e), "conflicts": e.conflicts}), 409
         except RuntimeError as e:
             return jsonify({"error": str(e),
                             "verify": _sv.verify_start(m, before, settle_s=0)}), 409
@@ -1320,6 +1364,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         d["verify"] = verify
         if verify["state"] == "failed":
             return jsonify({"error": verify["message"], "verify": verify}), 409
+        _clear_conflict_record()
         return jsonify(d)
 
     @app.get("/api/service/log")

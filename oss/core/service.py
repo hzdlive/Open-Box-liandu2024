@@ -176,6 +176,13 @@ class KernelManager:
             raise RuntimeError("sing-box not installed")
         if not os.path.isfile(self.config_path or ""):
             raise RuntimeError(f"config not found: {self.config_path}")
+        # Preflight 第一道门（v5：冲突闸门在 check 之前）：另一个内核在跑、
+        # 或我们要绑的端口已被占时，拒绝启动并说清冲突，而不是拉起来
+        # 再看它 bind 失败。
+        from core.conflicts import ConflictError, detect_conflicts
+        conflicts = detect_conflicts(self)
+        if conflicts:
+            raise ConflictError(conflicts)
         # Preflight (v5 deploy前置的 check 门)：配置无效时直接报校验结果，
         # 而不是拉起进程再看它退出、让用户去翻日志。
         ok, msg = self.check_config()
@@ -251,8 +258,14 @@ class KernelManager:
         except OSError:
             return ""
 
+    def conflicts(self) -> list[dict]:
+        """Current conflicts for this kernel (never raises)."""
+        from core.conflicts import detect_conflicts
+        return detect_conflicts(self)
+
     def to_dict(self) -> dict:
         st = self.status()
+        conflicts = self.conflicts()
         return {
             "installed": st.installed,
             "running": st.running,
@@ -266,6 +279,8 @@ class KernelManager:
             "os_version": os_pretty_name(),
             "autostart": detect_autostart(),
             "panel_version": PANEL_VERSION,
+            "conflicts": conflicts,
+            "conflict": bool(conflicts),
         }
 
 
