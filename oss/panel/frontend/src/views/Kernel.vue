@@ -94,7 +94,11 @@ async function applyCfg() {
     applyResult.value = { ok: true,
       msg: `已应用（${r.mode === 'hot' ? '热应用' : '完整重启'}）：${r.outbounds} 出站 / ${r.route_rules} 路由规则` }
     load()
-  } catch (e) { applyResult.value = { ok: false, msg: e.message } }
+  } catch (e) {
+    const bad = e.data && e.data.bad_node
+    applyResult.value = { ok: false,
+      msg: bad ? `${bad.summary}；${e.message}` : e.message }
+  }
   applying.value = false
 }
 async function rollback() {

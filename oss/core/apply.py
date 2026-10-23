@@ -67,7 +67,9 @@ def apply_config(conn, manager: KernelManager,
     """Full pipeline. Returns a result dict; raises on validation failure."""
     cfg, ok, msg = build_and_validate(conn, manager)
     if not ok:
-        raise RuntimeError(f"config validation failed: {msg}")
+        from core.badnodes import ValidationError, locate_from_db
+        raise ValidationError(f"config validation failed: {msg}",
+                              bad=locate_from_db(msg, cfg, conn))
     _atomic_write_json(manager.config_path, cfg)
     svc = manager.to_dict()
     if manager.is_installed():

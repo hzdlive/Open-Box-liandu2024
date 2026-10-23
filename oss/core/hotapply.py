@@ -81,7 +81,9 @@ def hot_apply_config(conn: sqlite3.Connection, manager,
 
     cfg, ok, msg = build_and_validate(conn, manager)
     if not ok:
-        raise RuntimeError(f"config validation failed: {msg}")
+        from core.badnodes import ValidationError, locate_from_db
+        raise ValidationError(f"config validation failed: {msg}",
+                              bad=locate_from_db(msg, cfg, conn))
 
     old_cfg: dict = {}
     try:

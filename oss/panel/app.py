@@ -1408,7 +1408,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 result = hot_apply_config(db(), _manager(), api_base, secret,
                                           force=mode)
         except RuntimeError as e:
-            return jsonify({"error": str(e)}), 422
+            body = {"error": str(e)}
+            bad = getattr(e, "bad", None)
+            if bad:
+                body["bad_node"] = bad
+            return jsonify(body), 422
         # remember which rev is live, so the kernel page can flag stale config
         # + persist last deploy result for the deploy-state poll
         try:

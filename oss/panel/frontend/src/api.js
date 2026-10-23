@@ -12,7 +12,11 @@ async function req(method, path, body) {
     throw new Error('请先登录')
   }
   const data = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(data.error || `请求失败 (${r.status})`)
+  if (!r.ok) {
+    const err = new Error(data.error || `请求失败 (${r.status})`)
+    err.data = data
+    throw err
+  }
   return data
 }
 
