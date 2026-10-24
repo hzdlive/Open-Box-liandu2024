@@ -123,8 +123,10 @@ def test_traffic_aggregation():
     dbmod.record_traffic(conn, "2026-10-02", "c1", "p2", "h1", 50, 500)
     conn.close()
     m = c.get("/api/traffic/month?month=2026-10").get_json()
-    assert len(m["days"]) == 2 and m["total"]["down"] == 3500
-    assert m["daily_avg"]["down"] == 1750
+    # Month view zero-fills all days (1:1 with the original panel);
+    # daily_avg divides by days in month, not days with traffic.
+    assert len(m["days"]) == 31 and m["total"]["down"] == 3500
+    assert m["daily_avg"]["down"] == 3500 // 31
     assert c.get("/api/traffic/month?month=xx").status_code == 400
     d = c.get("/api/traffic/day?day=2026-10-01").get_json()
     assert d["by_proxy"][0]["proxy"] == "p1" and d["by_proxy"][0]["down"] == 3000

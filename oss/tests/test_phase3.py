@@ -287,20 +287,23 @@ def test_phase3_api():
         assert any(a["group"] == "fo1" for a in acts), acts
         assert c.delete(f"/api/groups/{gid}").status_code == 200
 
-        # failover renders as native failover in generated config;
-        # with lanes it becomes a top-level failover over per-lane failovers
+        # failover renders WITHOUT a native type (sing-box has no
+        # failover outbound -- one would fail check). Top level is a
+        # selector driven by the panel failover state machine (primary
+        # first, switch only on failure); single-node lanes are used
+        # directly and need no lane outbound, empty lanes are skipped.
         c.post("/api/groups", json={"name": "fo2", "type": "failover",
                                     "members": [tags[0]],
                                     "lanes": [{"name": "主", "members": [tags[0]]},
                                               {"name": "备", "members": []}]})
         conf = c.get("/api/config").get_json()
         fo = [o for o in conf["outbounds"] if o.get("tag") == "fo2"]
-        assert fo and fo[0]["type"] == "failover", fo
-        assert "check_url" in fo[0] and "check_interval" in fo[0], fo
+        assert fo and fo[0]["type"] == "selector", fo
+        assert fo[0]["outbounds"] == [tags[0]] \
+            and fo[0]["default"] == tags[0], fo
         lane_obs = [o for o in conf["outbounds"]
                     if o.get("tag", "").startswith("fo2#")]
-        assert len(lane_obs) == 2, lane_obs
-        assert lane_obs[0]["type"] == "failover"
+        assert lane_obs == [], lane_obs
     print("OK: phase3 panel APIs")
 
 

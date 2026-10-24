@@ -81,10 +81,14 @@ def test_flip():
     tags = {o["tag"] for o in conf["outbounds"]}
     assert f"flip-{s1['id']}" in tags and f"flip-{s2['id']}" in tags, tags
     sel = next(o for o in conf["outbounds"] if o["tag"] == f"flip-{s1['id']}")
-    assert sel["type"] == "selector" and sel["outbounds"] == ["所有-自动", "direct"], sel
+    # 576cdc2: flip is a full-group selector (direct + enabled groups +
+    # 所有-自动/所有-手动 + block), not the old binary [group, direct].
+    assert sel["type"] == "selector" and sel["outbounds"] == [
+        "direct", "所有-自动", "所有-手动", "block"], sel
     assert sel["default"] == "所有-自动"  # follows action=proxy
     sel2 = next(o for o in conf["outbounds"] if o["tag"] == f"flip-{s2['id']}")
-    assert sel2["outbounds"] == ["direct", "所有-自动"] and sel2["default"] == "direct"
+    assert sel2["outbounds"] == ["direct", "所有-自动", "所有-手动", "block"] \
+        and sel2["default"] == "direct"
 
     # route rules go through the flip selectors (12 defaults are seeded first)
     rrules = conf["route"]["rules"]
