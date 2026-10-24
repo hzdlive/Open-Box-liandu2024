@@ -305,7 +305,29 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.get("/api/subscriptions")
     def sub_list():
-        return jsonify(dbmod.list_subscriptions(db()))
+        c = db()
+        subs = dbmod.list_subscriptions(c)
+        # 折叠卡片的节点圆点：前端模板早已读取 node_dots，但后端从未返回，
+        # 故圆点从未画出来。这里按展开态徽标同款阈值（<300 绿、<800 黄、
+        # 否则红、无数据灰）从 node_health 生成，测速后 load() 即刷新。
+        health = {h["tag"]: h["latency_ms"] for h in dbmod.list_health(c)}
+        tags: dict[int, list[str]] = {}
+        for tag, sid in c.execute("SELECT tag, sub_id FROM nodes ORDER BY id"):
+            tags.setdefault(sid, []).append(tag)
+        for s in subs:
+            dots = []
+            for tag in tags.get(s["id"], []):
+                lat = health.get(tag)
+                if lat is None:
+                    dots.append("")
+                elif lat < 300:
+                    dots.append("g")
+                elif lat < 800:
+                    dots.append("y")
+                else:
+                    dots.append("r")
+            s["node_dots"] = dots
+        return jsonify(subs)
 
     @app.get("/api/subscriptions/<int:sid>")
     def sub_detail(sid: int):

@@ -64,7 +64,7 @@
           <span v-if="!s.enabled" class="badge badge-ghost badge-sm">{{ $t('obx.disabled') }}</span>
           <div class="flex-1" />
           <button class="btn btn-ghost btn-sm btn-square" :class="s.enabled ? 'text-success' : 'opacity-40'" :title="$t('obx.enable')+'/'+$t('obx.disable')" @click="toggleEnabled(s)">⏻</button>
-          <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.speedTest')" @click="speedTest(s)">⚡</button>
+          <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.speedTest')" :disabled="busyId === s.id" @click="speedTest(s)">⚡</button>
           <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.refresh')" :disabled="busyId === s.id" @click="refresh(s)">↻</button>
           <button class="btn btn-ghost btn-sm btn-square" :title="$t('obx.edit')" @click="openEdit(s)">✎</button>
           <button class="btn btn-ghost btn-sm btn-square text-error" :title="$t('obx.delete')" @click="remove(s)">🗑</button>
@@ -561,6 +561,7 @@
 </template>
 
 <script setup lang="ts">
+import { showNotification } from '@/helper/notification'
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { computed, onMounted, ref } from 'vue'
 
@@ -820,8 +821,25 @@ async function speedTest(s: Sub) {
   busyId.value = s.id
   err.value = ''
   try {
-    await obxPost(`/api/subscriptions/${s.id}/speedtest`, {})
+    const r = await obxPost<any>(`/api/subscriptions/${s.id}/speedtest`, {})
     await load()
+    // 展开态直接刷新节点徽标；折叠态的圆点随 load() 刷新（后端 node_dots）。
+    if (expandedSubs.value.has(s.id)) {
+      try {
+        const health = await obxGet<any[]>('/api/health')
+        for (const h of health || []) {
+          if (h.tag) subHealthCache.value[h.tag] = h.latency_ms
+        }
+      } catch {}
+    }
+    const tested = Number(r?.tested ?? 0)
+    const healthy = Number(r?.healthy ?? 0)
+    showNotification({
+      content: 'testFinishedResultTip',
+      params: { name: s.name, success: String(healthy), failed: String(tested - healthy) },
+      type: tested > 0 && healthy === tested ? 'alert-success' : 'alert-warning',
+      timeout: 3000,
+    })
   } catch (e) {
     err.value = e instanceof ObxApiError ? e.message : '测速失败'
   } finally {
