@@ -2579,6 +2579,59 @@ def _rename_cfg_from_row(row) -> dict:
     }
 
 
+def sync_subscription_groups(conn: sqlite3.Connection, sid: int,
+                             name: str) -> list[str]:
+    """Mirror same-name plain-member groups to a subscription's nodes.
+
+    A group named exactly like a subscription is treated as that
+    subscription's mirror (this is how the original panel keeps group
+    counts equal to subscription counts): after the subscription's node
+    set changes, the group's members are rewritten to the subscription's
+    current node tags, in node order. Called from _replace_nodes, so it
+    runs on every refresh and reimport; it only issues UPDATEs on the
+    same connection and leaves the commit to the caller.
+
+    Guards, so a hand-built group is never wiped by accident:
+    - only groups with type urltest/selector/smart/loadbalance (plain
+      member lists); failover groups keep their members in lanes and
+      builtin groups are never touched;
+    - only groups that are enabled;
+    - only groups with no dynamic keywords (keyword-driven groups
+      resolve their own members);
+    - only groups whose existing members are all nodes of this
+      subscription (a mixed group holding other subscriptions' nodes is
+      left alone; an empty member list counts as a pure subset).
+    Returns the names of groups actually changed (deduplicated).
+    """
+    node_tags = [r[0] for r in conn.execute(
+        "SELECT tag FROM nodes WHERE sub_id=? ORDER BY id", (sid,))]
+    node_set = set(node_tags)
+    synced: list[str] = []
+    for gid, gtype, enabled, members_json, kw_json in conn.execute(
+            "SELECT id, type, enabled, members, dynamic_keywords"
+            " FROM groups WHERE name=?", (name,)):
+        if gtype not in ("urltest", "selector", "smart", "loadbalance"):
+            continue
+        if not enabled:
+            continue
+        try:
+            members = json.loads(members_json or "[]")
+            keywords = json.loads(kw_json or "[]")
+        except ValueError:
+            continue
+        if keywords:
+            continue
+        if any(m not in node_set for m in members):
+            continue
+        if members == node_tags:
+            continue
+        conn.execute("UPDATE groups SET members=? WHERE id=?",
+                     (json.dumps(node_tags, ensure_ascii=False), gid))
+        if name not in synced:
+            synced.append(name)
+    return synced
+
+
 def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
                    nodes: list, userinfo: dict | None = None,
                    rename_cfg: dict | None = None) -> dict:
@@ -2617,13 +2670,15 @@ def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
              json.dumps(n.params, ensure_ascii=False),
              rn["orig"], custom_tag or "", disabled or 0))
         count += 1
+    synced = sync_subscription_groups(conn, sid, name)
     conn.execute("UPDATE subscriptions SET updated_at=?, userinfo=? WHERE id=?",
                  (time.strftime("%Y-%m-%dT%H:%M:%S"),
                   json.dumps(userinfo or {}, ensure_ascii=False), sid))
     conn.commit()
     bump_rev(conn)
     return {"id": sid, "name": name, "node_count": count,
-            "filtered_count": filtered_count, "userinfo": userinfo or {}}
+            "filtered_count": filtered_count, "userinfo": userinfo or {},
+            "synced_groups": synced}
 
 
 def reimport_subscription(conn: sqlite3.Connection, sid: int, content: str,
