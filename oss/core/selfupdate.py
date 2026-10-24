@@ -158,6 +158,25 @@ def _run_git(args: list[str], cwd: str, timeout: int = 30) -> subprocess.Complet
         ["git"] + args, cwd=cwd, capture_output=True, text=True, timeout=timeout)
 
 
+def current_branch(repo: str | None = None) -> str:
+    """Branch the panel itself runs on.
+
+    The self-update check/apply must follow THIS branch. The old
+    hardcoded fallback (refs/heads/oss) pointed at the abandoned oss
+    branch, so check always reported an update and apply would have
+    reset the deployment onto that stale branch.
+    """
+    try:
+        r = _run_git(["rev-parse", "--abbrev-ref", "HEAD"],
+                     cwd=repo or repo_dir(), timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return "oss-zashboard"
+    name = (r.stdout or "").strip()
+    if r.returncode != 0 or not name or name == "HEAD":
+        return "oss-zashboard"
+    return name
+
+
 def local_head(repo: str | None = None) -> str | None:
     repo = repo or repo_dir()
     try:
@@ -202,7 +221,7 @@ def _pick_ref(channel: str, url: str) -> tuple[str, str | None]:
             if cands:
                 name, sha = max(cands, key=_key)
                 return f"refs/tags/{name}", None
-    return "refs/heads/oss", None
+    return f"refs/heads/{current_branch()}", None
 
 
 def check_remote(channel: str, check_channel: str) -> dict:
@@ -292,13 +311,17 @@ def check_for_update(conn) -> dict:
     return result
 
 
-def apply_update_async(ref: str = "refs/heads/oss") -> str:
+def apply_update_async(ref: str | None = None) -> str:
     """Spawn the detached self-update applier. Returns the log path.
+
+    Default ref is the branch the panel runs on (never the stale oss
+    branch) -- see current_branch().
 
     同时写运行状态（stage=running + applier pid），status 侧靠 pid 存活判定
     是否还在跑——applier 被杀也不会把升级按钮永久锁死。
     """
     repo = repo_dir()
+    ref = ref or f"refs/heads/{current_branch(repo)}"
     script = os.path.join(repo, "oss", "scripts", "selfupdate-apply.sh")
     logf = "/tmp/openbox-oss-selfupdate.log"
     port = os.environ.get("PORT", "8080")

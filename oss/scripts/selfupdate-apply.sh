@@ -1,12 +1,12 @@
 #!/bin/bash
 # Panel self-update applier (detached).
 # Usage: selfupdate-apply.sh <repo_dir> <python> <port> <ref>
-#   ref: refs/heads/oss  -> fast-forward the oss branch from origin
+#   ref: refs/heads/oss-zashboard  -> fast-forward the panel branch from origin
 #   ref: refs/tags/<tag> -> fetch and check out the tag
 # Aborts (leaving the running panel untouched) when the working tree is
 # dirty or the update is not a clean fast-forward / checkout.
 set -u
-REPO="${1:?repo dir}"; PY="${2:?python}"; PORT="${3:-8080}"; REF="${4:-refs/heads/oss}"
+REPO="${1:?repo dir}"; PY="${2:?python}"; PORT="${3:-8080}"; REF="${4:-refs/heads/oss-zashboard}"
 LOG="/tmp/openbox-oss-selfupdate.log"
 STATUS="/tmp/openbox-oss-update.status"
 # 退出时写最终状态（对标原版：进度靠状态文件读回，面板不直接等 applier）。

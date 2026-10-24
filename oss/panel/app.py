@@ -3438,7 +3438,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         res = _su.last_result(c)
         if not res.get("available"):
             return jsonify({"error": "no update available (run a check first)"}), 409
-        ref = res.get("ref") or "refs/heads/oss"
+        ref = res.get("ref") or f"refs/heads/{_su.current_branch()}"
         logf = _su.apply_update_async(ref)
         return jsonify({"ok": True, "ref": ref, "log": logf})
 

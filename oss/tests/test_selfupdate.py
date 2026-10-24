@@ -120,7 +120,7 @@ def test_scheduler_triggers_check_and_apply():
     called = {}
     su._run_git = _fake_git(LOCAL, REMOTE)
 
-    def _fake_apply(ref="refs/heads/oss"):
+    def _fake_apply(ref="refs/heads/oss-zashboard"):
         called["ref"] = ref
         return "/tmp/x.log"
     su.apply_update_async = _fake_apply
@@ -129,7 +129,8 @@ def test_scheduler_triggers_check_and_apply():
         scheduler._maybe_panel_self_update(c)
     finally:
         su._run_git, su.apply_update_async = orig_git, orig_apply
-    assert called.get("ref") == "refs/heads/oss", called
+    # check must follow the deployed branch, not the abandoned oss branch
+    assert called.get("ref") == "refs/heads/oss-zashboard", called
     assert dbmod.get_setting(c, "update_last_check") != ""
 
 
@@ -230,6 +231,28 @@ def test_notes_endpoint():
     assert isinstance(body["commits"], list) and "pending" in body
 
 
+def test_pick_ref_follows_current_branch():
+    orig = su._run_git
+
+    def fake(args, cwd, timeout=30):
+        if args[:2] == ["rev-parse", "--abbrev-ref"]:
+            return _R(0, "oss-zashboard\n")
+        return _R(0, "")
+    su._run_git = fake
+    try:
+        ref, err = su._pick_ref("auto", "https://example.invalid/x.git")
+        assert (ref, err) == ("refs/heads/oss-zashboard", None), (ref, err)
+        # git failure / detached HEAD fall back to oss-zashboard, never
+        # the abandoned oss branch (which made check always report an
+        # update and would have reset the deployment on apply).
+        su._run_git = lambda *a, **k: (_ for _ in ()).throw(OSError("no git"))
+        assert su.current_branch() == "oss-zashboard"
+        su._run_git = lambda *a, **k: _R(0, "HEAD\n")
+        assert su.current_branch() == "oss-zashboard"
+    finally:
+        su._run_git = orig
+
+
 def test_traffic_prune_daily():
     import datetime
     c = _conn()
@@ -258,6 +281,7 @@ def main() -> int:
     test_scheduler_triggers_check_and_apply()
     test_scheduler_skipped_when_auto_off()
     test_api_endpoints()
+    test_pick_ref_follows_current_branch()
     test_traffic_prune_daily()
     print("test_selfupdate: all OK")
     return 0
