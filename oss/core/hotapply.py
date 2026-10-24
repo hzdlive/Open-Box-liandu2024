@@ -116,13 +116,27 @@ def hot_apply_config(conn: sqlite3.Connection, manager,
         result["mode"] = "hot"
         result["hot_detail"] = hot_detail
     else:
+        relaunched = False
+        before = None
         if manager.is_installed():
+            from core import startverify as _sv
+            before = _sv.snapshot_log(manager.log_path)
             if running:
                 manager.restart()
             else:
                 manager.start()
+            relaunched = True
         result["mode"] = "full"
         if want == "hot":
             result["hot_fallback"] = hot_detail or "kernel not running"
+        if relaunched:
+            # Same rule as apply_config: a relaunched kernel that did not
+            # come up is a failed apply, not a 200 with a dead kernel.
+            from core import startverify as _sv
+            from core.apply import ApplyVerifyError
+            verify = _sv.verify_start(manager, before)
+            result["verify"] = verify
+            if verify["state"] == "failed":
+                raise ApplyVerifyError(verify["message"], verify)
     result["service"] = manager.to_dict()
     return result

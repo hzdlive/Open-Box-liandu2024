@@ -1412,7 +1412,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/config/apply")
     def config_apply():
-        from core.apply import apply_config
+        from core.apply import apply_config, ApplyVerifyError
         from core.hotapply import hot_apply_config
         mode = (request.args.get("mode") or "auto").lower()
         if mode not in ("auto", "hot", "full"):
@@ -1427,6 +1427,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
             else:
                 result = hot_apply_config(db(), _manager(), api_base, secret,
                                           force=mode)
+        except ApplyVerifyError as e:
+            # Config was written and the relaunch attempted, but the kernel
+            # did not come up: same 409 as /api/service/start, not a 200.
+            return jsonify({"error": str(e), "verify": e.verify}), 409
         except RuntimeError as e:
             body = {"error": str(e)}
             bad = getattr(e, "bad", None)

@@ -86,7 +86,14 @@ def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
 
 def apply_config(conn, manager: KernelManager,
                  restart: bool = True) -> dict:
-    """Full pipeline. Returns a result dict; raises on validation failure."""
+    """Full pipeline. Returns a result dict; raises on validation failure.
+
+    After a restart/start, the new process is verified with startverify
+    (same rule as /api/service/start): a kernel that did not come up is a
+    failed apply (ApplyVerifyError -> 409), not a 200 with a dead kernel.
+    Warnings (running_with_warnings) still return normally, with the
+    verify dict attached. No relaunch happens, no verification runs.
+    """
     _sync_selection_before_build(conn)
     cfg, ok, msg = build_and_validate(conn, manager)
     if not ok:
@@ -95,13 +102,40 @@ def apply_config(conn, manager: KernelManager,
                               bad=locate_from_db(msg, cfg, conn))
     _atomic_write_json(manager.config_path, cfg)
     svc = manager.to_dict()
+    relaunched = False
+    before = None
     if manager.is_installed():
         running = manager.status().running
         if running and restart:
+            from core import startverify as _sv
+            before = _sv.snapshot_log(manager.log_path)
             manager.restart()
+            relaunched = True
         elif not running:
+            from core import startverify as _sv
+            before = _sv.snapshot_log(manager.log_path)
             manager.start()
+            relaunched = True
         svc = manager.to_dict()
-    return {"applied": True, "validation": msg, "service": svc,
-            "outbounds": len(cfg.get("outbounds", [])),
-            "route_rules": len(cfg.get("route", {}).get("rules", []))}
+    result = {"applied": True, "validation": msg, "service": svc,
+              "outbounds": len(cfg.get("outbounds", [])),
+              "route_rules": len(cfg.get("route", {}).get("rules", []))}
+    if relaunched:
+        from core import startverify as _sv
+        verify = _sv.verify_start(manager, before)
+        result["verify"] = verify
+        if verify["state"] == "failed":
+            raise ApplyVerifyError(verify["message"], verify)
+    return result
+
+
+class ApplyVerifyError(RuntimeError):
+    """Raised when an apply relaunched the kernel but it did not come up.
+
+    Carries the startverify dict; the endpoint maps it to 409 (same as
+    /api/service/start), placed before the generic RuntimeError clause.
+    """
+
+    def __init__(self, message: str, verify: dict):
+        super().__init__(message)
+        self.verify = verify
