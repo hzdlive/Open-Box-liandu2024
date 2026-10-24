@@ -1589,6 +1589,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
                         val = (fr.get("domain") or "").strip()
                         if val:
                             direct_ip_cidrs.append(val)
+            # front geoip rules to direct expand like site sets
+            # (route generator names them geoip-<val>); geosite rows
+            # are domains and never yield CIDRs.
+            from core.transparent import front_geoip_direct_cidrs as _fg
+            direct_ip_cidrs.extend(_fg(cfg.front_rules, _gd.expand_geoip))
             direct_ipset_domains = sorted(set(direct_ipset_domains))
             direct_ip_cidrs = sorted(set(direct_ip_cidrs))
         # v6 #15 fallback wording (summary, ";"-joined): why some direct

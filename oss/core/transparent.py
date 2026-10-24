@@ -105,6 +105,31 @@ def classify_direct_ip_gaps(site_sets, expanded_names: set[str] | None = None) -
     return causes
 
 
+def front_geoip_direct_cidrs(front_rules, expand_geoip) -> list[str]:
+    """CIDRs from front rules that send geoip traffic direct.
+
+    Mirrors the route generator's naming (geoip-<val>) and the ingress
+    collection's target test (direct/直连). geosite rows are domains and
+    can never yield CIDRs; group-targeted geoip rows stay in the kernel
+    (they are not ingress bypasses). Disabled rows never reach here --
+    load_app_config filters them.
+    """
+    out: list[str] = []
+    for fr in front_rules or []:
+        if not isinstance(fr, dict):
+            continue
+        if (fr.get("rtype") or "") != "geoip":
+            continue
+        target = (fr.get("target") or "").strip().lower()
+        if target not in ("direct", "直连"):
+            continue
+        val = (fr.get("domain") or "").strip()
+        if not val:
+            continue
+        out.extend(expand_geoip(f"geoip-{val}"))
+    return out
+
+
 def nft_script(cfg: TransparentConfig) -> str:
     b4 = ",\n        ".join(cfg.bypass_v4)
     b6 = ",\n        ".join(cfg.bypass_v6)
