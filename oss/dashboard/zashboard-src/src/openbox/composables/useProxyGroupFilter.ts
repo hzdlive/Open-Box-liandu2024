@@ -11,7 +11,9 @@ const HIDDEN_PREFIXES = ['flip-', 'obflip-', '__fo:', 'sub-']
 // 原版节点 Tab 不列兜底组：其他只在策略 Tab 里当第 13 张卡。
 // 这里只做视图层过滤 -- 内核里的其他 selector、策略卡、
 // /api/openbox/final-select 热切换都不受影响。
-const HIDDEN_EXACT = new Set(['其他'])
+// GLOBAL 同理：displayGlobalByMode=false 时它会被追加进节点列表，
+// 原版节点 Tab 不列这个伪组；mounted 修复后它会冒出来，一并在视图层过滤。
+const HIDDEN_EXACT = new Set(['其他', 'GLOBAL'])
 
 export function isHiddenGroup(name: string): boolean {
   // lane 子组（含 #）由 FailoverGroupExt 归集，顶层不单独显示

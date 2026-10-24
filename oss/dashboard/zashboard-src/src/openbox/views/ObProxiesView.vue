@@ -32,6 +32,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import ProxyGroup from '@/components/proxies/ProxyGroup.vue'
 import { fetchProxies } from '@/assembly/proxies'
+import { isProxiesPageMounted } from '@/composables/proxies'
 import { visibleProxyGroups } from '../composables/useProxyGroupFilter'
 import { loadProxySettings } from '../composables/useProxySettings'
 import { refreshAlive } from '../composables/useAliveCount'
@@ -89,6 +90,11 @@ const filteredGroups = computed(() => {
 
 let timer: any = null
 onMounted(() => {
+  // 原生 ProxiesPage 会在挂载后把 isProxiesPageMounted 置 true，
+  // 解除首屏只取 16 条的限制；路由实际挂的是本组件，原生页从未挂载，
+  // 该标志恒为 false，导致排序第 17 位的“所有-手动”被 slice 永久切掉
+  // （前 16 位里有 10 个隐藏项：其他 + 6 个 sub-* + 3 个 lane）。
+  isProxiesPageMounted.value = true
   fetchProxies()
   loadFailoverNames()
   loadProxySettings()
