@@ -1,9 +1,9 @@
 """Node -> share-link encoders (subscription sharing).
 
 Inverse of core/subscription.py parsing for the protocols that round-trip
-cleanly: vmess, vless, trojan, shadowsocks. tuic / hysteria2 / wireguard /
-anytls raise a clear error (their link formats carry QUIC-only options we
-don't want to half-encode).
+cleanly: vmess, vless, trojan, shadowsocks, socks. tuic / hysteria2 /
+wireguard / anytls raise a clear error (their link formats carry QUIC-only
+options we don't want to half-encode).
 """
 
 from __future__ import annotations
@@ -91,7 +91,26 @@ def encode_trojan(node: dict) -> str:
 def encode_ss(node: dict) -> str:
     p = node["params"]
     userinfo = _b64e(f"{p.get('method', '')}:{p.get('password', '')}")
+    qs = ""
+    if p.get("plugin"):
+        # Parser reads ?plugin= before # and splits opts on ";"; urlencode
+        # escapes both separators so the value survives the query round-trip.
+        plugin_val = p["plugin"] + (";" + p["plugin_opts"] if p.get("plugin_opts") else "")
+        qs = f"?{urlencode({'plugin': plugin_val})}"
     return (f"ss://{userinfo}@{node['server']}:{node['port']}"
+            f"{qs}#{quote(node['tag'], safe='')}")
+
+
+def encode_socks(node: dict) -> str:
+    p = node["params"]
+    scheme = {"4": "socks4", "4a": "socks4a"}.get(str(p.get("version", "5")), "socks5")
+    userinfo = ""
+    if p.get("username") is not None:
+        userinfo = quote(str(p["username"]), safe="")
+        if p.get("password") is not None:
+            userinfo += ":" + quote(str(p["password"]), safe="")
+        userinfo += "@"
+    return (f"{scheme}://{userinfo}{node['server']}:{node['port']}"
             f"#{quote(node['tag'], safe='')}")
 
 
@@ -100,6 +119,7 @@ _ENCODERS = {
     "vless": encode_vless,
     "trojan": encode_trojan,
     "shadowsocks": encode_ss,
+    "socks": encode_socks,
 }
 
 
