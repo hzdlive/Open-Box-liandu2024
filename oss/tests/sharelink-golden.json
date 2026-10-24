@@ -1,0 +1,755 @@
+{
+  "_meta": {
+    "artifact": "share-link parser golden answers",
+    "oracle": "openbox share-config (desktop build, sing-box 1.14.1-openbox-tcp24)",
+    "oracle_caveat": "The oracle is the DESKTOP client's Go parser, not the panel's `ug`. It supports only vless, shadowsocks, hysteria2, tuic and socks5, so 22 of 43 cases are refused for lack of desktop support rather than because the link is invalid. Those carry source_derived expectations transcribed from index.mjs:7311-7360 instead.",
+    "divergence_policy": "Where the desktop parser and the panel source disagree about a field inside an otherwise-matching outbound, the PANEL wins (it is the thing being reimplemented) and the field is listed in the case's `ignore` array so the rest of the outbound is still asserted. Each entry in `ignore` carries a `note` naming the source line responsible.",
+    "generated_by": "rea-tools/gen-sharelink-golden.py",
+    "cases_source": "panel-contract/sharelink-cases.json",
+    "comparison": "panel node flattened as {tag, type, server, server_port, ...fields} must deep-equal `oracle.outbound` after removing every `ignore` path",
+    "release": "Open-Box v0.1.330",
+    "total": 43,
+    "comparable": 20,
+    "with_divergence": 7,
+    "oracle_rejected": 23
+  },
+  "cases": [
+    {
+      "id": "vless-ws-tls",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=ws&path=%2Fws&host=a.example.com&security=tls&sni=b.example.com#vless-ws",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-ws",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-ws",
+          "tls": {
+            "enabled": true,
+            "server_name": "b.example.com"
+          },
+          "transport": {
+            "headers": {
+              "Host": "a.example.com"
+            },
+            "path": "/ws",
+            "type": "ws"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-grpc",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=grpc&serviceName=svc&security=tls#vless-grpc",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-grpc",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-grpc",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "transport": {
+            "service_name": "svc",
+            "type": "grpc"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-plain",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:8080#vless-plain",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-plain",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 8080,
+          "tag": "vless-plain",
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-flow",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?flow=xtls-rprx-vision&security=tls#vless-flow",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-flow",
+        "outbound": {
+          "flow": "xtls-rprx-vision",
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-flow",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-flow-none",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?flow=none&security=tls#vless-flow-none",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-flow-none",
+        "outbound": {
+          "flow": "none",
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-flow-none",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      },
+      "ignore": [
+        "flow"
+      ],
+      "note": "Jr drops flow=none (index.mjs:6828); the desktop keeps the literal string"
+    },
+    {
+      "id": "vless-h2",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=h2&path=%2Fh2&host=h.example.com&security=tls#vless-h2",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的传输方式:h2"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "parseTransport maps h2 -> http (index.mjs:7020); the Go parser has no h2 alias"
+    },
+    {
+      "id": "vless-reality",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=reality&pbk=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA&sid=0123abcd&fp=chrome&sni=r.example.com&type=tcp#vless-reality",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-reality",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-reality",
+          "tls": {
+            "enabled": true,
+            "reality": {
+              "enabled": true,
+              "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              "short_id": "0123abcd"
+            },
+            "server_name": "r.example.com",
+            "utls": {
+              "enabled": true,
+              "fingerprint": "chrome"
+            }
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-alpn-insecure",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls&alpn=h2%2Chttp%2F1.1&allowInsecure=1#vless-alpn",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-alpn",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "vless-alpn",
+          "tls": {
+            "alpn": [
+              "h2",
+              "http/1.1"
+            ],
+            "enabled": true,
+            "insecure": true,
+            "server_name": "example.com"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "vless-ipv6",
+      "link": "vless://11111111-1111-1111-1111-111111111111@[2001:db8::1]:443?security=tls#vless-v6",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "vless-v6",
+        "outbound": {
+          "server": "2001:db8::1",
+          "server_port": 443,
+          "tag": "vless-v6",
+          "tls": {
+            "enabled": true
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      },
+      "ignore": [
+        "tls.server_name"
+      ],
+      "note": "fs falls back to the URI host, which here is an IP literal (index.mjs:7041); the desktop leaves server_name unset rather than emitting SNI=IP"
+    },
+    {
+      "id": "vless-no-tag",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=tls",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "example.com:443",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "example.com:443",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      }
+    },
+    {
+      "id": "trojan-ws",
+      "link": "trojan://secret@example.com:443?type=ws&path=%2Ftj&host=t.example.com#trojan-ws",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:trojan"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Ix handles trojan; the desktop client does not import trojan links"
+    },
+    {
+      "id": "trojan-no-security",
+      "link": "trojan://secret@example.com:443#trojan-plain",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:trojan"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Ix writes security=tls when absent, so tls is always enabled"
+    },
+    {
+      "id": "trojan-reality",
+      "link": "trojan://secret@example.com:443?security=reality&pbk=BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB&sid=ab#trojan-reality",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:trojan"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Ix routes security=reality through fs, which builds the reality block"
+    },
+    {
+      "id": "vmess-tcp",
+      "link": "vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsIm5ldCI6InRjcCIsInRscyI6IiIsInBzIjoidm1lc3MtdGNwIn0=",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:vmess"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Dx handles vmess (base64 JSON)"
+    },
+    {
+      "id": "vmess-ws-tls",
+      "link": "vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsIm5ldCI6IndzIiwicGF0aCI6Ii93cyIsImhvc3QiOiJhLmV4YW1wbGUuY29tIiwidGxzIjoidGxzIiwicGkiOiJWTUVTUyJ9",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:vmess"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Dx builds the transport block inline"
+    },
+    {
+      "id": "vmess-grpc",
+      "link": "vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsIm5ldCI6ImdycGMiLCJwYXRoIjoiL3N2YyIsInRscyI6InRscyIsInBzIjoidm1lc3MtZ3JwYyJ9",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:vmess"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Dx strips a leading slash for grpc service_name"
+    },
+    {
+      "id": "vmess-scy",
+      "link": "vmess://eyJhZGQiOiJleGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjExMTExMTExLTExMTEtMTExMS0xMTExLTExMTExMTExMTExMSIsIm5ldCI6InRjcCIsInNjeSI6ImFlcy0xMjgtZ2NtIiwidGxzIjoidGxzIiwicHMiOiJ2bWVzcy1zY3kifQ==",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:vmess"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Dx maps scy -> security"
+    },
+    {
+      "id": "ss-sip002",
+      "link": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388#ss-sip002",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "ss-sip002",
+        "outbound": {
+          "method": "aes-256-gcm",
+          "password": "password",
+          "server": "example.com",
+          "server_port": 8388,
+          "tag": "ss-sip002",
+          "type": "shadowsocks"
+        }
+      }
+    },
+    {
+      "id": "ss-legacy",
+      "link": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmRAZXhhbXBsZS5jb206ODM4OA==#ss-legacy",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "ss-legacy",
+        "outbound": {
+          "method": "aes-256-gcm",
+          "password": "password",
+          "server": "example.com",
+          "server_port": 8388,
+          "tag": "ss-legacy",
+          "type": "shadowsocks"
+        }
+      }
+    },
+    {
+      "id": "ss-plugin-obfs",
+      "link": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Db.example.com#ss-obfs",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持带插件的 ss 链接"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Px maps obfs-local through the plugin table; the desktop refuses all plugins"
+    },
+    {
+      "id": "ss-plugin-alias",
+      "link": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=simple-obfs%3Bobfs%3Dtls#ss-obfs-alias",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持带插件的 ss 链接"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "simple-obfs is an alias for obfs-local in the plugin table"
+    },
+    {
+      "id": "ss-plugin-unsupported",
+      "link": "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ@example.com:8388?plugin=kcptun#ss-kcptun",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持带插件的 ss 链接"
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "kcptun is not in the plugin table -> UnsupportedPluginError (both sides reject)"
+    },
+    {
+      "id": "ss-2022",
+      "link": "ss://MjAyMi1ibGFrZTMtYWVzLTEyOC1nY206c2VjcmV0@example.com:8388#ss-2022",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "ss-2022",
+        "outbound": {
+          "method": "2022-blake3-aes-128-gcm",
+          "password": "secret",
+          "server": "example.com",
+          "server_port": 8388,
+          "tag": "ss-2022",
+          "type": "shadowsocks"
+        }
+      }
+    },
+    {
+      "id": "hy2-basic",
+      "link": "hysteria2://letmein@example.com:8443?sni=x.example.com#hy2-basic",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "hy2-basic",
+        "outbound": {
+          "password": "letmein",
+          "server": "example.com",
+          "server_port": 8443,
+          "tag": "hy2-basic",
+          "tls": {
+            "enabled": true,
+            "server_name": "x.example.com"
+          },
+          "type": "hysteria2"
+        }
+      }
+    },
+    {
+      "id": "hy2-obfs",
+      "link": "hysteria2://letmein@example.com:8443?obfs=salamander&obfs-password=abc#hy2-obfs",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "hy2-obfs",
+        "outbound": {
+          "obfs": {
+            "password": "abc",
+            "type": "salamander"
+          },
+          "password": "letmein",
+          "server": "example.com",
+          "server_port": 8443,
+          "tag": "hy2-obfs",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "hysteria2"
+        }
+      }
+    },
+    {
+      "id": "hy2-mport",
+      "link": "hysteria2://letmein@example.com:8443?mport=2000-3000&hop-interval=30#hy2-mport",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "hy2-mport",
+        "outbound": {
+          "password": "letmein",
+          "server": "example.com",
+          "server_port": 8443,
+          "tag": "hy2-mport",
+          "tls": {
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "hysteria2"
+        }
+      },
+      "ignore": [
+        "server_ports",
+        "hop_interval"
+      ],
+      "note": "og maps mport/hop-interval into server_ports/hop_interval (index.mjs:7144); the desktop parser ignores mport"
+    },
+    {
+      "id": "hy2-inline-range",
+      "link": "hysteria2://letmein@example.com:2000-3000?hop_interval=500ms#hy2-inline",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:hysteria2 链接格式不对:parse \"hysteria2://letmein@example.com:2000-3000?hop_interval=500ms\": invalid port \":2000-3000\" after host"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "og lifts the inline port range out before parsing (index.mjs:7144)"
+    },
+    {
+      "id": "hy2-alias",
+      "link": "hy2://letmein@example.com:8443?sni=y.example.com#hy2-alias",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "hy2-alias",
+        "outbound": {
+          "password": "letmein",
+          "server": "example.com",
+          "server_port": 8443,
+          "tag": "hy2-alias",
+          "tls": {
+            "enabled": true,
+            "server_name": "y.example.com"
+          },
+          "type": "hysteria2"
+        }
+      }
+    },
+    {
+      "id": "tuic-credentials",
+      "link": "tuic://11111111-1111-1111-1111-111111111111:secret@example.com:443?congestion_control=bbr#tuic",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "tuic",
+        "outbound": {
+          "congestion_control": "bbr",
+          "password": "secret",
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "tuic",
+          "tls": {
+            "alpn": [
+              "h3"
+            ],
+            "enabled": true,
+            "server_name": "example.com"
+          },
+          "type": "tuic",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      },
+      "ignore": [
+        "tls.alpn"
+      ],
+      "note": "Lx goes through fs, which only sets alpn from the query (index.mjs:7193); the desktop injects alpn=[h3] as a tuic default"
+    },
+    {
+      "id": "tuic-uuid-only",
+      "link": "tuic://11111111-1111-1111-1111-111111111111@example.com:443#tuic-nopw",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:tuic 链接缺少 uuid 或密码"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Lx defaults password to \"\" when the userinfo has no colon"
+    },
+    {
+      "id": "anytls-basic",
+      "link": "anytls://secret@example.com:443?sni=a.example.com#anytls",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:anytls"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "Cx handles anytls; the desktop client does not import it"
+    },
+    {
+      "id": "socks5-credentials",
+      "link": "socks5://user:pass@example.com:1080#socks5",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "socks5",
+        "outbound": {
+          "password": "pass",
+          "server": "example.com",
+          "server_port": 1080,
+          "tag": "socks5",
+          "type": "socks",
+          "username": "user",
+          "version": "5"
+        }
+      },
+      "ignore": [
+        "version"
+      ],
+      "note": "ds omits version when it is \"5\" (index.mjs:7221); the desktop always emits it"
+    },
+    {
+      "id": "socks5-anon",
+      "link": "socks5://example.com:1080#socks5-anon",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "socks5-anon",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 1080,
+          "tag": "socks5-anon",
+          "type": "socks",
+          "version": "5"
+        }
+      },
+      "ignore": [
+        "version"
+      ],
+      "note": "ds omits version when it is \"5\" (index.mjs:7221); the desktop always emits it"
+    },
+    {
+      "id": "socks4a",
+      "link": "socks4a://example.com:1080#socks4a",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:socks4a"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "ug dispatches socks4a to ds(link, \"4a\")"
+    },
+    {
+      "id": "socks4",
+      "link": "socks4://example.com:1080#socks4",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:socks4"
+      },
+      "source_derived": true,
+      "expect": "accept",
+      "why": "ug dispatches socks4 to ds(link, \"4\")"
+    },
+    {
+      "id": "socks-generic",
+      "link": "socks://example.com:1080#socks-generic",
+      "comparable": true,
+      "oracle": {
+        "status": "emitted",
+        "tag": "socks-generic",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 1080,
+          "tag": "socks-generic",
+          "type": "socks",
+          "version": "5"
+        }
+      },
+      "ignore": [
+        "version"
+      ],
+      "note": "ds omits version when it is \"5\" (index.mjs:7221); the desktop always emits it"
+    },
+    {
+      "id": "invalid-scheme",
+      "link": "wireguard://example.com:51820#wg",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:wireguard"
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "ug has no wireguard branch and returns null"
+    },
+    {
+      "id": "invalid-not-a-uri",
+      "link": "definitely not a link",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不是分享链接:definitely not a link"
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "ug matches no scheme prefix and returns null"
+    },
+    {
+      "id": "invalid-bad-port",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:99999#bad-port",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:端口不对:\"99999\""
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "normalizeNode rejects server_port > 65535"
+    },
+    {
+      "id": "invalid-missing-port",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com#no-port",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:端口不对:\"\""
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "splitHostPort yields \"\" and normalizeNode rejects a non-integer port"
+    },
+    {
+      "id": "invalid-transport",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?type=kcp#bad-transport",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的传输方式:kcp"
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "parseTransport throws on an unknown type"
+    },
+    {
+      "id": "invalid-vmess-json",
+      "link": "vmess://bm90IGpzb24=",
+      "comparable": false,
+      "oracle": {
+        "status": "rejected",
+        "error": "第 1 个节点:不支持的协议:vmess"
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "Dx throws from JSON.parse on a non-JSON payload"
+    },
+    {
+      "id": "invalid-reality-no-pbk",
+      "link": "vless://11111111-1111-1111-1111-111111111111@example.com:443?security=reality#no-pbk",
+      "comparable": false,
+      "oracle": {
+        "status": "emitted",
+        "tag": "no-pbk",
+        "outbound": {
+          "server": "example.com",
+          "server_port": 443,
+          "tag": "no-pbk",
+          "tls": {
+            "enabled": true,
+            "reality": {
+              "enabled": true,
+              "public_key": "",
+              "short_id": ""
+            },
+            "server_name": "example.com",
+            "utls": {
+              "enabled": true,
+              "fingerprint": "chrome"
+            }
+          },
+          "type": "vless",
+          "uuid": "11111111-1111-1111-1111-111111111111"
+        }
+      },
+      "source_derived": true,
+      "expect": "reject",
+      "why": "Ox rejects an enabled reality block with no public_key (index.mjs:6781); the desktop parser emits the outbound without validating"
+    }
+  ]
+}

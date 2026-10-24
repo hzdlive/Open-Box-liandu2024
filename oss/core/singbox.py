@@ -84,6 +84,12 @@ def node_to_outbound(node: Node) -> dict:
         ob["password"] = p.get("password", "")
     elif node.protocol == "shadowsocks":
         ob.update(method=p.get("method", ""), password=p.get("password", ""))
+        # sing-box shadowsocks plugin (obfs-local / v2ray-plugin); unknown
+        # plugins never reach here -- the parser rejects them.
+        if p.get("plugin"):
+            ob["plugin"] = p["plugin"]
+        if p.get("plugin_opts"):
+            ob["plugin_opts"] = p["plugin_opts"]
     elif node.protocol == "tuic":
         ob.update(uuid=p.get("uuid", ""), password=p.get("password", ""),
                    congestion_control=p.get("congestion_control", "bbr"))
@@ -93,6 +99,14 @@ def node_to_outbound(node: Node) -> dict:
             ob["obfs"] = p["obfs"]
     elif node.protocol == "anytls":
         ob["password"] = p.get("password", "")
+    elif node.protocol == "socks":
+        # The panel omits version when it is "5" (golden socks-* ignore).
+        if p.get("username") is not None:
+            ob["username"] = p["username"]
+        if p.get("password") is not None:
+            ob["password"] = p["password"]
+        if p.get("version") not in (None, "5"):
+            ob["version"] = p["version"]
     elif node.protocol == "wireguard":
         ob["system_interface"] = False
         if p.get("local_address"):

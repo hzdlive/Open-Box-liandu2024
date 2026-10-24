@@ -43,6 +43,12 @@ def _unique_tag(base: str, seen: set) -> str:
     return cand
 
 
+def _hostport(host: str | None, port: int) -> str:
+    """Tag fallback when a link carries no name (golden vless-no-tag):
+    the panel uses host:port, not the protocol name."""
+    return f"{host or 'node'}:{port}"
+
+
 def _parse_vmess(link: str, seen: set) -> Node | None:
     try:
         data = json.loads(_b64decode(link[len("vmess://"):]).decode("utf-8"))
@@ -54,6 +60,10 @@ def _parse_vmess(link: str, seen: set) -> Node | None:
         "security": "auto",
     }
     net = (data.get("net") or "tcp").lower()
+    if net == "h2":
+        net = "http"
+    elif net not in ("tcp", "ws", "grpc", "http"):
+        return None
     transport: dict = {"type": net}
     if net == "ws":
         transport["path"] = data.get("path") or "/"
@@ -69,7 +79,7 @@ def _parse_vmess(link: str, seen: set) -> Node | None:
     except (TypeError, ValueError):
         return None
     return Node(
-        tag=_unique_tag(unquote(data.get("ps") or "vmess"), seen),
+        tag=_unique_tag(unquote(data.get("ps") or "") or _hostport(data.get("add"), port), seen),
         protocol="vmess", server=data.get("add", ""), server_port=port, params=params,
     )
 
@@ -96,39 +106,89 @@ def _parse_vless_trojan(link: str, seen: set) -> Node | None:
             tls["alpn"] = q["alpn"].split(",")
         if q.get("fp"):
             tls["fingerprint"] = q["fp"]
+        if q.get("allowInsecure") in ("1", "true"):
+            tls["insecure"] = True
         if sec == "reality":
+            # An enabled reality block with no public_key is rejected by
+            # the panel (golden invalid-reality-no-pbk); the desktop
+            # parser emits it unvalidated.
+            if not q.get("pbk"):
+                return None
             tls["reality"] = {
                 "enabled": True,
                 "public_key": q.get("pbk", ""),
                 "short_id": q.get("sid", ""),
             }
         params["tls"] = tls
+    # Transport allowlist (golden invalid-transport): sing-box has no kcp
+    # transport for vless/trojan; h2 is the panel's alias for http.
     ttype = q.get("type", "tcp").lower()
+    if ttype == "h2":
+        ttype = "http"
+    elif ttype not in ("tcp", "ws", "grpc", "http"):
+        return None
     transport: dict = {"type": ttype}
     if ttype == "ws":
         transport["path"] = q.get("path") or "/"
+        if q.get("host"):
+            transport["headers"] = {"Host": q["host"]}
+    elif ttype == "http":
+        # h2 (and explicit http): same path/host shape as ws; the
+        # generator passes path/headers through for any non-tcp type.
+        if q.get("path"):
+            transport["path"] = q["path"]
         if q.get("host"):
             transport["headers"] = {"Host": q["host"]}
     elif ttype == "grpc":
         transport["service_name"] = q.get("serviceName") or ""
     params["transport"] = transport
     return Node(
-        tag=_unique_tag(unquote(u.fragment) or proto, seen),
+        tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
         protocol=proto, server=u.hostname or "", server_port=port, params=params,
     )
 
 
 def _parse_ss(link: str, seen: set) -> Node | None:
+    # SIP002: ss://base64(method:password)@host:port?plugin=...#tag
+    # or the legacy full-base64 form. The plugin table (golden
+    # ss-plugin-*): obfs-local and its alias simple-obfs map to
+    # obfs-local; v2ray-plugin passes through; anything else (kcptun)
+    # rejects the link instead of silently dropping the plugin.
+    _PLUGIN_TABLE = {"obfs-local": "obfs-local", "simple-obfs": "obfs-local",
+                     "v2ray-plugin": "v2ray-plugin"}
     body = link[len("ss://"):]
     frag = ""
     if "#" in body:
         body, frag = body.split("#", 1)
+    query = ""
+    if "?" in body:
+        body, query = body.split("?", 1)
+    plugin = None
+    plugin_opts = ""
+    if query:
+        q = dict(parse_qsl(query))
+        raw = q.get("plugin", "")
+        if raw:
+            parts = unquote(raw).split(";")
+            mapped = _PLUGIN_TABLE.get(parts[0].strip())
+            if mapped is None:
+                return None
+            plugin, plugin_opts = mapped, ";".join(parts[1:])
     try:
         if "@" in body:  # ss://base64(method:password)@host:port
             userinfo_b64, hostport = body.rsplit("@", 1)
             method, password = _b64decode(userinfo_b64).decode("utf-8").split(":", 1)
-        else:  # ss://base64(method:password@host:port)
+        else:  # ss://base64(method:password@host:port[?plugin=...])
             decoded = _b64decode(body).decode("utf-8")
+            if "?" in decoded:
+                decoded, dquery = decoded.split("?", 1)
+                dq = dict(parse_qsl(dquery))
+                if dq.get("plugin") and plugin is None:
+                    parts = unquote(dq["plugin"]).split(";")
+                    mapped = _PLUGIN_TABLE.get(parts[0].strip())
+                    if mapped is None:
+                        return None
+                    plugin, plugin_opts = mapped, ";".join(parts[1:])
             m = re.match(r"(.+?):(.+)@(.+):(\d+)", decoded)
             if not m:
                 return None
@@ -137,15 +197,30 @@ def _parse_ss(link: str, seen: set) -> Node | None:
         port = int(port_s)
     except Exception:
         return None
+    params = {"method": method, "password": password}
+    if plugin:
+        params["plugin"] = plugin
+        if plugin_opts:
+            params["plugin_opts"] = plugin_opts
     return Node(
-        tag=_unique_tag(unquote(frag) or "shadowsocks", seen),
+        tag=_unique_tag(unquote(frag) or _hostport(host.strip("[]"), port), seen),
         protocol="shadowsocks", server=host.strip("[]"), server_port=port,
-        params={"method": method, "password": password},
+        params=params,
     )
 
 
 def _parse_tuic_hysteria2(link: str, seen: set) -> Node | None:
     proto = "tuic" if link.startswith("tuic://") else "hysteria2"
+    # Inline port range (golden hy2-inline-range): host:2000-3000 is
+    # lifted out before parsing -- first port becomes server_port and
+    # the range is kept as mport (the generator ignores unknown params,
+    # same as the query-form mport the golden ignores).
+    mport = None
+    if proto == "hysteria2":
+        m = re.match(r"^([a-z0-9+.-]+://[^?#]*?):(\d+)-(\d+)([?#].*)?$", link, re.I)
+        if m:
+            link = f"{m.group(1)}:{m.group(2)}{m.group(4) or ''}"
+            mport = f"{m.group(2)}-{m.group(3)}"
     u = urlparse(link)
     q = dict(parse_qsl(u.query))
     try:
@@ -162,6 +237,8 @@ def _parse_tuic_hysteria2(link: str, seen: set) -> Node | None:
         params = {"password": unquote(u.username or "")}
         if q.get("obfs"):
             params["obfs"] = {"type": q["obfs"], "password": q.get("obfs-password", "")}
+        if mport:
+            params["mport"] = mport
     tls: dict = {
         "enabled": True,
         "server_name": q.get("sni") or u.hostname,
@@ -171,7 +248,7 @@ def _parse_tuic_hysteria2(link: str, seen: set) -> Node | None:
         tls["alpn"] = q["alpn"].split(",")
     params["tls"] = tls
     return Node(
-        tag=_unique_tag(unquote(u.fragment) or proto, seen),
+        tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
         protocol=proto, server=u.hostname or "", server_port=port, params=params,
     )
 
@@ -192,9 +269,35 @@ def _parse_anytls(link: str, seen: set) -> Node | None:
     if q.get("fp"):
         tls["fingerprint"] = q["fp"]
     return Node(
-        tag=_unique_tag(unquote(u.fragment) or "anytls", seen),
+        tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
         protocol="anytls", server=u.hostname or "", server_port=port,
         params={"password": unquote(u.username or ""), "tls": tls},
+    )
+
+
+def _parse_socks(link: str, seen: set) -> Node | None:
+    # socks5://user:pass@host:port | socks5://host:port (anon)
+    # | socks4a://host:port | socks4://host:port | socks://host:port
+    # (generic defaults to version 5, per the golden's socks-generic case).
+    scheme = link.split("://", 1)[0].lower()
+    version = {"socks5": "5", "socks": "5", "socks4": "4", "socks4a": "4a"}.get(scheme)
+    if version is None:
+        return None
+    u = urlparse(link)
+    q = dict(parse_qsl(u.query))
+    try:
+        port = int(u.port or 0)
+    except (TypeError, ValueError):
+        return None
+    params: dict = {"version": version}
+    if u.username is not None:
+        params["username"] = unquote(u.username)
+    if u.password is not None:
+        params["password"] = unquote(u.password)
+    return Node(
+        tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
+        protocol="socks", server=u.hostname or "", server_port=port,
+        params=params,
     )
 
 
@@ -234,7 +337,7 @@ def parse_singbox_json(text: str) -> list[Node]:
             port = int(ob.get("server_port") or 0)
         except (TypeError, ValueError):
             port = 0
-        if not server or not port:
+        if not server or not 1 <= port <= 65535:
             continue
         # 协议名映射到内部协议
         proto_map = {
@@ -294,9 +397,14 @@ def parse_subscription(text: str) -> list[Node]:
                 node = _parse_tuic_hysteria2(line, seen)
             elif line.startswith("anytls://"):
                 node = _parse_anytls(line, seen)
+            elif line.startswith(("socks5://", "socks4a://", "socks4://", "socks://")):
+                node = _parse_socks(line, seen)
         except Exception:
             node = None
-        if node and node.server and node.server_port:
+        # Port range is validated here, centrally: urlparse already
+        # rejects out-of-range ports for URL links, but vmess (JSON int)
+        # and ss (split int) do not -- sing-box would reject them later.
+        if node and node.server and 1 <= node.server_port <= 65535:
             # 过滤订阅信息假节点
             if is_info_node(getattr(node, "tag", "")):
                 continue
