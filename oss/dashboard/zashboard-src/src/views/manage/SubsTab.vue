@@ -899,7 +899,8 @@ async function openNodeTab() {
 }
 function nodeLatency(tag: string) {
   const h = health.value.find((x: any) => x.tag === tag)
-  return h ? `${h.latency_ms ?? h.latency ?? ''}ms` : '—'
+  const v = h?.latency_ms ?? h?.latency
+  return v != null ? `${v}ms` : '—'
 }
 async function saveNodeTag(n: any) {
   try {
