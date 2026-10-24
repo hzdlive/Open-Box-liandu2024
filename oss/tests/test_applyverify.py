@@ -49,6 +49,13 @@ class FakeManager:
         return True, "ok"
 
     def restart(self):
+        if self._die == "fatal_only":
+            # 2026-10-24 live case: FATAL logged but the process lingers
+            # ~1s past the grace window before exiting.
+            with open(self.log_path, "a") as f:
+                f.write("FATAL[0000] start service: dependency[X] not found"
+                        " for outbound[Y]\n")
+            return self.status()
         if self._die:
             with open(self.log_path, "a") as f:
                 f.write("FATAL[0000] start service: dependency[X] not found"
@@ -105,7 +112,15 @@ def main() -> int:
             r = apply_config(None, m)
             assert r["applied"] and r["verify"]["state"] == "running", r
 
-            # 3. hot path (native push ok) -> no verify, mode hot.
+            # 2b. kernel logs FATAL but is briefly still alive -> still
+            # ApplyVerifyError (the 2026-10-24 lingering-process case).
+            m = FakeManager(d, die="fatal_only")
+            try:
+                apply_config(None, m)
+                raise AssertionError("expected ApplyVerifyError")
+            except ApplyVerifyError as e:
+                assert e.verify["state"] == "failed", e.verify
+                assert "尚存" in e.verify["message"], e.verify
             orig_push = hotmod.native_push_outbounds
             hotmod.native_push_outbounds = lambda a, s, o: (True, "pushed")
             try:

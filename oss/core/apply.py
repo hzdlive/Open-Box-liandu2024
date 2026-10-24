@@ -91,8 +91,9 @@ def apply_config(conn, manager: KernelManager,
     After a restart/start, the new process is verified with startverify
     (same rule as /api/service/start): a kernel that did not come up is a
     failed apply (ApplyVerifyError -> 409), not a 200 with a dead kernel.
-    Warnings (running_with_warnings) still return normally, with the
-    verify dict attached. No relaunch happens, no verification runs.
+    A new FATAL line counts as failure even if the process is briefly
+    still alive at poll time (it exits during cleanup). No relaunch
+    happens, no verification runs.
     """
     _sync_selection_before_build(conn)
     cfg, ok, msg = build_and_validate(conn, manager)

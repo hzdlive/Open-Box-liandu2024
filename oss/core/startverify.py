@@ -136,15 +136,20 @@ def verify_start(manager, before: dict | None, settle_s: float = 3.0) -> dict:
         if st.running and fatal is None:
             return {"ok": True, "state": "running", "pid": pid,
                     "fatal": None, "message": "内核运行正常"}
-        if st.running:
-            return {"ok": True, "state": "running_with_warnings", "pid": pid,
-                    "fatal": fatal,
-                    "message": f"内核已启动，但启动期间日志出现 FATAL 行：{fatal}（进程仍在运行，请留意）"}
         if fatal is not None:
+            # A new FATAL means the start failed even if the process is
+            # still briefly alive at poll time: sing-box logs FATAL at
+            # startup ([0000]) and exits during cleanup, which lands after
+            # start()'s 0.5s grace window and verify's first poll (observed
+            # live 2026-10-24: pid alive at uptime 0.6s, dead seconds
+            # later). Reporting this as "running_with_warnings" let a dead
+            # kernel pass as a 200 apply; that state is removed.
+            msg = (f"内核启动失败：{fatal}。配置：{manager.config_path}；"
+                   "可重新 apply 生成配置，或用 /api/deploy/rollback 恢复直连配置。")
+            if st.running:
+                msg += "（轮询时进程尚存，但 FATAL 意味着启动失败，进程随后会退出）"
             return {"ok": False, "state": "failed", "pid": None,
-                    "fatal": fatal,
-                    "message": f"内核启动失败：{fatal}。配置：{manager.config_path}；"
-                               "可重新 apply 生成配置，或用 /api/deploy/rollback 恢复直连配置。"}
+                    "fatal": fatal, "message": msg}
         return {"ok": False, "state": "failed", "pid": None,
                 "fatal": None,
                 "message": "内核启动失败，日志中未见 FATAL 行（见 /api/service/log）；"

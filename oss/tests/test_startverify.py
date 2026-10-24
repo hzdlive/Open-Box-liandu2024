@@ -103,7 +103,10 @@ def main() -> int:
             f.write("FATAL odd line\n")
         m = FakeManager(p, [(True, 456)])
         r = sv.verify_start(m, b, settle_s=0)
-        assert r["ok"] and r["state"] == "running_with_warnings", r
+        # 2026-10-24 live lesson: a process that logged FATAL is dying
+        # even if still alive at poll time -> failed, not warnings.
+        assert not r["ok"] and r["state"] == "failed", r
+        assert "尚存" in r["message"], r
 
     print("OK: startverify — all cases pass")
     return 0
