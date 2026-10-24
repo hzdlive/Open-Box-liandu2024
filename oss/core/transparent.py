@@ -80,6 +80,31 @@ def _norm_idents(idents):
     return good_macs, good_ips
 
 
+def classify_direct_ip_gaps(site_sets, expanded_names: set[str] | None = None) -> dict[str, int]:
+    """Why some direct site sets contribute no ip_cidr to the ingress set.
+
+    A set is skipped when it already has literal ip_cidr OR when its
+    geoip rule_sets expanded into CIDRs (expanded_names). Remaining
+    direct sets are classified by their strongest non-IP evidence:
+    domain conditions, port conditions, unexpanded rule_sets (geosite
+    domain lists can never yield CIDRs), or nothing at all.
+    """
+    expanded_names = expanded_names or set()
+    causes = {"域名条件": 0, "port 等非 IP 条件": 0, "规则集未展开": 0, "没有 ip_cidr": 0}
+    for s in site_sets:
+        if s.action != "direct" or s.ip_cidr or s.name in expanded_names:
+            continue
+        if s.domains or s.domain_suffix or s.domain_keyword:
+            causes["域名条件"] += 1
+        elif s.ports:
+            causes["port 等非 IP 条件"] += 1
+        elif s.rule_sets:
+            causes["规则集未展开"] += 1
+        else:
+            causes["没有 ip_cidr"] += 1
+    return causes
+
+
 def nft_script(cfg: TransparentConfig) -> str:
     b4 = ",\n        ".join(cfg.bypass_v4)
     b6 = ",\n        ".join(cfg.bypass_v6)

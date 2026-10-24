@@ -88,6 +88,71 @@ def is_available(name: str, db_path: str | None = None) -> bool:
     return os.path.isfile(p) and os.path.getsize(p) > 0
 
 
+import json as _json
+import re as _re
+import subprocess as _subprocess
+import tempfile as _tempfile
+from ipaddress import ip_network as _ip_network
+
+_GEOIP_NAME_RE = _re.compile(r"^geoip-[A-Za-z0-9_-]+$")
+_expand_cache: dict = {}
+
+
+def expand_geoip(name: str, db_path: str | None = None,
+                 binary: str | None = None) -> list[str]:
+    """Expand a geoip-* rule-set into its CIDR list.
+
+    Uses the authoritative decoder -- `sing-box rule-set decompile` --
+    instead of reimplementing the .srs binary format (SRS magic + zlib +
+    range pairs). Only geoip-* names expand: geosite-* holds domains,
+    which can never become ingress IP bypass entries. Any failure
+    (missing file, missing binary, bad output) returns [] -- fail
+    closed, exactly like before expansion existed. Results are cached
+    on (path, mtime, size) so repeated script generations are free.
+    """
+    if not _GEOIP_NAME_RE.match(name or ""):
+        return []
+    path = local_path(name, db_path)
+    try:
+        st = os.stat(path)
+    except OSError:
+        return []
+    if st.st_size == 0:
+        return []
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key in _expand_cache:
+        return list(_expand_cache[key])
+    out: list[str] = []
+    try:
+        bin_path = binary or os.environ.get(
+            "OPENBOX_SINGBOX_BIN", "/usr/local/bin/sing-box")
+        with _tempfile.TemporaryDirectory() as td:
+            dst = os.path.join(td, "ruleset.json")
+            r = _subprocess.run(
+                [bin_path, "rule-set", "decompile", path, "-o", dst],
+                capture_output=True, timeout=30)
+            if r.returncode != 0:
+                return []
+            with open(dst, encoding="utf-8") as f:
+                doc = _json.load(f)
+        seen: set[str] = set()
+        for rule in doc.get("rules", []) or []:
+            if not isinstance(rule, dict):
+                continue
+            for cidr in rule.get("ip_cidr", []) or []:
+                try:
+                    norm = str(_ip_network(str(cidr), strict=False))
+                except ValueError:
+                    continue
+                if norm not in seen:
+                    seen.add(norm)
+                    out.append(norm)
+    except Exception:
+        return []
+    _expand_cache[key] = tuple(out)
+    return out
+
+
 def _download(url: str, dest: str, timeout: int = 60) -> None:
     tmp = dest + ".part"
     req = urllib.request.Request(url, headers={"User-Agent": "openbox-oss-geodata/1"})

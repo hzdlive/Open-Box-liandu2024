@@ -1562,13 +1562,23 @@ def create_app(db_path: str = ":memory:") -> Flask:
         direct_ipset_domains = []
         direct_ip_cidrs = []
         direct_ip_note = ""
+        _expanded_sets: set[str] = set()
         if direct_bypass:
+            from core import geodata as _gd
             for s in cfg.site_sets:
                 if s.action == "direct":
                     direct_ipset_domains.extend(
                         x for x in list(s.domains) + list(s.domain_suffix) if x)
                     # v0.1.341: direct ip_cidr bypass at ingress
                     direct_ip_cidrs.extend(x for x in list(s.ip_cidr) if x)
+                    # geoip rule_sets expand into CIDRs via decompile;
+                    # geosite (domains) never yields CIDRs and is skipped
+                    # inside expand_geoip.
+                    for _rs in (s.rule_sets or []):
+                        _got = _gd.expand_geoip(_rs)
+                        if _got:
+                            _expanded_sets.add(s.name)
+                            direct_ip_cidrs.extend(_got)
             # v0.1.341: front_rules ip_cidr with direct target
             for fr in cfg.front_rules or []:
                 if not isinstance(fr, dict):
@@ -1583,24 +1593,13 @@ def create_app(db_path: str = ":memory:") -> Flask:
             direct_ip_cidrs = sorted(set(direct_ip_cidrs))
         # v6 #15 fallback wording (summary, ";"-joined): why some direct
         # site sets yield no ip_cidr. Domain-only sets are handled by the
-        # DNS ipset by design; geo rule_sets are not expanded into CIDRs
-        # (separate gap); logical/negation composition does not exist in
+        # DNS ipset by design; geoip rule_sets now expand (decompile),
+        # only geosite domain lists still cannot; logical/negation composition does not exist in
         # our flat site-set model, so that wording never applies here.
         direct_ip_note = ""
         if direct_bypass:
-            _causes = {"域名条件": 0, "port 等非 IP 条件": 0,
-                       "规则集未展开": 0, "没有 ip_cidr": 0}
-            for s in cfg.site_sets:
-                if s.action != "direct" or s.ip_cidr:
-                    continue
-                if s.domains or s.domain_suffix or s.domain_keyword:
-                    _causes["域名条件"] += 1
-                elif s.ports:
-                    _causes["port 等非 IP 条件"] += 1
-                elif s.rule_sets:
-                    _causes["规则集未展开"] += 1
-                else:
-                    _causes["没有 ip_cidr"] += 1
+            from core.transparent import classify_direct_ip_gaps as _gaps
+            _causes = _gaps(cfg.site_sets, _expanded_sets)
             _parts = [f"{k} {v} 个" for k, v in _causes.items() if v]
             if _parts:
                 direct_ip_note = "直连站点集无 ip_cidr：" + ";".join(_parts)
