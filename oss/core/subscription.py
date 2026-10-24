@@ -315,7 +315,13 @@ def looks_like_singbox_json(text: str) -> bool:
 
 
 def parse_singbox_json(text: str) -> list[Node]:
-    """Parse sing-box JSON config outbounds into Nodes. Skips selector/urltest/direct/block."""
+    """Parse sing-box JSON config outbounds into Nodes. Skips selector/urltest/direct/block.
+
+    Wireguard lives in endpoints (sing-box 1.13+), not outbounds: each
+    peer becomes one Node (tag, tag#2, ... for multi-peer endpoints).
+    Legacy wireguard outbounds are still skipped -- they fail check on
+    1.14 and carry no usable peer data in this shape.
+    """
     import json
     try:
         d = json.loads(text)
@@ -324,7 +330,34 @@ def parse_singbox_json(text: str) -> list[Node]:
     nodes: list[Node] = []
     seen: set = set()
     skip_types = {"selector", "urltest", "direct", "block", "dns", "wireguard"}
-    # wireguard 需要私钥等复杂配置，暂跳过
+    for ep in d.get("endpoints", []):
+        if not isinstance(ep, dict) or str(ep.get("type", "")).lower() != "wireguard":
+            continue
+        tag = str(ep.get("tag", "") or "wireguard")
+        params_base = {"private_key": str(ep.get("private_key", "") or "")}
+        if ep.get("address"):
+            params_base["local_address"] = ep["address"]
+        if ep.get("mtu"):
+            params_base["mtu"] = ep["mtu"]
+        for peer in ep.get("peers", []) or []:
+            if not isinstance(peer, dict):
+                continue
+            server = str(peer.get("address", "") or "")
+            try:
+                port = int(peer.get("port") or 0)
+            except (TypeError, ValueError):
+                port = 0
+            if not server or not 1 <= port <= 65535:
+                continue
+            params = dict(params_base)
+            params["peer_public_key"] = str(peer.get("public_key", "") or "")
+            if peer.get("pre_shared_key"):
+                params["pre_shared_key"] = peer["pre_shared_key"]
+            nodes.append(Node(
+                tag=_unique_tag(tag, seen),
+                protocol="wireguard", server=server, server_port=port,
+                params=params,
+            ))
     for ob in d.get("outbounds", []):
         if not isinstance(ob, dict):
             continue

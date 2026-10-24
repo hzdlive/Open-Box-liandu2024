@@ -66,6 +66,38 @@ def _transport_block(params: dict) -> dict | None:
     return out
 
 
+def node_to_endpoint(node) -> dict:
+    """Render a wireguard node as a sing-box 1.13+ endpoint.
+
+    Field names are probed against 1.14.1-openbox-tcp28 (2026-10-24):
+    endpoint accepts type/tag/private_key/address/mtu and peers with
+    public_key/address/port/allowed_ips/pre_shared_key. It REJECTS the
+    legacy outbound fields (server, system_interface, interface_name)
+    and peer endpoint/persistent_keepalive. allowed_ips is required per
+    peer; full-tunnel both families is the proxy-node default.
+    """
+    p = node.params or {}
+    peer = {
+        "public_key": p.get("peer_public_key", ""),
+        "address": node.server,
+        "port": node.server_port,
+        "allowed_ips": ["0.0.0.0/0", "::/0"],
+    }
+    if p.get("pre_shared_key"):
+        peer["pre_shared_key"] = p["pre_shared_key"]
+    ep = {
+        "type": "wireguard",
+        "tag": node.tag,
+        "private_key": p.get("private_key", ""),
+        "peers": [peer],
+    }
+    if p.get("local_address"):
+        ep["address"] = p["local_address"]
+    if p.get("mtu"):
+        ep["mtu"] = p["mtu"]
+    return ep
+
+
 def node_to_outbound(node: Node) -> dict:
     """Map a Node to a sing-box outbound object."""
     p, ob = node.params, {
@@ -108,15 +140,15 @@ def node_to_outbound(node: Node) -> dict:
         if p.get("version") not in (None, "5"):
             ob["version"] = p["version"]
     elif node.protocol == "wireguard":
-        ob["system_interface"] = False
-        if p.get("local_address"):
-            ob["local_address"] = p["local_address"]
-        ob["private_key"] = p.get("private_key", "")
-        ob["peer_public_key"] = p.get("peer_public_key", "")
-        if p.get("pre_shared_key"):
-            ob["pre_shared_key"] = p["pre_shared_key"]
-        if p.get("mtu"):
-            ob["mtu"] = p["mtu"]
+        # sing-box 1.13+ removed the wireguard OUTBOUND type (check:
+        # "unknown field server" for every legacy field). WG nodes are
+        # endpoints, not outbounds -- use node_to_endpoint; calling this
+        # function for one is a bug, fail loudly instead of emitting a
+        # config that can never pass check. (WG chain exits are likewise
+        # unsupported for now: chain_to_outbound routes through here.)
+        raise RuntimeError(
+            "wireguard nodes are endpoints, not outbounds "
+            "(use node_to_endpoint)")
     tls = _tls_block(p)
     if tls:
         ob["tls"] = tls
@@ -223,13 +255,21 @@ def flip_outbound(site_set, members: list[str]) -> dict | None:
             "outbounds": list(members), "default": default}
 
 
+def build_endpoints(cfg: AppConfig) -> list[dict]:
+    """Wireguard nodes render as endpoints, not outbounds (sing-box 1.13+)."""
+    return [node_to_endpoint(n) for n in cfg.nodes if n.protocol == "wireguard"]
+
+
 def build_outbounds(cfg: AppConfig) -> list[dict]:
     """Build the outbound list (nodes + chains + groups + builtins)."""
     node_tags = [n.tag for n in cfg.nodes]
     chain_tags = [c.name for c in cfg.chains]
     groups = cfg.groups or default_groups()
 
-    outbounds = [node_to_outbound(n) for n in cfg.nodes]
+    # Wireguard nodes are endpoints (see node_to_endpoint), not outbounds.
+    # Their tags stay in node_tags: selectors/urltest/route rules may
+    # reference endpoint tags directly (probed against the live binary).
+    outbounds = [node_to_outbound(n) for n in cfg.nodes if n.protocol != "wireguard"]
     outbounds += [chain_to_outbound(c) for c in cfg.chains]
     # 订阅出站组：每个启用的订阅生成一个 urltest，包含该订阅的所有节点
     # 供前置分流出口选择器选择整个订阅
@@ -826,6 +866,7 @@ def build_config(cfg: AppConfig,
     are dropped so a missing geodata file can never break config validation.
     """
     outbounds = build_outbounds(cfg)
+    endpoints = build_endpoints(cfg)
     def _reorder_rules_for_original(rules: list[dict]) -> list[dict]:
         """Reorder rules to match original: logical bypass first, then sniff, hijack-dns."""
         logical_rules = [r for r in rules if r.get("type") == "logical"]
@@ -919,6 +960,7 @@ def build_config(cfg: AppConfig,
             if s.get("enabled", 1)
         ],
         "outbounds": outbounds,
+        **({"endpoints": endpoints} if endpoints else {}),
         "route": {
             # sing-box >= 1.13: the "dns" outbound was removed; DNS protocol
             # traffic is handed to the DNS module via the hijack-dns action.
