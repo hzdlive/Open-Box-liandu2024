@@ -1557,6 +1557,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         direct_bypass = get_setting(c, "direct_bypass_kernel", "1") == "1"
         direct_ipset_domains = []
         direct_ip_cidrs = []
+        direct_ip_note = ""
         if direct_bypass:
             for s in cfg.site_sets:
                 if s.action == "direct":
@@ -1576,6 +1577,29 @@ def create_app(db_path: str = ":memory:") -> Flask:
                             direct_ip_cidrs.append(val)
             direct_ipset_domains = sorted(set(direct_ipset_domains))
             direct_ip_cidrs = sorted(set(direct_ip_cidrs))
+        # v6 #15 fallback wording (summary, ";"-joined): why some direct
+        # site sets yield no ip_cidr. Domain-only sets are handled by the
+        # DNS ipset by design; geo rule_sets are not expanded into CIDRs
+        # (separate gap); logical/negation composition does not exist in
+        # our flat site-set model, so that wording never applies here.
+        direct_ip_note = ""
+        if direct_bypass:
+            _causes = {"域名条件": 0, "port 等非 IP 条件": 0,
+                       "规则集未展开": 0, "没有 ip_cidr": 0}
+            for s in cfg.site_sets:
+                if s.action != "direct" or s.ip_cidr:
+                    continue
+                if s.domains or s.domain_suffix or s.domain_keyword:
+                    _causes["域名条件"] += 1
+                elif s.ports:
+                    _causes["port 等非 IP 条件"] += 1
+                elif s.rule_sets:
+                    _causes["规则集未展开"] += 1
+                else:
+                    _causes["没有 ip_cidr"] += 1
+            _parts = [f"{k} {v} 个" for k, v in _causes.items() if v]
+            if _parts:
+                direct_ip_note = "直连站点集无 ip_cidr：" + ";".join(_parts)
         # Entry bypass mode (1:1 对标原版)：自动选择 blacklist/whitelist
         _ep = _entry_plan(
             enabled=direct_bypass,
@@ -1600,6 +1624,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             dns_filter_conf=_dns_filter_conf_path(c),
             direct_ipset_domains=direct_ipset_domains,
             direct_ip_cidrs=direct_ip_cidrs,
+            direct_ip_note=direct_ip_note,
             # 端口黑白名单分开存（原版语义：两个字段不合并）：
             # 前端存 port_list_mode + bypass_ports_white，旧键 bypass_ports_mode 兼容。
             bypass_ports=_port_list_for_mode(c),
