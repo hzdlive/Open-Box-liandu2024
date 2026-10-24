@@ -30,8 +30,7 @@
       </div>
 
       <div class="mb-2 flex flex-wrap items-center gap-2">
-        <select v-model="s.install_channel" class="select select-bordered select-sm" @change="saveKey('install_channel')">
-          <option value="keep">{{ $t('obx.keepChannel') }}</option>
+        <select v-model="s.update_check_channel" class="select select-bordered select-sm" @change="saveKey('update_check_channel')">
           <option value="github">GitHub {{ $t('obx.direct') }}</option>
           <option value="mirror">{{ $t('obx.mirrorAccel') }}</option>
         </select>
@@ -48,7 +47,7 @@
 
       <label class="flex cursor-pointer items-center gap-3">
         <span class="text-sm font-medium">{{ $t('obx.autoUpdate') }}</span>
-        <input v-model="autoUpd" type="checkbox" class="toggle toggle-success" @change="saveKey('auto_update', autoUpd ? '1' : '0')" />
+        <input v-model="autoUpd" type="checkbox" class="toggle toggle-success" @change="saveKey('update_auto', autoUpd ? '1' : '0')" />
       </label>
       <p class="mt-1 text-xs opacity-60">{{ $t('obx.autoUpdateHint') }}</p>
     </div>
@@ -57,7 +56,7 @@
     <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
       <label class="flex cursor-pointer items-center gap-3">
         <span class="font-bold">{{ $t('obx.subDirect') }}</span>
-        <input v-model="s.sub_direct" type="checkbox" class="toggle toggle-success" @change="saveBool('sub_direct')" />
+        <input v-model="s.sub_node_direct" type="checkbox" class="toggle toggle-success" @change="saveBool('sub_node_direct')" />
       </label>
       <p class="mt-1 text-xs opacity-60">{{ $t('obx.subDirectHint') }}</p>
     </div>
@@ -75,7 +74,7 @@
     <div class="rounded-box border border-base-300/30 bg-base-100 p-4">
       <label class="flex cursor-pointer items-center gap-3">
         <span class="font-bold">{{ $t('obx.blockQuic') }}</span>
-        <input v-model="s.block_quic" type="checkbox" class="toggle toggle-success" @change="saveBool('block_quic')" />
+        <input v-model="s.quic_block" type="checkbox" class="toggle toggle-success" @change="saveBool('quic_block')" />
       </label>
       <p class="mt-1 text-xs opacity-60">{{ $t('obx.blockQuicHint') }}</p>
     </div>
@@ -154,12 +153,12 @@
       <div class="grid gap-3 md:grid-cols-2">
         <label class="form-control">
           <span class="label-text mb-1">{{ $t('obx.testUrl') }}</span>
-          <input v-model="s.test_url" class="input input-bordered w-full rounded-full font-mono text-sm" @change="saveKey('test_url')" />
+          <input v-model="s.speedtest_url" class="input input-bordered w-full rounded-full font-mono text-sm" @change="saveKey('speedtest_url')" />
           <span class="label-text-alt mt-1 opacity-60">{{ $t('obx.testUrlHint') }}</span>
         </label>
         <label class="form-control">
           <span class="label-text mb-1">{{ $t('obx.directTestUrl') }}</span>
-          <input v-model="s.direct_test_url" class="input input-bordered w-full rounded-full font-mono text-sm" @change="saveKey('direct_test_url')" />
+          <input v-model="s.direct_speedtest_url" class="input input-bordered w-full rounded-full font-mono text-sm" @change="saveKey('direct_speedtest_url')" />
           <span class="label-text-alt mt-1 opacity-60">{{ $t('obx.directTestUrlHint') }}</span>
         </label>
       </div>
@@ -175,7 +174,7 @@
       <h3 class="mb-1 font-bold">{{ $t('obx.retention') }}</h3>
       <p class="mb-2 text-xs opacity-60">{{ $t('obx.retentionHint') }}</p>
       <div class="flex items-center gap-2">
-        <input v-model.number="s.retention_months" type="number" min="1" max="36" class="input input-bordered w-20 rounded-full" @change="saveKey('retention_months')" />
+        <input v-model.number="s.traffic_keep_months" type="number" min="1" max="36" class="input input-bordered w-20 rounded-full" @change="saveKey('traffic_keep_months')" />
         <span class="text-sm">{{ $t('obx.monthUnit') }} 1–36,{{ $t('obx.default3') }}</span>
       </div>
       <p class="mt-1 text-xs opacity-60">{{ retentionInfo }}</p>
@@ -228,9 +227,9 @@ import { onMounted, ref } from 'vue'
 
 const err = ref('')
 const s = ref<any>({
-  install_channel: 'keep', sub_direct: true, direct_bypass_kernel: true, block_quic: true,
+  update_check_channel: 'mirror', sub_node_direct: false, direct_bypass_kernel: true, quic_block: true,
   ipv6: false, tun_stack: 'mixed', tun_mtu: '0', mss_clamp: '0',
-  test_url: '', direct_test_url: '', test_expected: '*', retention_months: 3,
+  speedtest_url: '', direct_speedtest_url: '', test_expected: '*', traffic_keep_months: 3,
   bypass_ports: '', bypass_ports_white: '', port_list_mode: 'black',
 })
 const autoUpd = ref(false)
@@ -268,7 +267,7 @@ async function load() {
         else s.value[k] = v
       }
     }
-    autoUpd.value = d.auto_update === '1'
+    autoUpd.value = d.update_auto === '1'
     portTab.value = d.port_list_mode || 'black'
     portInput.value = portTab.value === 'white' ? (d.bypass_ports_white || '') : (d.bypass_ports || '')
     try {
