@@ -54,6 +54,8 @@ const zhTW: LANG_MESSAGE = {
     enabled: '啟用',
     actions: '操作',
     refresh: '刷新',
+    refreshSource: '刷新來源',
+    confirm: '確定',
     edit: '編輯',
     delete: '刪除',
     cancel: '取消',

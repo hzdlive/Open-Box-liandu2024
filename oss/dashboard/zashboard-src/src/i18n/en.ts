@@ -52,6 +52,8 @@ const en = {
     enabled: 'Enabled',
     actions: 'Actions',
     refresh: 'Refresh',
+    refreshSource: 'Refresh source',
+    confirm: 'Confirm',
     edit: 'Edit',
     delete: 'Delete',
     cancel: 'Cancel',

@@ -54,6 +54,8 @@ const zh: LANG_MESSAGE = {
     enabled: '启用',
     actions: '操作',
     refresh: '刷新',
+    refreshSource: '刷新来源',
+    confirm: '确定',
     edit: '编辑',
     delete: '删除',
     cancel: '取消',

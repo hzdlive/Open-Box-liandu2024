@@ -54,6 +54,8 @@ const ru: LANG_MESSAGE = {
     enabled: 'Включено',
     actions: 'Действия',
     refresh: 'Обновить',
+    refreshSource: 'Обновить источник',
+    confirm: 'Подтвердить',
     edit: 'Изменить',
     delete: 'Удалить',
     cancel: 'Отмена',
