@@ -210,6 +210,47 @@ def expand_geosite(name: str, db_path: str | None = None,
     return out
 
 
+def expand_geosite_split(name: str, db_path: str | None = None,
+                         binary: str | None = None) -> tuple[list[str], list[str]]:
+    """Expand a geosite-* rule-set into (exact domains, suffixes).
+
+    Same decoder and fail-closed contract as expand_geosite, but keeps
+    the two fields apart: penetration matching must not treat an exact
+    domain as a suffix (that would over-match subdomains). Cached on
+    (path, mtime, size) like the other expanders.
+    """
+    if not _GEOSITE_NAME_RE.match(name or ""):
+        return [], []
+    ck = _cached(local_path(name, db_path))
+    if ck is None:
+        return [], []
+    path, key = ck
+    ckey = (key, "split")
+    if ckey in _expand_cache:
+        d, s = _expand_cache[ckey]
+        return list(d), list(s)
+    rules = _decompile(path, binary)
+    if rules is None:
+        return [], []
+    domains: list[str] = []
+    suffixes: list[str] = []
+    dseen: set[str] = set()
+    sseen: set[str] = set()
+    for rule in rules:
+        for d in rule.get("domain", []) or []:
+            d = str(d).strip()
+            if d and d not in dseen:
+                dseen.add(d)
+                domains.append(d)
+        for d in rule.get("domain_suffix", []) or []:
+            d = str(d).strip()
+            if d and d not in sseen:
+                sseen.add(d)
+                suffixes.append(d)
+    _expand_cache[ckey] = (tuple(domains), tuple(suffixes))
+    return domains, suffixes
+
+
 def _download(url: str, dest: str, timeout: int = 60) -> None:
     tmp = dest + ".part"
     req = urllib.request.Request(url, headers={"User-Agent": "openbox-oss-geodata/1"})
