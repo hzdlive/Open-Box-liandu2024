@@ -95,7 +95,45 @@ import tempfile as _tempfile
 from ipaddress import ip_network as _ip_network
 
 _GEOIP_NAME_RE = _re.compile(r"^geoip-[A-Za-z0-9_-]+$")
+_GEOSITE_NAME_RE = _re.compile(r"^geosite-[A-Za-z0-9_@.-]+$")
 _expand_cache: dict = {}
+
+
+def _decompile(path: str, binary: str | None) -> list[dict] | None:
+    """Decode one .srs file with `sing-box rule-set decompile`.
+
+    Returns the rules list, or None on any failure (non-zero exit, bad
+    JSON, unexpected shape). Callers fail closed on None.
+    """
+    try:
+        bin_path = binary or os.environ.get(
+            "OPENBOX_SINGBOX_BIN", "/usr/local/bin/sing-box")
+        with _tempfile.TemporaryDirectory() as td:
+            dst = os.path.join(td, "ruleset.json")
+            r = _subprocess.run(
+                [bin_path, "rule-set", "decompile", path, "-o", dst],
+                capture_output=True, timeout=30)
+            if r.returncode != 0:
+                return None
+            with open(dst, encoding="utf-8") as f:
+                doc = _json.load(f)
+        rules = doc.get("rules", []) or []
+        if not isinstance(rules, list):
+            return None
+        return [r for r in rules if isinstance(r, dict)]
+    except Exception:
+        return None
+
+
+def _cached(path: str) -> tuple[str, tuple] | None:
+    """Cache key for a rule-set file, or None when it is unusable."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    if st.st_size == 0:
+        return None
+    return path, (path, st.st_mtime_ns, st.st_size)
 
 
 def expand_geoip(name: str, db_path: str | None = None,
@@ -112,43 +150,62 @@ def expand_geoip(name: str, db_path: str | None = None,
     """
     if not _GEOIP_NAME_RE.match(name or ""):
         return []
-    path = local_path(name, db_path)
-    try:
-        st = os.stat(path)
-    except OSError:
+    ck = _cached(local_path(name, db_path))
+    if ck is None:
         return []
-    if st.st_size == 0:
-        return []
-    key = (path, st.st_mtime_ns, st.st_size)
+    path, key = ck
     if key in _expand_cache:
         return list(_expand_cache[key])
-    out: list[str] = []
-    try:
-        bin_path = binary or os.environ.get(
-            "OPENBOX_SINGBOX_BIN", "/usr/local/bin/sing-box")
-        with _tempfile.TemporaryDirectory() as td:
-            dst = os.path.join(td, "ruleset.json")
-            r = _subprocess.run(
-                [bin_path, "rule-set", "decompile", path, "-o", dst],
-                capture_output=True, timeout=30)
-            if r.returncode != 0:
-                return []
-            with open(dst, encoding="utf-8") as f:
-                doc = _json.load(f)
-        seen: set[str] = set()
-        for rule in doc.get("rules", []) or []:
-            if not isinstance(rule, dict):
-                continue
-            for cidr in rule.get("ip_cidr", []) or []:
-                try:
-                    norm = str(_ip_network(str(cidr), strict=False))
-                except ValueError:
-                    continue
-                if norm not in seen:
-                    seen.add(norm)
-                    out.append(norm)
-    except Exception:
+    rules = _decompile(path, binary)
+    if rules is None:
         return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for rule in rules:
+        for cidr in rule.get("ip_cidr", []) or []:
+            try:
+                norm = str(_ip_network(str(cidr), strict=False))
+            except ValueError:
+                continue
+            if norm not in seen:
+                seen.add(norm)
+                out.append(norm)
+    _expand_cache[key] = tuple(out)
+    return out
+
+
+def expand_geosite(name: str, db_path: str | None = None,
+                   binary: str | None = None) -> list[str]:
+    """Expand a geosite-* rule-set into its domain list.
+
+    Same decoder and fail-closed contract as expand_geoip, but collects
+    the domain fields dnsmasq can express as ipset lines (domain and
+    domain_suffix, order-preserving, deduplicated). domain_keyword and
+    domain_regex are skipped: a dnsmasq ipset line is an exact-or-suffix
+    match, so a keyword cannot be expressed (verbatim it would match
+    only the bare keyword string, which is wrong). Any failure returns
+    [] -- the set simply stays unexpanded, as before.
+    """
+    if not _GEOSITE_NAME_RE.match(name or ""):
+        return []
+    ck = _cached(local_path(name, db_path))
+    if ck is None:
+        return []
+    path, key = ck
+    if key in _expand_cache:
+        return list(_expand_cache[key])
+    rules = _decompile(path, binary)
+    if rules is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for rule in rules:
+        for field in ("domain", "domain_suffix"):
+            for d in rule.get(field, []) or []:
+                d = str(d).strip()
+                if d and d not in seen:
+                    seen.add(d)
+                    out.append(d)
     _expand_cache[key] = tuple(out)
     return out
 

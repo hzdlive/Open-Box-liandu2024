@@ -130,6 +130,37 @@ def front_geoip_direct_cidrs(front_rules, expand_geoip) -> list[str]:
     return out
 
 
+def front_dns_direct_domains(front_rules, expand_geosite) -> list[str]:
+    """Domains from front rules that send traffic direct, for the DNS
+    ingress bypass (dnsmasq ipset= lines into obx_direct4).
+
+    Mirrors the direct site-set convention: domain and domain_suffix
+    values go in verbatim (dnsmasq ipset=/domain/ already matches the
+    domain and its subdomains). geosite rows expand like the route
+    generator's naming (geosite-<val>). domain_keyword rows are skipped
+    on purpose: a keyword cannot be expressed as an ipset line, and
+    verbatim it would match only the bare keyword string. Group
+    targets, ip_cidr/geoip/ruleset_url/port rows are not DNS bypasses.
+    Disabled rows never reach here -- load_app_config filters them.
+    """
+    out: list[str] = []
+    for fr in front_rules or []:
+        if not isinstance(fr, dict):
+            continue
+        target = (fr.get("target") or "").strip().lower()
+        if target not in ("direct", "直连"):
+            continue
+        val = (fr.get("domain") or "").strip()
+        if not val:
+            continue
+        rtype = fr.get("rtype") or ""
+        if rtype in ("domain", "domain_suffix"):
+            out.append(val)
+        elif rtype == "geosite":
+            out.extend(expand_geosite(f"geosite-{val}"))
+    return out
+
+
 def nft_script(cfg: TransparentConfig) -> str:
     b4 = ",\n        ".join(cfg.bypass_v4)
     b6 = ",\n        ".join(cfg.bypass_v6)

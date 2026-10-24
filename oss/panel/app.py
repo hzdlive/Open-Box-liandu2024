@@ -1594,6 +1594,12 @@ def create_app(db_path: str = ":memory:") -> Flask:
             # are domains and never yield CIDRs.
             from core.transparent import front_geoip_direct_cidrs as _fg
             direct_ip_cidrs.extend(_fg(cfg.front_rules, _gd.expand_geoip))
+            # front domain/geosite rules to direct join the DNS bypass
+            # set (same ipset mechanism as direct site sets); keywords
+            # cannot be expressed as dnsmasq ipset lines and are skipped.
+            from core.transparent import front_dns_direct_domains as _fd
+            direct_ipset_domains.extend(
+                _fd(cfg.front_rules, _gd.expand_geosite))
             direct_ipset_domains = sorted(set(direct_ipset_domains))
             direct_ip_cidrs = sorted(set(direct_ip_cidrs))
         # v6 #15 fallback wording (summary, ";"-joined): why some direct
