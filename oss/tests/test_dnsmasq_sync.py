@@ -89,10 +89,10 @@ def test_sync_unchanged_skips_restart(tmp_path):
     _seed_rewrites(c)
     path = str(tmp_path / "openbox-panel.conf")
     runner = Runner()
-    r1 = appmod.sync_dnsmasq_panel_conf(c, conf_path=path, run=runner)
+    r1 = appmod.sync_dnsmasq_panel_conf(c, conf_path=path, run=runner, wait_ready=lambda: True)
     assert r1["changed"] is True
     ncmds = len(runner.cmds)
-    r2 = appmod.sync_dnsmasq_panel_conf(c, conf_path=path, run=runner)
+    r2 = appmod.sync_dnsmasq_panel_conf(c, conf_path=path, run=runner, wait_ready=lambda: True)
     assert r2 == {"changed": False, "restarted": False}
     assert len(runner.cmds) == ncmds  # no further subprocess calls
 
@@ -102,7 +102,7 @@ def test_sync_restarts_via_systemctl(tmp_path):
     _seed_rewrites(c)
     runner = Runner()
     r = appmod.sync_dnsmasq_panel_conf(
-        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner)
+        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner, wait_ready=lambda: True)
     assert r["changed"] is True and r["restarted"] is True
     assert r["method"] == "systemctl"
     assert any(cmd[0] == "systemctl" for cmd in runner.cmds)
@@ -114,7 +114,7 @@ def test_sync_test_failure_restores_old(tmp_path):
     path = tmp_path / "openbox-panel.conf"
     path.write_text("OLD\n")
     runner = Runner(test_rc=1)
-    r = appmod.sync_dnsmasq_panel_conf(c, conf_path=str(path), run=runner)
+    r = appmod.sync_dnsmasq_panel_conf(c, conf_path=str(path), run=runner, wait_ready=lambda: True)
     assert r["changed"] is False and "error" in r
     assert path.read_text() == "OLD\n"
     assert not any(cmd[0] == "systemctl" for cmd in runner.cmds)
@@ -125,7 +125,7 @@ def test_sync_no_restart_when_dnsmasq_down(tmp_path):
     _seed_rewrites(c)
     runner = Runner(running=False)
     r = appmod.sync_dnsmasq_panel_conf(
-        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner)
+        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner, wait_ready=lambda: True)
     assert r["changed"] is True and r["restarted"] is False
     assert not any(cmd[0] == "systemctl" for cmd in runner.cmds)
 
@@ -135,7 +135,18 @@ def test_sync_systemctl_failure_falls_back(tmp_path):
     _seed_rewrites(c)
     runner = Runner(systemctl_rc=1)
     r = appmod.sync_dnsmasq_panel_conf(
-        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner)
+        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner, wait_ready=lambda: True)
     assert r["changed"] is True and r["restarted"] is True
     assert r["method"] == "kill+start"
     assert any(cmd[0] == "pkill" for cmd in runner.cmds)
+
+
+def test_sync_ready_false_reported(tmp_path):
+    c = _db()
+    _seed_rewrites(c)
+    runner = Runner()
+    r = appmod.sync_dnsmasq_panel_conf(
+        c, conf_path=str(tmp_path / "openbox-panel.conf"), run=runner,
+        wait_ready=lambda: False)
+    assert r["changed"] is True and r["restarted"] is True
+    assert r["ready"] is False

@@ -52,13 +52,36 @@ def dnsmasq_panel_conf_content(c) -> str:
     return "\n".join(lines) + "\n"
 
 
-def sync_dnsmasq_panel_conf(c, conf_path=None, run=None) -> dict:
+def wait_dnsmasq_ready(timeout=30.0, interval=0.5) -> bool:
+    """Poll TCP 127.0.0.1:53 until dnsmasq accepts connections.
+
+    dnsmasq parses its config (including the 190k-line blocklist) before
+    binding, so a successful connect means it is servable again. Without
+    this wait, a sync-triggered restart reports success while :53 is
+    still unbound (observed live 2026-10-25: immediate dig got
+    connection refused right after a reported-successful restart).
+    """
+    import socket
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", 53), timeout=1):
+                return True
+        except OSError:
+            time.sleep(interval)
+    return False
+
+
+def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
+                            wait_ready=None) -> dict:
     """Regenerate the panel-managed drop-in from current panel state.
 
     Atomic write; `dnsmasq --test` must pass before any restart; on test
     failure the old file is restored. No restart when the content is
-    unchanged or when dnsmasq is not running. Never raises: failures are
-    reported so a DB change the caller already committed is not
+    unchanged or when dnsmasq is not running. After a restart, waits
+    until :53 answers before reporting success. Never raises: failures
+    are reported so a DB change the caller already committed is not
     misreported as failed. SIGHUP is NOT used: it does not reload
     dnsmasq config files (verified live 2026-10-25), so a restart is
     required for changes to apply.
@@ -131,7 +154,11 @@ def sync_dnsmasq_panel_conf(c, conf_path=None, run=None) -> dict:
         except (OSError, subprocess.TimeoutExpired) as e:
             return {"changed": True, "restarted": False,
                     "method": method, "error": str(e)}
-    return {"changed": True, "restarted": ok, "method": method}
+    if not ok:
+        return {"changed": True, "restarted": False, "method": method}
+    ready = (wait_ready or wait_dnsmasq_ready)()
+    return {"changed": True, "restarted": True, "method": method,
+            "ready": ready}
 
 
 COMMON_TIMEZONES = [
