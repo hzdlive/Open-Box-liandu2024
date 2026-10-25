@@ -1756,6 +1756,51 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify({"ok": True, "autostart_disabled": disabled,
                         "service": m.to_dict()})
 
+    @app.post("/api/openbox/deploy")
+    def openbox_deploy():
+        """Unified deploy pipeline (v7 #22 POST /deploy 对照）.
+
+        Full path only (no hot/auto modes): reconcile -> rulesets ->
+        validate -> conflict -> write -> start -> verify, under the
+        single-flight lock. Body is the pipeline's own result; the
+        status follows the Ny table (see core.deploy)."""
+        import json as _json
+        from core import deploy as _deploy
+        try:
+            result = _deploy.run_deploy(db(), _manager())
+        except _deploy.DeployBusy as e:
+            return jsonify({"error": str(e)}), 500
+        if result.get("ok"):
+            # Keep the existing kernel-page stale flag and deploy-state
+            # poll working after a pipeline deploy (mirrors config_apply).
+            try:
+                from panel.db import get_setting, set_setting
+                c = db()
+                set_setting(c, "applied_rev", get_setting(c, "state_rev", "0"))
+                set_setting(c, "deploy_state", _json.dumps({
+                    "at": result.get("at"), "mode": "deploy",
+                    "ok": True, "outbounds": result.get("outbounds"),
+                    "route_rules": result.get("route_rules"),
+                    "validation": result.get("validation"),
+                    "stage": result.get("stage"),
+                }, ensure_ascii=False))
+            except Exception:
+                pass
+        return jsonify(result), _deploy.deploy_status(result)
+
+    @app.get("/api/openbox/deploy/state")
+    def openbox_deploy_state():
+        """Last pipeline outcome. Pure store read, never fails (原版语义）."""
+        import json as _json
+        try:
+            from core.deploy import STATE_SETTING
+            from panel.db import get_setting
+            raw = get_setting(db(), STATE_SETTING, "")
+            return jsonify(_json.loads(raw) if raw else
+                           {"ok": False, "message": "尚未部署过"})
+        except Exception:
+            return jsonify({"ok": False, "message": "尚未部署过"})
+
     @app.post("/api/factory-reset")
     def factory_reset():
         m = _manager()
