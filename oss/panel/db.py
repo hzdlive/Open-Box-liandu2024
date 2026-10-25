@@ -1643,6 +1643,9 @@ def add_dns_rewrite(conn: sqlite3.Connection, domain: str, target: str) -> dict:
     domain = domain.strip().lower()
     if not domain or not target.strip():
         raise ValueError("domain and target are required")
+    from core import transparent as _tp
+    if not _tp.is_rewrite_target_valid(target):
+        raise ValueError("target must be an IP address or a domain name")
     cur = conn.execute(
         "INSERT INTO dns_rewrite(domain, target) VALUES (?, ?)"
         " ON CONFLICT(domain) DO UPDATE SET target=excluded.target",
@@ -1671,6 +1674,9 @@ def update_dns_rewrite(conn: sqlite3.Connection, rid: int, domain: str, target: 
     target = (target or "").strip()
     if not domain or not target:
         raise ValueError("domain and target are required")
+    from core import transparent as _tp
+    if not _tp.is_rewrite_target_valid(target):
+        raise ValueError("target must be an IP address or a domain name")
     cur = conn.execute("UPDATE dns_rewrite SET domain=?, target=? WHERE id=?",
                        (domain, target, rid))
     conn.commit()
