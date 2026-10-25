@@ -54,7 +54,12 @@ const syncSelectionDebounced = debounce(() => {
 }, 600)
 
 export const deleteFixedProxyAPI = (proxyGroup: string) => {
-  return axios.delete(`/proxies/${encodeURIComponent(proxyGroup)}`)
+  // 与 selectProxyAPI 同理：DELETE /proxies/{group} 也会改变选择状态，
+  // 同样走 600ms 尾随防抖同步（原版反代触发条件就是 PUT|DELETE + /proxies/）。
+  return axios.delete(`/proxies/${encodeURIComponent(proxyGroup)}`).then((res) => {
+    syncSelectionDebounced()
+    return res
+  })
 }
 
 export const fetchProxyLatencyAPI = (proxyName: string, url: string, timeout: number) => {

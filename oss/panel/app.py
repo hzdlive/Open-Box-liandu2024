@@ -3775,6 +3775,69 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception as e:
             return jsonify({"error": f"clash api failed: {e}", "connections": []}), 502
 
+    # ---- Clash 控制器反代（v7 #23 bD 对照）----
+    # 面板把控制器请求原样转给本机内核。成功（2xx）的 PUT|DELETE 且路径含
+    # /proxies/ 就是「用户换了选择」，触发防抖选择同步（与面板原生切换的
+    # 前端 600ms 防抖同机制，见 core/selectionsync.schedule）。
+    # 刻意不做的三点：① 不支持 WebSocket（Flask 无法代理 WS；流量/日志流
+    # 继续直连 :9090）；② 不支持 x-zashboard-target-* 重定向（那会把面板
+    # 变成任意内网目标的 SSRF 跳板，本机内核只用本地转发）；③ 不转发
+    # /delay 之外的无超时请求以外的语义——/delay 专属 60s 上限、超时答 504，
+    # 其余继承客户端连接生命期（urllib timeout=None）。
+    _HOP_HEADERS = {"host", "content-length", "connection", "keep-alive",
+                    "transfer-encoding", "te", "trailer", "proxy-authorization",
+                    "proxy-authenticate", "upgrade"}
+    _CONTROLLER_BODY_LIMIT = 25 * 1024 * 1024
+
+    @app.route("/api/controller", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    @app.route("/api/controller/<path:subpath>",
+               methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def controller_proxy(subpath: str = ""):
+        import urllib.error
+        import urllib.request
+        from urllib.parse import quote
+        from flask import Response
+        if request.headers.get("Upgrade"):
+            return jsonify({"error": "websocket 不走本反代"}), 501
+        if (request.content_length or 0) > _CONTROLLER_BODY_LIMIT:
+            return jsonify({"error": "请求体超过 25MB"}), 413
+        cfg = dbmod.load_app_config(db())
+        port = cfg.clash_api_port or 9090
+        secret = cfg.clash_api_secret or ""
+        tail = "/".join(quote(p, safe="") for p in subpath.split("/")) \
+            if subpath else ""
+        url = f"http://127.0.0.1:{port}/{tail}"
+        if request.query_string:
+            url += "?" + request.query_string.decode("utf-8", "replace")
+        is_delay = tail.rsplit("/", 1)[-1] == "delay" if tail else False
+        timeout = 60 if is_delay else None
+        body = request.get_data()
+        headers = {k: v for k, v in request.headers.items()
+                   if k.lower() not in _HOP_HEADERS}
+        if secret:
+            headers["Authorization"] = f"Bearer {secret}"
+        req = urllib.request.Request(url, data=body if body else None,
+                                     headers=headers, method=request.method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                status, resp_headers, resp_body = r.status, r.headers, r.read()
+        except urllib.error.HTTPError as e:
+            # 上游已答错：原样转发状态与 body（不同步触发，只认 2xx）。
+            status, resp_headers, resp_body = e.code, e.headers, e.read()
+        except Exception as e:
+            reason = getattr(e, "reason", e)
+            if is_delay and isinstance(reason, TimeoutError):
+                return jsonify({"error": "内核测速 60 秒没有回应,已断开"}), 504
+            return jsonify({"error": f"clash api failed: {e}"}), 502
+        if request.method in ("PUT", "DELETE") and "/proxies/" in ("/" + tail) \
+                and 200 <= status < 300:
+            from core import selectionsync as _ss
+            _ss.schedule(_dsn, _uri)
+        out_headers = [(k, v) for k, v in resp_headers.items()
+                       if k.lower() not in _HOP_HEADERS
+                       and k.lower() != "content-length"]
+        return Response(resp_body, status=status, headers=out_headers)
+
     @app.get("/api/openbox/clash-logs")
     def openbox_clash_logs():
         """日志页用：读取 sing-box 日志文件（轮询，绕过浏览器 WebSocket 问题）。"""

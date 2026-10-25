@@ -1,1 +1,0 @@
-import{C as e,w as t}from"./backend-DvQ2DpEL.js";import{a as n,i as r}from"./rules-DXV6x5mM.js";var i=async()=>{let{data:i}=await t(),{data:a}=await e();n.value=i.rules.map(e=>{let t=e.proxy,n=t.startsWith(`route(`)?t.substring(6,t.length-1):t;return{...e,proxy:n}}),r.value=Object.values(a.providers)};export{i as fetchRules};

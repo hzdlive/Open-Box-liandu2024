@@ -27,9 +27,50 @@ adapted: no profile file, no sidecar — the panel DB is the profile):
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 from core.clashapi import get_proxies
 from core.singbox import resolve_group_members
+
+# Trailing-debounce scheduler for the controller-proxy trigger (v7 #23 hD
+# equivalent). Repeated schedule() calls reset the timer; only the final
+# state runs, once. The timer fires in its own daemon thread and opens a
+# fresh connection (the requesting thread's connection is long gone).
+_schedule_lock = threading.Lock()
+_schedule_timer = None
+
+
+def schedule(dsn: str, uri: bool = False, delay: float = 0.6,
+             run=None) -> None:
+    """Arm (or re-arm) a trailing-debounced selection sync.
+
+    run: injected worker for tests; default loads the config from dsn and
+    reconciles. Never raises; a failed run is simply swallowed (the sync
+    runs on a timer with no request to answer, and apply reconciles again).
+    """
+    global _schedule_timer
+
+    def _fire():
+        try:
+            if run is not None:
+                run()
+            else:
+                c = sqlite3.connect(dsn, uri=uri, timeout=30)
+                try:
+                    from panel import db as dbmod
+                    cfg = dbmod.load_app_config(c)
+                    reconcile(c, cfg)
+                finally:
+                    c.close()
+        except Exception:
+            pass
+
+    with _schedule_lock:
+        if _schedule_timer is not None:
+            _schedule_timer.cancel()
+        _schedule_timer = threading.Timer(delay, _fire)
+        _schedule_timer.daemon = True
+        _schedule_timer.start()
 
 
 def reconcile(conn: sqlite3.Connection, cfg, proxies: dict | None = None,
