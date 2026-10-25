@@ -17,6 +17,123 @@ from panel import db as dbmod
 
 VERSION = "0.1.0-oss"
 
+# ---- panel-managed dnsmasq drop-in (auto-sync) ----
+# The panel keeps /etc/dnsmasq.d/openbox-panel.conf in sync with its own
+# state (enabled rewrites + filter blocklist include) so a DNS settings
+# edit takes effect without a manual install step. This is deliberately
+# NOT the full router snippet: that snippet forwards all DNS to
+# sing-box:1053, which does not listen on this host.
+PANEL_DNSMASQ_CONF = "/etc/dnsmasq.d/openbox-panel.conf"
+
+
+def dnsmasq_panel_conf_content(c) -> str:
+    """File content for the panel-managed drop-in (pure panel state)."""
+    from core import transparent as _tp
+    from core import dnsfilter as _df
+    from core.service import manager_from_env
+    from panel.db import get_setting
+    lines = [
+        "# Managed by openbox-oss panel (auto-synced on rewrite/filter changes).",
+        "# Do not edit by hand: the panel overwrites this file.",
+        "# Minimal subset for this host (NOT the full router snippet).",
+        "# Rewrites (enabled rows only):",
+    ]
+    for r in dbmod.list_dns_rewrites(c):
+        if not r.get("enabled"):
+            continue
+        line = _tp.rewrite_dnsmasq_line(r["domain"], r["target"])
+        lines.append(line if line is not None else
+                     f"# skipped invalid rewrite: {r['domain']} -> {r['target']}")
+    if get_setting(c, "dns_filter_enabled", "0") == "1":
+        bp = _df.blocklist_path(manager_from_env().workdir)
+        if os.path.exists(bp):
+            lines.append("# DNS filter blocklist:")
+            lines.append(f"conf-file={bp}")
+    return "\n".join(lines) + "\n"
+
+
+def sync_dnsmasq_panel_conf(c, conf_path=None, run=None) -> dict:
+    """Regenerate the panel-managed drop-in from current panel state.
+
+    Atomic write; `dnsmasq --test` must pass before any restart; on test
+    failure the old file is restored. No restart when the content is
+    unchanged or when dnsmasq is not running. Never raises: failures are
+    reported so a DB change the caller already committed is not
+    misreported as failed. SIGHUP is NOT used: it does not reload
+    dnsmasq config files (verified live 2026-10-25), so a restart is
+    required for changes to apply.
+    """
+    import shutil
+    import subprocess
+    import time
+    path = conf_path or PANEL_DNSMASQ_CONF
+    if run is None:
+        def run(cmd):
+            return subprocess.run(cmd, capture_output=True, timeout=30)
+    try:
+        new = dnsmasq_panel_conf_content(c)
+    except Exception as e:
+        return {"changed": False, "restarted": False, "error": str(e)}
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = f.read()
+    except OSError:
+        old = None
+    if old == new:
+        return {"changed": False, "restarted": False}
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(new)
+        os.replace(tmp, path)
+    except OSError as e:
+        return {"changed": False, "restarted": False, "error": str(e)}
+    dnsmasq = shutil.which("dnsmasq") or "/usr/sbin/dnsmasq"
+    try:
+        tested = run([dnsmasq, "--test"])
+    except (OSError, subprocess.TimeoutExpired) as e:
+        tested = None
+        test_error = str(e)
+    else:
+        test_error = "" if tested.returncode == 0 else "dnsmasq --test failed"
+    if tested is None or tested.returncode != 0:
+        try:
+            if old is None:
+                os.remove(path)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(old)
+        except OSError:
+            pass
+        return {"changed": False, "restarted": False,
+                "error": test_error or "dnsmasq --test could not run"}
+    pgrep = shutil.which("pgrep") or "pgrep"
+    try:
+        running = run([pgrep, "-x", "dnsmasq"]).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        running = False
+    if not running:
+        return {"changed": True, "restarted": False,
+                "note": "dnsmasq not running, file updated only"}
+    method, ok = "systemctl", False
+    try:
+        ok = run(["systemctl", "restart", "dnsmasq"]).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = False
+    if not ok:
+        method = "kill+start"
+        try:
+            run(["pkill", "-x", "dnsmasq"])
+            time.sleep(1)
+            run([dnsmasq])
+            time.sleep(1)
+            ok = run([pgrep, "-x", "dnsmasq"]).returncode == 0
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return {"changed": True, "restarted": False,
+                    "method": method, "error": str(e)}
+    return {"changed": True, "restarted": ok, "method": method}
+
+
 COMMON_TIMEZONES = [
     "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Taipei", "Asia/Tokyo",
     "Asia/Seoul", "Asia/Singapore", "Asia/Bangkok", "Asia/Dubai",
@@ -1695,6 +1812,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return ""
         return _df.blocklist_path(manager_from_env().workdir)
 
+
     @app.get("/api/transparent/nft")
     def transparent_nft():
         from core.transparent import nft_script
@@ -2252,40 +2370,50 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/dns/rewrite")
     def dns_rewrite_add():
         d = request.get_json(force=True, silent=True) or {}
+        c = db()
         try:
-            return jsonify(dbmod.add_dns_rewrite(db(), d.get("domain", ""), d.get("target", ""))), 201
+            row = dbmod.add_dns_rewrite(c, d.get("domain", ""), d.get("target", ""))
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
+        row["dnsmasq_sync"] = sync_dnsmasq_panel_conf(c)
+        return jsonify(row), 201
 
     @app.delete("/api/dns/rewrite/<int:rid>")
     def dns_rewrite_del(rid: int):
-        if not dbmod.delete_dns_rewrite(db(), rid):
+        c = db()
+        if not dbmod.delete_dns_rewrite(c, rid):
             return jsonify({"error": "not found"}), 404
-        return jsonify({"ok": True})
+        return jsonify({"ok": True,
+                        "dnsmasq_sync": sync_dnsmasq_panel_conf(c)})
 
     @app.put("/api/dns/rewrite/<int:rid>")
     def dns_rewrite_put(rid: int):
         d = request.get_json(force=True, silent=True) or {}
+        c = db()
         if "domain" in d or "target" in d:
             # Edit domain/target
             try:
                 row = dbmod.update_dns_rewrite(
-                    db(), rid, d.get("domain", ""), d.get("target", ""))
+                    c, rid, d.get("domain", ""), d.get("target", ""))
             except ValueError as e:
                 return jsonify({"error": str(e)}), 400
             if not row:
                 return jsonify({"error": "not found"}), 404
+            row["dnsmasq_sync"] = sync_dnsmasq_panel_conf(c)
             return jsonify(row)
         if "enabled" not in d:
             return jsonify({"error": "enabled is required"}), 400
-        if not dbmod.set_dns_rewrite_enabled(db(), rid, bool(d["enabled"])):
+        if not dbmod.set_dns_rewrite_enabled(c, rid, bool(d["enabled"])):
             return jsonify({"error": "not found"}), 404
-        return jsonify({"ok": True, "enabled": bool(d["enabled"])})
+        return jsonify({"ok": True, "enabled": bool(d["enabled"]),
+                        "dnsmasq_sync": sync_dnsmasq_panel_conf(c)})
 
     @app.post("/api/dns/rewrite/reset")
     def dns_rewrite_reset():
-        count = dbmod.reset_dns_rewrites(db())
-        return jsonify({"ok": True, "count": count})
+        c = db()
+        count = dbmod.reset_dns_rewrites(c)
+        return jsonify({"ok": True, "count": count,
+                        "dnsmasq_sync": sync_dnsmasq_panel_conf(c)})
 
     def _df_workdir() -> str:
         from core.service import manager_from_env
@@ -2360,7 +2488,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             if _re.match(r"^\d{1,2}:\d{2}$", ut):
                 set_setting(c, "dns_filter_update_time", ut)
         c.commit()
-        return jsonify({"ok": True, "lists": clean})
+        return jsonify({"ok": True, "lists": clean,
+                        "dnsmasq_sync": sync_dnsmasq_panel_conf(c)})
 
     @app.post("/api/dns/filter/apply")
     def dns_filter_apply():
@@ -2379,6 +2508,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
               "updated_at": s.get("updated_at", ""),
               "error": s.get("error", "")}
              for l, s in zip(lists, result["lists"])], ensure_ascii=False))
+        result["dnsmasq_sync"] = sync_dnsmasq_panel_conf(c)
         return jsonify(result)
 
     @app.get("/api/dns/filter/preview")
