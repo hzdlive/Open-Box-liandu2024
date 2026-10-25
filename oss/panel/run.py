@@ -11,6 +11,11 @@ if __name__ == "__main__":
     db_path = os.environ.get("OBX_DB", os.path.expanduser("~/.openbox-oss/panel.db"))
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     app = create_app(db_path)
+    # Kernel autostart (only for file DBs): the panel owns the kernel, so
+    # this flag — not an init script — is what "boot the kernel" means.
+    if db_path != ":memory:":
+        from panel.app import maybe_autostart_kernel
+        maybe_autostart_kernel(db_path)
     # Traffic accounting collector (only for file DBs; needs the kernel up).
     # Disabled by default; enable with OBX_TRAFFIC_COLLECT=1.
     if db_path != ":memory:" and os.environ.get("OBX_TRAFFIC_COLLECT") == "1":

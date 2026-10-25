@@ -52,6 +52,48 @@ def dnsmasq_panel_conf_content(c) -> str:
     return "\n".join(lines) + "\n"
 
 
+def maybe_autostart_kernel(db_path: str, start_fn=None) -> bool:
+    """Start the kernel on panel boot when the autostart flag is set.
+
+    This is the panel-managed equivalent of the original's init-script
+    autostart: the panel owns the kernel (PID file, workdir, config), so
+    a second manager must not be created. Deliberately NOT creating
+    /etc/init.d/openbox-oss or openbox-oss.service artifacts: those
+    would start sing-box behind the panel's back. Best effort, never
+    raises; failures are printed and ignored so panel boot never fails
+    on a kernel problem. Returns True only when a start was attempted.
+    """
+    import sqlite3
+    import threading
+    try:
+        c = sqlite3.connect(db_path)
+        try:
+            row = c.execute(
+                "SELECT value FROM settings WHERE key = 'autostart'"
+            ).fetchone()
+        finally:
+            c.close()
+    except Exception as e:
+        print(f"[autostart] skip: cannot read setting: {e}")
+        return False
+    if not row or row[0] != "1":
+        return False
+
+    def _start():
+        try:
+            if start_fn is not None:
+                start_fn()
+            else:
+                from core.service import manager_from_env
+                manager_from_env().start()
+            print("[autostart] kernel started")
+        except Exception as e:
+            print(f"[autostart] kernel start failed: {e}")
+
+    threading.Thread(target=_start, daemon=True).start()
+    return True
+
+
 def wait_dnsmasq_ready(timeout=30.0, interval=0.5) -> bool:
     """Poll TCP 127.0.0.1:53 until dnsmasq accepts connections.
 
@@ -1535,9 +1577,35 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/service/stop")
     def service_stop():
+        # 原版 stop 三步：停 → 等真的退出 → 清开机自启。stop() 本身已等真退出
+        #（SIGTERM → 10s 轮询 → SIGKILL）；第三步只清面板 autostart 标记，
+        # 失败不清 ok，只追加 stderr。
+        from panel.db import set_setting
         m = _manager()
         m.stop()
-        return jsonify(m.to_dict())
+        d = m.to_dict()
+        cleared, stderr = True, ""
+        try:
+            set_setting(db(), "autostart", "0")
+        except Exception as e:
+            cleared, stderr = False, f"disable autostart failed: {e}"
+        d.update({"ok": True, "autostart_cleared": cleared, "stderr": stderr})
+        return jsonify(d)
+
+    @app.post("/api/service/enable")
+    def service_enable():
+        # 只碰 autostart 标记，不启动、不跑流水线、不计时（原版 enable 语义）。
+        # 注意：service.to_dict() 里的 "autostart" 是 init 产物探测（路由器侧），
+        # 与这里翻的面板标记是两回事；响应顶层的 "autostart" 是本次翻的值。
+        from panel.db import set_setting
+        set_setting(db(), "autostart", "1")
+        return jsonify({"ok": True, "autostart": True})
+
+    @app.post("/api/service/disable")
+    def service_disable():
+        from panel.db import set_setting
+        set_setting(db(), "autostart", "0")
+        return jsonify({"ok": True, "autostart": False})
 
     @app.post("/api/service/restart")
     def service_restart():

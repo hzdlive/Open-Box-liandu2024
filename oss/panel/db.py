@@ -307,6 +307,7 @@ DEFAULT_SETTINGS = {
     "dns_filter_auto_update": "0",      # daily re-download of filter lists
     "dns_filter_update_time": "04:00",  # HH:MM local time
     "dns_filter_auto_updated_at": "",
+    "autostart": "0",                # panel boots the kernel when 1 (service enable/disable)
     "dns_fakeip": "0",                # fakeip for proxied domains (198.19.0.0/16)
     "dns_split": "1",                 # split direct/proxy DNS upstreams; 0 = all via proxy
     "dns_upstream_latency": "{}",      # JSON {upstream: ms} for primary/backup ordering
