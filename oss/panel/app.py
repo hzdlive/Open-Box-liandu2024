@@ -116,7 +116,7 @@ def wait_dnsmasq_ready(timeout=30.0, interval=0.5) -> bool:
 
 
 def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
-                            wait_ready=None) -> dict:
+                            wait_ready=None, force_restart=False) -> dict:
     """Regenerate the panel-managed drop-in from current panel state.
 
     Atomic write; `dnsmasq --test` must pass before any restart; on test
@@ -127,6 +127,14 @@ def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
     misreported as failed. SIGHUP is NOT used: it does not reload
     dnsmasq config files (verified live 2026-10-25), so a restart is
     required for changes to apply.
+
+    `force_restart` covers the case the drop-in diff cannot see: the
+    drop-in references the filter blocklist only by path, so when an
+    apply rewrites the blocklist file itself the drop-in is unchanged
+    yet dnsmasq still serves the old list (it reads conf-file content
+    only at startup). Callers that changed an included file pass
+    `force_restart=True` to restart even with an unchanged drop-in;
+    `changed` still reports only the drop-in diff, honestly.
     """
     import shutil
     import subprocess
@@ -144,7 +152,8 @@ def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
             old = f.read()
     except OSError:
         old = None
-    if old == new:
+    dropin_changed = old != new
+    if not dropin_changed and not force_restart:
         return {"changed": False, "restarted": False}
     try:
         tmp = path + ".tmp"
@@ -178,7 +187,7 @@ def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
     except (OSError, subprocess.TimeoutExpired):
         running = False
     if not running:
-        return {"changed": True, "restarted": False,
+        return {"changed": dropin_changed, "restarted": False,
                 "note": "dnsmasq not running, file updated only"}
     method, ok = "systemctl", False
     try:
@@ -194,13 +203,17 @@ def sync_dnsmasq_panel_conf(c, conf_path=None, run=None,
             time.sleep(1)
             ok = run([pgrep, "-x", "dnsmasq"]).returncode == 0
         except (OSError, subprocess.TimeoutExpired) as e:
-            return {"changed": True, "restarted": False,
+            return {"changed": dropin_changed, "restarted": False,
                     "method": method, "error": str(e)}
     if not ok:
-        return {"changed": True, "restarted": False, "method": method}
+        return {"changed": dropin_changed, "restarted": False,
+                "method": method}
     ready = (wait_ready or wait_dnsmasq_ready)()
-    return {"changed": True, "restarted": True, "method": method,
-            "ready": ready}
+    out = {"changed": dropin_changed, "restarted": True, "method": method,
+           "ready": ready}
+    if force_restart:
+        out["forced"] = True
+    return out
 
 
 COMMON_TIMEZONES = [
@@ -2752,12 +2765,20 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "只能更新已启用的过滤名单"}), 400
         if not _df._APPLY_LOCK.acquire(blocking=False):
             return jsonify({"error": "DNS 设置正在应用,请稍后重试"}), 400
+        before_hash = _df.blocklist_hash(_df_workdir())
         try:
             result = _df.apply_lists(_df_workdir(), lists)
         except OSError as e:
             return jsonify({"error": f"写入拦截文件失败：{e}"}), 400
         finally:
             _df._APPLY_LOCK.release()
+        # The drop-in only references the blocklist by path, so a
+        # rewritten blocklist alone never restarts dnsmasq (the gap
+        # found 2026-10-26: new blocked domains waited for the next
+        # restart). Force a restart only when the file actually changed
+        # and the filter ends up enabled (otherwise the drop-in does
+        # not reference the file at all).
+        blocklist_changed = before_hash != _df.blocklist_hash(_df_workdir())
         stage = "updated" if update_only else "applied"
         lists_meta = [{**l, "domains": s.get("domains", 0),
                        "updated_at": s.get("updated_at", ""),
@@ -2776,7 +2797,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
         set_setting(c, "dns_filter_applied_at", result["applied_at"])
         set_setting(c, "dns_filter_lists",
                     _json.dumps(lists_meta, ensure_ascii=False))
-        result["dnsmasq_sync"] = sync_dnsmasq_panel_conf(c)
+        filter_on = get_setting(c, "dns_filter_enabled", "0") == "1"
+        result["dnsmasq_sync"] = sync_dnsmasq_panel_conf(
+            c, force_restart=(blocklist_changed and filter_on))
+        result["blocklist_changed"] = blocklist_changed
         result["stage"] = stage
         result["ok"] = True
         return jsonify(result)

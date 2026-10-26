@@ -89,6 +89,24 @@ def write_blocklist(workdir: str, compiled: dict[str, set[str]]) -> tuple[int, s
     return len(total), path
 
 
+def blocklist_hash(workdir: str) -> str | None:
+    """sha256 of the written blocklist file, or None if it is missing.
+
+    Used to tell whether an apply actually changed the file dnsmasq
+    reads: the panel drop-in only references the file by path, so a
+    content change is invisible to the drop-in diff.
+    """
+    import hashlib
+    try:
+        h = hashlib.sha256()
+        with open(blocklist_path(workdir), "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except OSError:
+        return None
+
+
 def load_compiled(workdir: str) -> set[str]:
     """Load the compiled set back from the written file (for matching)."""
     path = blocklist_path(workdir)
@@ -142,16 +160,10 @@ def apply_lists(workdir: str, lists: list[dict],
                 "path": blocklist_path(workdir), "lists": stats,
                 "dnsmasq_reloaded": False, "applied_at": ""}
     total, path = write_blocklist(workdir, compiled)
-    # best-effort dnsmasq reload so the new file takes effect
-    reloaded = False
-    for cmd in (["killall", "-HUP", "dnsmasq"],):
-        try:
-            import subprocess
-            subprocess.run(cmd, timeout=5, capture_output=True)
-            reloaded = True
-            break
-        except (OSError, subprocess.TimeoutExpired):
-            pass
+    # No HUP here on purpose: SIGHUP does not reload dnsmasq config
+    # files (verified live 2026-10-25), so signalling would only fake a
+    # reload. Restarting dnsmasq when this file changed is the panel
+    # sync's job (sync_dnsmasq_panel_conf with force_restart).
     return {"all_failed": False, "total_domains": total, "path": path,
-            "lists": stats, "dnsmasq_reloaded": reloaded,
+            "lists": stats, "dnsmasq_reloaded": False,
             "applied_at": time.strftime("%Y-%m-%dT%H:%M:%S")}

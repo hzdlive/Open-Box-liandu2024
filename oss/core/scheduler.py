@@ -180,11 +180,23 @@ def _maybe_update_dns_filter(conn: sqlite3.Connection) -> None:
         from panel.db import set_setting
         import json as _json
         lists = _json.loads(get_setting(conn, "dns_filter_lists", "[]"))
+        before = _df.blocklist_hash(manager_from_env().workdir)
         result = _df.apply_lists(manager_from_env().workdir, lists)
+        after = _df.blocklist_hash(manager_from_env().workdir)
         set_setting(conn, "dns_filter_applied_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
         set_setting(conn, "dns_filter_auto_updated_at", today)
         conn.commit()
         print(f"[scheduler] dns filter auto-updated: {result}", flush=True)
+        if before != after:
+            # Same gap as the manual apply path: the drop-in only
+            # references the blocklist by path, so without this the
+            # refreshed list would wait for the next restart. Lazy
+            # import: the scheduler runs inside the panel process and
+            # panel.app imports the scheduler lazily, so this cannot
+            # cycle at module load.
+            from panel.app import sync_dnsmasq_panel_conf
+            sync = sync_dnsmasq_panel_conf(conn, force_restart=True)
+            print(f"[scheduler] dns filter dnsmasq sync: {sync}", flush=True)
     except Exception as e:
         print(f"[scheduler] dns filter update failed: {e}", flush=True)
 
