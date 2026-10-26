@@ -15,8 +15,15 @@
   算术：4165（#34 终点，MEMORY 逐项可加）+ 53（client-routes）+ 87（diagnostics-core）
   + 98（penetration）+ 120（route-test）+ 158（terminal-test，按 `await check(`
   调用数，与前四项逐项对上备忘录）= 4681。`test:all` 串起 65 个脚本。
-  本机实跑：diagnostics-core 87/0 通过；其余四套因 npm 装依赖受阻未跑通，
-  计数以 check 调用数 + wave1 断言文本为准（诚实保留，见末尾）。
+  本机实跑（2026-10-26 补跑，npm 装好后）：5 个新套件全绿——client-routes 53/0、
+  diagnostics-core 87/0、penetration 98/0、route-test 120/0、terminal-test 158/0；
+  wave1 70/0（含 `cov.implemented === 122` 断言）；deploy-service 58/0。
+  唯一红的是 wave2 的 1 条（91/1）：「the defaults are the documented values」
+  期望 `dns.mode === "dnsmasq"`，本机读到 `"hijack"`。已证实**不是 v8 回归**：
+  该测试 v7→v8 零改动，且 v7 的 wave2 在本机跑出**同样的 91/1、同样的 diff**
+  ——原因是本沙箱平台探测为非 OpenWrt，读侧把 dnsmasq 调整呈现为 hijack
+  （同文件里「off-OpenWrt turns dnsmasq into hijack on read」一条是绿的）。
+  分析者的「全绿」是在他自己的机器上成立，本机环境差一条属实，不影响结论。
 - 包版本仍 0.1.0，基线仍按 v0.1.344
 
 ## 一、变更清单
@@ -219,11 +226,9 @@
 
 ## 六、诚实保留
 
-- 本机实跑只覆盖 diagnostics-core（87/0 通过）。client-routes、penetration、
-  route-test、terminal-test、wave1 五套因沙箱 npm 装依赖（yaml 等）两次受阻
-  （一次服务重启清空 /tmp，一次装包缓慢）未跑通；其断言数以 `await check(`
-  调用数统计，与备忘录逐项一致（53/98/120/158），wave1 的 122 断言以断言文本为准。
-  结论「122/122」另有三处独立证据：`IMPLEMENTED_KEYS` 展开全部四条诊断路由键、
-  `test:all` 串起 65 个脚本、wave1「无桩路由」小节改名——不只依赖备忘录一句话。
+- 本机实跑覆盖 v8 全部新增与变更的套件：5 个新套件 + wave1 + deploy-service
+  全绿（见头条）；wave2 91/1，唯一红条是本机平台探测导致、v7 同样红，
+  不是 v8 回归。其余约 57 个套件文件 v7→v8 零改动，本机未逐一重跑，
+  总数 4681 为逐套件实跑数 + 分析者 `sum-tests.cjs` 口径的算术和。
 - 本轮未做黑盒实测对照（原版面板未在 v8 基线上重跑）；与实测冲突时以实测为准，
   上述缺口排序里的工程量估计是推测，动手前会先核代码再报数。
