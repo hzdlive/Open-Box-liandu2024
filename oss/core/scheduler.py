@@ -143,6 +143,7 @@ def _tick(dsn: str, uri: bool) -> None:
             except Exception as e:
                 print(f"[scheduler] subscription {sid} update failed: {e}", flush=True)
         _maybe_update_dns_filter(conn)
+        _maybe_update_content_filter(conn)
         _maybe_panel_self_update(conn)
         _maybe_prune_traffic(conn)
         _maybe_run_failover(conn)
@@ -199,6 +200,71 @@ def _maybe_update_dns_filter(conn: sqlite3.Connection) -> None:
             print(f"[scheduler] dns filter dnsmasq sync: {sync}", flush=True)
     except Exception as e:
         print(f"[scheduler] dns filter update failed: {e}", flush=True)
+
+
+def _maybe_update_content_filter(conn: sqlite3.Connection) -> None:
+    """Daily content-filter list refresh at the configured time (default
+    04:00), mirroring the DNS filter's schedule. Refreshes only lists
+    that have a source: enabled cf_rulesets with source_url (via
+    cfrefresh, which keeps old rules on failure and respects its 600s
+    failure cooldown) and enabled legacy content_filters with
+    snapshot_url. No-URL lists are manual and skipped. One attempt per
+    day (cf_auto_updated_at), even if individual items fail -- same
+    stamp semantics as the DNS filter run.
+
+    Refresh updates the stored lists only; the kernel's block rule
+    picks them up on the next apply/deploy, exactly like the manual
+    refresh buttons (refresh != apply). No kernel restart is triggered
+    from the scheduler.
+    """
+    from panel.db import get_setting, set_setting
+    if get_setting(conn, "cf_auto_update", "0") != "1":
+        return
+    at = get_setting(conn, "cf_update_time", "04:00")
+    try:
+        hh, mm = at.split(":")
+        hh, mm = int(hh), int(mm)
+    except ValueError:
+        return
+    now = time.localtime()
+    today = time.strftime("%Y-%m-%d")
+    if get_setting(conn, "cf_auto_updated_at", "") == today:
+        return
+    if (now.tm_hour, now.tm_min) < (hh, mm):
+        return
+    results = []
+    try:
+        from core import cfrefresh as _cfr
+        rows = conn.execute(
+            "SELECT id FROM cf_rulesets WHERE enabled = 1 "
+            "AND source_url IS NOT NULL AND source_url != ''").fetchall()
+        for (rid,) in rows:
+            try:
+                results.append((rid, _cfr.refresh_ruleset(conn, rid)))
+            except Exception as e:
+                results.append((rid, {"status": "failed",
+                                     "error": str(e)}))
+    except Exception as e:
+        print(f"[scheduler] content filter ruleset refresh failed: {e}",
+              flush=True)
+    try:
+        from panel import db as dbmod
+        rows = conn.execute(
+            "SELECT id FROM content_filters WHERE enabled = 1 "
+            "AND snapshot_url IS NOT NULL AND snapshot_url != ''").fetchall()
+        for (fid,) in rows:
+            try:
+                r = dbmod.refresh_content_filter_from_snapshot(conn, fid)
+                results.append((fid, {"status": "updated" if r else "skipped"}))
+            except Exception as e:
+                results.append((fid, {"status": "failed",
+                                     "error": str(e)}))
+    except Exception as e:
+        print(f"[scheduler] content filter legacy refresh failed: {e}",
+              flush=True)
+    set_setting(conn, "cf_auto_updated_at", today)
+    conn.commit()
+    print(f"[scheduler] content filter auto-updated: {results}", flush=True)
 
 
 def _maybe_panel_self_update(conn: sqlite3.Connection) -> None:

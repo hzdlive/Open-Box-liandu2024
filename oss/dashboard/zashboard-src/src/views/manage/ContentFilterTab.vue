@@ -18,6 +18,27 @@
 
     <p class="text-sm opacity-60">{{ $t('obx.cfDescription') || '管理规则与脚本快照。iOS 运行同步的副本离线。' }}</p>
 
+    <div class="rounded-box border border-base-300/30 bg-base-100 p-4 flex flex-col gap-2">
+      <div class="flex items-center gap-3 flex-wrap">
+        <label class="cursor-pointer flex items-center gap-2">
+          <input
+            type="checkbox"
+            class="toggle toggle-primary toggle-sm"
+            :checked="autoUpdate"
+            @change="saveAutoUpdate(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="font-bold">{{ $t('obx.cfAutoUpdate') || '每天自动刷新' }}</span>
+        </label>
+        <input
+          type="time"
+          class="input input-bordered input-sm w-28"
+          :value="autoTime"
+          @change="saveAutoTime(($event.target as HTMLInputElement).value)"
+        />
+      </div>
+      <p class="text-xs opacity-60">{{ $t('obx.cfAutoUpdateHint') || '每天指定时间自动拉取带来源 URL 的规则集与旧版名单；只更新名单，内核拦截规则在下次应用配置后生效。无来源 URL 的手动规则集不受影响。' }}</p>
+    </div>
+
     <div v-if="loading" class="text-center py-8 opacity-60">{{ $t('obx.loading') }}</div>
 
     <div v-else-if="!rulesets.length" class="text-center py-8 opacity-60">
@@ -156,9 +177,41 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { obxGet, obxPost, obxDel, obxPatch } from '@/openbox/api'
+import { obxGet, obxPost, obxDel, obxPatch, obxPut } from '@/openbox/api'
 
 const { t } = useI18n()
+
+const autoUpdate = ref(false)
+const autoTime = ref('04:00')
+
+async function loadAutoUpdate() {
+  try {
+    const s: any = await obxGet('/api/settings')
+    autoUpdate.value = s.cf_auto_update === '1'
+    if (s.cf_update_time) autoTime.value = s.cf_update_time
+  } catch (e: any) {
+    console.error(e)
+  }
+}
+
+async function saveAutoUpdate(on: boolean) {
+  try {
+    await obxPut('/api/settings', { cf_auto_update: on ? '1' : '0' })
+    autoUpdate.value = on
+  } catch (e: any) {
+    console.error(e)
+  }
+}
+
+async function saveAutoTime(v: string) {
+  if (!/^\d{2}:\d{2}$/.test(v)) return
+  try {
+    await obxPut('/api/settings', { cf_update_time: v })
+    autoTime.value = v
+  } catch (e: any) {
+    console.error(e)
+  }
+}
 
 const rulesets = ref<any[]>([])
 const loading = ref(false)
@@ -285,5 +338,5 @@ async function showDetail(r: any) {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadAutoUpdate() })
 </script>
