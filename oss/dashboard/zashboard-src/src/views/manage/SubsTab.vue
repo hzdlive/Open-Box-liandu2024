@@ -72,12 +72,12 @@
         <!-- 更新信息 -->
         <div class="mb-2 flex items-center justify-between text-xs opacity-60">
           <span>{{ $t('obx.updatedAt') }} {{ fmtTime(s.updated_at) }}<span v-if="s.auto_update?.enabled"> · {{ $t('obx.autoUpdateEvery', { n: s.auto_update_hours || s.auto_update.days * 24 }) }}</span></span>
-          <span v-if="s.traffic_used">{{ s.traffic_used }}</span>
+          <span v-if="trafficText(s)">{{ trafficText(s) }}</span>
         </div>
         <!-- 流量条 -->
-        <div v-if="s.traffic_total" class="mb-2">
+        <div v-if="trafficPercent(s) !== null" class="mb-2">
           <div class="h-1 w-full rounded-full bg-base-300">
-            <div class="h-1 rounded-full bg-success" :style="{ width: s.traffic_percent + '%' }" />
+            <div class="h-1 rounded-full bg-success" :style="{ width: trafficPercent(s) + '%' }" />
           </div>
         </div>
         <!-- 节点状态点（折叠时显示） -->
@@ -564,6 +564,7 @@
 import { showNotification } from '@/helper/notification'
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 
 type Sub = {
   id: number
@@ -577,9 +578,7 @@ type Sub = {
   updated_at: string
   dns_resolve?: string
   rename?: any
-  traffic_used?: string
-  traffic_total?: string
-  traffic_percent?: number
+  userinfo?: { upload?: number; download?: number; total?: number; expire?: number }
   node_dots?: string[]
 }
 
@@ -628,6 +627,53 @@ const dlgBusy = ref(false)
 function fmtTime(t: string) {
   if (!t) return '—'
   return t.replace('T', ' ').slice(0, 19)
+}
+
+const { t } = useI18n()
+// 订阅流量/到期：对标原版卡片（已用 X / 总量 Y，到期日（剩 N 个月））。
+// 原版口径（以其库里 usage 与卡片文案反推）：1000 进制、截断取 1 位小数
+// （27.44GB→27.4、24.15GB→24.1）、去尾零；到期按本地日期、剩余整月
+// （日不足减一月）；无 total 不画流量条，无 expire 不显示到期。
+function fmtBytes(n: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = n
+  let i = 0
+  while (v >= 1000 && i < units.length - 1) { v /= 1000; i++ }
+  const trunc = Math.floor(v * 10) / 10
+  return `${Number.isInteger(trunc) ? trunc : trunc.toFixed(1)} ${units[i]}`
+}
+function fmtExpireDate(sec: number): string {
+  const d = new Date(sec * 1000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function monthsLeft(sec: number): number {
+  const now = new Date()
+  const exp = new Date(sec * 1000)
+  let m = (exp.getFullYear() - now.getFullYear()) * 12 + (exp.getMonth() - now.getMonth())
+  if (exp.getDate() < now.getDate()) m -= 1
+  return m
+}
+function subUsage(s: Sub) {
+  const ui = s.userinfo || {}
+  return { used: (ui.upload || 0) + (ui.download || 0), total: ui.total || 0, expire: ui.expire || 0 }
+}
+function trafficText(s: Sub): string {
+  const { used, total, expire } = subUsage(s)
+  if (!used && !total && !expire) return ''
+  let text = t('obx.trafficUsed', { v: fmtBytes(used) })
+  if (total > 0) text += ` / ${fmtBytes(total)}`
+  if (expire > 0) {
+    text += t('obx.trafficSep')
+    text += expire * 1000 <= Date.now()
+      ? t('obx.trafficExpired')
+      : t('obx.trafficExpire', { date: fmtExpireDate(expire), n: monthsLeft(expire) })
+  }
+  return text
+}
+function trafficPercent(s: Sub): number | null {
+  const { used, total } = subUsage(s)
+  if (!total) return null
+  return Math.min(100, Math.max(0, (used / total) * 100))
 }
 
 async function load() {
