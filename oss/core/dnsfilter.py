@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import time
 import urllib.request
 
@@ -103,6 +104,13 @@ def load_compiled(workdir: str) -> set[str]:
     return domains
 
 
+# Single-flight lock for POST /api/dns/filter/apply (v7 #24 semantics):
+# while an apply holds it, another apply answers 400 and PUT /api/dns/filter
+# answers 409. The lock lives here so the endpoint, the settings PUT and
+# the GET busy flag all observe the same flag.
+_APPLY_LOCK = threading.Lock()
+
+
 def apply_lists(workdir: str, lists: list[dict],
                 timeout: float = 30.0) -> dict:
     """Fetch + compile + write. Returns per-list stats."""
@@ -124,6 +132,15 @@ def apply_lists(workdir: str, lists: list[dict],
         except Exception as e:  # keep other lists working
             stats.append({"name": lst["name"], "enabled": True,
                           "domains": 0, "error": str(e)[:120]})
+    enabled_stats = [s for s in stats if s["enabled"]]
+    if enabled_stats and all(s["error"] for s in enabled_stats):
+        # Fail closed: every enabled list failed, so the old blocklist
+        # stays. Writing an empty union here would silently turn
+        # filtering off for every domain. (Zero enabled lists is not
+        # this case: disabling everything legitimately empties the file.)
+        return {"all_failed": True, "total_domains": 0,
+                "path": blocklist_path(workdir), "lists": stats,
+                "dnsmasq_reloaded": False, "applied_at": ""}
     total, path = write_blocklist(workdir, compiled)
     # best-effort dnsmasq reload so the new file takes effect
     reloaded = False
@@ -135,6 +152,6 @@ def apply_lists(workdir: str, lists: list[dict],
             break
         except (OSError, subprocess.TimeoutExpired):
             pass
-    return {"total_domains": total, "path": path, "lists": stats,
-            "dnsmasq_reloaded": reloaded,
+    return {"all_failed": False, "total_domains": total, "path": path,
+            "lists": stats, "dnsmasq_reloaded": reloaded,
             "applied_at": time.strftime("%Y-%m-%dT%H:%M:%S")}

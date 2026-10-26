@@ -48,8 +48,11 @@ def test_dnsfilter_api():
     # preview with empty compiled set -> not blocked
     r = c.get("/api/dns/filter/preview?domain=ads.example.com").get_json()
     assert r["blocked"] is False
-    # apply with unreachable URL -> error recorded, not a crash
-    r = c.post("/api/dns/filter/apply?update=1").get_json()
+    # apply with unreachable URL -> all enabled failed: fail closed, 400,
+    # error recorded, not a crash (v7 #24 semantics)
+    resp = c.post("/api/dns/filter/apply?update=1")
+    assert resp.status_code == 400, resp.get_json()
+    r = resp.get_json()
     assert r["total_domains"] == 0
     assert r["lists"][0]["error"]
     print("ok dnsfilter api")

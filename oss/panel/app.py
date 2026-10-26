@@ -2603,12 +2603,19 @@ def create_app(db_path: str = ":memory:") -> Flask:
             "auto_update": get_setting(c, "dns_filter_auto_update", "0") == "1",
             "update_time": get_setting(c, "dns_filter_update_time", "04:00"),
             "blocklist_path": _df.blocklist_path(_df_workdir()),
+            "busy": _df._APPLY_LOCK.locked(),
         })
 
     @app.put("/api/dns/filter")
     def dns_filter_put():
         import json as _json
         from panel.db import set_setting
+        # v7 #24: settings refuse while an apply holds the lock (409 is a
+        # lock, not a validation error) — otherwise the PUT's list write
+        # and the apply's stats write race on dns_filter_lists.
+        from core import dnsfilter as _df
+        if _df._APPLY_LOCK.locked():
+            return jsonify({"error": "名单正在更新,请稍后保存"}), 409
         d = request.get_json(force=True, silent=True) or {}
         lists = d.get("lists", [])
         clean = [{"name": str(x.get("name", ""))[:80],
@@ -2633,22 +2640,68 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/dns/filter/apply")
     def dns_filter_apply():
+        """Apply the DNS filter lists (v7 #24 semantics).
+
+        The body picks the shape: `update` must be exactly `true` for the
+        refresh-only path (it does not touch the enabled flag); a truthy
+        string takes the full path, which is the slower-but-correct
+        reading of an ambiguous body. The legacy `?update=1` query is
+        honoured only when the body carries no `update` key.
+        `listId` names a list by its `name` (our lists carry no id) and
+        is validated BEFORE the busy check, so a stale id answers 400
+        even while another apply is running; it must name an enabled
+        list. While an apply holds the lock, another apply answers 400
+        and every failure of the apply itself answers 400, never 500.
+        Deviation, stated plainly: we keep no per-list fetch cache, so
+        `listId` only validates and directs — the refresh itself still
+        re-fetches every enabled list (slower-but-correct); a real
+        single-list refresh needs a per-list cache and is a separate item.
+        """
         import json as _json
         from panel.db import get_setting, set_setting
         from core import dnsfilter as _df
         c = db()
-        update_only = request.args.get("update") == "1"
+        body = request.get_json(force=True, silent=True) or {}
+        if "update" in body:
+            update_only = body["update"] is True
+        else:
+            update_only = request.args.get("update") == "1"
+        list_id = body.get("listId")
+        list_id = list_id.strip() if isinstance(list_id, str) else ""
         lists = _dns_filter_lists(c)
-        result = _df.apply_lists(_df_workdir(), lists)
+        if list_id and not any(
+                l.get("name") == list_id and l.get("enabled", True)
+                for l in lists):
+            return jsonify({"error": "只能更新已启用的过滤名单"}), 400
+        if not _df._APPLY_LOCK.acquire(blocking=False):
+            return jsonify({"error": "DNS 设置正在应用,请稍后重试"}), 400
+        try:
+            result = _df.apply_lists(_df_workdir(), lists)
+        except OSError as e:
+            return jsonify({"error": f"写入拦截文件失败：{e}"}), 400
+        finally:
+            _df._APPLY_LOCK.release()
+        stage = "updated" if update_only else "applied"
+        lists_meta = [{**l, "domains": s.get("domains", 0),
+                       "updated_at": s.get("updated_at", ""),
+                       "error": s.get("error", "")}
+                      for l, s in zip(lists, result["lists"])]
+        if result.get("all_failed"):
+            # Fail closed: the old blocklist is untouched and applied_at
+            # does not advance, but the per-list errors are still recorded.
+            set_setting(c, "dns_filter_lists",
+                        _json.dumps(lists_meta, ensure_ascii=False))
+            return jsonify({"error": "全部名单拉取失败，旧拦截文件未动",
+                            "total_domains": 0, "lists": result["lists"],
+                            "stage": stage}), 400
         if not update_only:
             set_setting(c, "dns_filter_enabled", "1")
         set_setting(c, "dns_filter_applied_at", result["applied_at"])
-        set_setting(c, "dns_filter_lists", _json.dumps(
-            [{**l, "domains": s.get("domains", 0),
-              "updated_at": s.get("updated_at", ""),
-              "error": s.get("error", "")}
-             for l, s in zip(lists, result["lists"])], ensure_ascii=False))
+        set_setting(c, "dns_filter_lists",
+                    _json.dumps(lists_meta, ensure_ascii=False))
         result["dnsmasq_sync"] = sync_dnsmasq_panel_conf(c)
+        result["stage"] = stage
+        result["ok"] = True
         return jsonify(result)
 
     @app.get("/api/dns/filter/preview")
