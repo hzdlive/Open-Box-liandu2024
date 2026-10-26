@@ -1185,7 +1185,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 ip_version = int(ip_version)
             except (TypeError, ValueError):
                 return jsonify({"error": "ip_version 只能是 4 或 6"}), 400
-        cfg = dbmod.load_app_config(db())
+        # 预言机必须看到与部署一致的规则表：内容过滤规则是部署时
+        # 生成的（apply 用 with_blocked_domains=True），不加载它，
+        # 被拦截域名会被误判为走代理/直连。
+        cfg = dbmod.load_app_config(db(), with_blocked_domains=True)
         # 实时链路展开：Clash 可达时用 live 选择，不可达时预言机回落 DB。
         try:
             ok, data = _get_proxies()

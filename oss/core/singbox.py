@@ -564,6 +564,21 @@ def build_route_rules(cfg: AppConfig,
             route_rules.append({"source_ip_cidr": cidrs, "outbound": tr.outbound})
             _prov({"kind": "terminal",
                    "name": f"终端策略（{tr.outbound}）"})
+    # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名。位置在分流规则
+    # （前置自定义分流、站点集）之前、基础设施规则（入口旁路、终端
+    # 策略）之后：拦截是安全决策，应胜过一切基于内容的分流选择，
+    # 但不干扰入口旁路与终端身份规则。此前它在站点集之后，导致与
+    # 代理站点集重叠的域名（如 doubleclick.net 落在 geosite-google）
+    # 先被代理而非拦截。订阅与节点直连规则在分流段之后，理论上
+    # 若节点域名撞上拦截名单会被拦截，实际中过滤名单（广告/跟踪器/
+    # 恶意软件）与随机节点域名无交集，属可接受的次序。
+    _blocked = getattr(cfg, 'blocked_domains', []) or []
+    if _blocked:
+        route_rules.append({
+            "domain_suffix": _blocked,
+            "outbound": "block",
+        })
+        _prov({"kind": "content", "name": "内容过滤"})
     # Front custom routing: user domain -> target mappings, evaluated before
     # every site set. Target is a group name, node tag, "direct" or "reject".
     # Front custom routing: typed user rules, evaluated before every site
@@ -767,15 +782,7 @@ def build_route_rules(cfg: AppConfig,
         dns_server = ("dns-fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
                       else "dns-proxy" if s.action == "proxy" else "dns-direct")
         dns_rules.append({**rule, "server": dns_server})
-    # QUIC 拦截已改为每个站点集独立生成（见下方循环内），不再全局拦截
-    # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名
-    _blocked = getattr(cfg, 'blocked_domains', []) or []
-    if _blocked:
-        route_rules.append({
-            "domain_suffix": _blocked,
-            "outbound": "block",
-        })
-        _prov({"kind": "content", "name": "内容过滤"})
+    # QUIC 拦截已改为每个站点集独立生成（见上方循环内），不再全局拦截
     return route_rules, dns_rules, group_names
 
 
