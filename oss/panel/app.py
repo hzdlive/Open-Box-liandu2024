@@ -2841,57 +2841,76 @@ def create_app(db_path: str = ":memory:") -> Flask:
         c.commit()
         return jsonify(result)
 
-    @app.post("/api/openbox/terminal-test")
-    def ob_terminal_test():
-        d = request.get_json(force=True, silent=True) or {}
-        target = (d.get("target") or "").strip()
-        if not target:
-            return jsonify({"error": "target is required"}), 400
-        # 基础连通性测试：尝试解析并连接
-        import socket
-        result = {"target": target, "ok": False}
-        try:
-            # 尝试 DNS 解析
-            ip = socket.gethostbyname(target.split(":")[0])
-            result["resolved_ip"] = ip
-            result["ok"] = True
-        except Exception as e:
-            result["error"] = str(e)
-        return jsonify(result)
-
     @app.get("/api/openbox/terminal-test/capability")
     def ob_terminal_capability():
-        """探测终端分流能力（REA 26.3：先探测能力，绝不静默降级）。"""
-        import shutil
-        import subprocess
-        missing = []
-        # nftables 可用性
-        has_nft = shutil.which("nft") is not None
-        if not has_nft:
-            missing.append("nftables")
-        # 检查是否有 LAN 网卡（非 lo）
-        has_lan = False
+        """Whether the box can run a terminal test at all (v8 #35).
+
+        Container -> {ok: false, missing: [refusal], lan: null}
+        (200, not 409); a probe failure is 500 {message}.
+        """
+        from core import terminal_test as _tt
+
+        if _tt.is_container():
+            return jsonify({"ok": False,
+                            "missing": [_tt.CONTAINER_PROBE_REFUSAL],
+                            "lan": None})
         try:
-            out = subprocess.run(["ip", "-o", "link", "show"],
-                               capture_output=True, text=True, timeout=5)
-            for line in out.stdout.splitlines():
-                if ": lo:" not in line and "state UP" in line:
-                    has_lan = True
-                    break
+            answer = _tt.probe_capability()
+            return jsonify({"ok": answer["ok"],
+                            "missing": answer["missing"],
+                            "lan": answer["lan"]})
+        except Exception as e:
+            return jsonify({"message": str(e)}), 500
+
+    @app.post("/api/openbox/terminal-test")
+    def ob_terminal_test():
+        """Run one terminal test (v8 #35), serialised.
+
+        Four gates in order: container -> 409; target shape -> 400;
+        port coerced with int (null -> 0, replaced by the
+        orchestrator); method normalised -> 400. The report itself is
+        always 200 (capable/setup failures are report fields); an
+        unexpected failure is 500 {message}.
+
+        Supersedes the old gethostbyname stub at this path (it only
+        resolved a name and called it a terminal test) and the old
+        REA nft/lan/arp capability probe (no frontend or backend
+        caller used either shape).
+        """
+        import json as _json
+
+        from core import terminal_test as _tt
+
+        if _tt.is_container():
+            return jsonify(
+                {"message": _tt.CONTAINER_PROBE_REFUSAL}), 409
+        d = request.get_json(force=True, silent=True) or {}
+        target = str(d.get("target") or "").strip().lower()
+        try:
+            from core.route_oracle import parse_target as _parse
+
+            _parse(target)
         except Exception:
-            missing.append("ip-command")
-        # ARP 可用性（MAC -> IP 解析）
-        has_arp = shutil.which("arp") is not None or shutil.which("ip") is not None
-        if not has_arp:
-            missing.append("arp")
-        ok = has_nft and has_lan and not missing
-        return jsonify({
-            "ok": ok,
-            "lan": has_lan,
-            "nftables": has_nft,
-            "arp": has_arp,
-            "missing": missing,
-        })
+            return jsonify({"message": _tt.BAD_TARGET_MESSAGE}), 400
+        try:
+            method = _tt.normalize_method(d.get("method"))
+        except ValueError as e:
+            return jsonify({"message": str(e)}), 400
+        try:
+            manager = _manager()
+            deployed = None
+            try:
+                with open(manager.config_path) as f:
+                    deployed = _json.load(f)
+            except Exception:
+                deployed = None
+            answer = _tt.run_serialised(
+                lambda: _tt.terminal_test(
+                    {"target": target, "port": d.get("port"),
+                     "method": method}, deployed=deployed))
+            return jsonify(answer)
+        except Exception as e:
+            return jsonify({"message": str(e)}), 500
 
     @app.post("/api/openbox/dns/flush-cache")
     def ob_dns_flush():
