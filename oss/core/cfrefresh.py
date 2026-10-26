@@ -43,7 +43,11 @@ SINGLE_CAP = 250_000
 TOTAL_CAP = 400_000
 COOLDOWN_SECONDS = 600
 FETCH_TIMEOUT = 30
-TEXT_CAP_BYTES = 524_288
+# Stored-text truncation shares the parser's input cap (single source of
+# truth in core.cf_parser): truncating below the parse cap would make the
+# stored hash never match a fresh fetch, so every refresh would re-parse
+# even when upstream is unchanged.
+from core.cf_parser import MAX_TEXT_BYTES as TEXT_CAP_BYTES
 
 
 def ensure_columns(conn: sqlite3.Connection) -> None:
@@ -95,7 +99,7 @@ def check_caps(conn: sqlite3.Connection, new_domains: int,
 def refresh_ruleset(conn: sqlite3.Connection, rid: str,
                     force: bool = False, now: float | None = None) -> dict:
     """Refresh one URL ruleset. Never deletes stored rules on failure."""
-    from core.cf_parser import parse_ruleset
+    from core.cf_parser import parse_content_filter_text
 
     now = time.time() if now is None else now
     ensure_columns(conn)
@@ -127,7 +131,7 @@ def refresh_ruleset(conn: sqlite3.Connection, rid: str,
         conn.commit()
         return {"status": "unchanged"}
     try:
-        parsed = parse_ruleset(text, dialect)
+        parsed = parse_content_filter_text(text, dialect)
     except ValueError as e:
         msg = f"parse failed: {e}"
         conn.execute("UPDATE cf_rulesets SET last_attempt_at=?, last_error=?"

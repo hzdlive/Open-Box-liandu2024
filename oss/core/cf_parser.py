@@ -1,8 +1,12 @@
-"""Content filter ruleset parsers (Surge / QuantumultX).
+"""Content filter ruleset parsers (Surge / QuantumultX / hosts).
 
 Clean-room implementation of publicly observable behavior:
 - Parse Surge and QuantumultX rule files into structured rules
-- 512 KiB input limit
+- Parse plain hosts files (see parse_hosts) when the refresh/create
+  path detects hosts shape, regardless of the stored dialect
+- 4 MiB input limit (raised from 512 KiB: upstream hosts files such as
+  StevenBlack/hosts are ~2.2 MB now, so the old cap made every refresh
+  fail; domain-count caps still bound the real resource use)
 - Track skipped_* counters for unrepresentable content
 - Extract domains for sing-box block rules (reject action only)
 
@@ -13,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-MAX_TEXT_BYTES = 512 * 1024  # 512 KiB limit (1:1 with original)
+MAX_TEXT_BYTES = 4 * 1024 * 1024  # 4 MiB input limit
 
 
 def parse_ruleset(text: str, dialect: str) -> dict:
@@ -34,12 +38,12 @@ def parse_ruleset(text: str, dialect: str) -> dict:
             "skipped_routing": int,
             "skipped_unrepresentable": int,
         }
-    
+
     Raises:
-        ValueError: if text exceeds 512 KiB
+        ValueError: if text exceeds MAX_TEXT_BYTES
     """
     if len(text.encode('utf-8')) > MAX_TEXT_BYTES:
-        raise ValueError(f"规则文本超过 512 KiB 上限")
+        raise ValueError(f"规则文本超过 {MAX_TEXT_BYTES // (1024 * 1024)} MiB 上限")
     
     if dialect == "surge":
         return _parse_surge(text)
@@ -47,6 +51,95 @@ def parse_ruleset(text: str, dialect: str) -> dict:
         return _parse_quantumultx(text)
     else:
         raise ValueError(f"不支持的方言: {dialect}")
+
+
+_HOSTS_LINE_RE = re.compile(
+    r"^(?:0\.0\.0\.0|127\.0\.0\.1)\s+(\S+)(?:\s+#.*)?\s*$")
+_LOCALHOST_NAMES = {"localhost", "broadcasthost", "localdomain",
+                    "ip6-localhost", "ip6-loopback"}
+
+
+def _is_ip_literal(s: str) -> bool:
+    import ipaddress
+    try:
+        ipaddress.ip_address(s)
+        return True
+    except ValueError:
+        return False
+
+
+def detect_hosts_format(text: str) -> bool:
+    """True when text looks like a hosts file: no [section] headers and
+    at least one hosts-style mapping line. Surge/QuantumultX files always
+    carry section headers, so the two shapes do not overlap."""
+    has_hosts = False
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        if re.match(r"^\[.+\]$", line):
+            return False
+        if _HOSTS_LINE_RE.match(line):
+            has_hosts = True
+    return has_hosts
+
+
+def parse_hosts(text: str) -> dict:
+    """Parse a hosts file into domain_suffix reject rules, in the same
+    result shape as the other parsers. Lines mapping to localhost, to an
+    IP literal, or to nothing parseable are skipped, not turned into
+    block rules (a suffix rule for 'localhost' or '0.0.0.0' would match
+    nothing real and only pollute the rule table). Domains are
+    lowercased and deduplicated, preserving first-seen order."""
+    result = {
+        "rules": [],
+        "hostnames": [],
+        "arguments": {"values": {}, "declared": []},
+        "scripts": [],
+        "skipped_scripts": 0,
+        "skipped_unsupported": 0,
+        "skipped_routing": 0,
+        "skipped_unrepresentable": 0,
+    }
+    seen = set()
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        m = _HOSTS_LINE_RE.match(line)
+        if not m:
+            result["skipped_unsupported"] += 1
+            continue
+        domain = m.group(1).lower()
+        if domain in _LOCALHOST_NAMES or _is_ip_literal(domain):
+            result["skipped_unsupported"] += 1
+            continue
+        if domain in seen:
+            continue
+        seen.add(domain)
+        result["rules"].append({
+            "action": "reject",
+            "pattern": domain,
+            "type": "domain_suffix",
+            "source": "hosts",
+        })
+    return result
+
+
+def parse_content_filter_text(text: str, dialect: str) -> dict:
+    """Parse ruleset text for the refresh/create paths.
+
+    A raw hosts file fed to the surge/quantumultx parsers yields zero
+    rules (those parsers only read [section] content), which would
+    silently empty a working ruleset on refresh. So hosts-shaped text
+    is parsed as hosts regardless of the stored dialect. The size cap
+    applies to every path.
+    """
+    if len(text.encode("utf-8")) > MAX_TEXT_BYTES:
+        raise ValueError(f"规则文本超过 {MAX_TEXT_BYTES // (1024 * 1024)} MiB 上限")
+    if detect_hosts_format(text):
+        return parse_hosts(text)
+    return parse_ruleset(text, dialect)
 
 
 def _parse_surge(text: str) -> dict:

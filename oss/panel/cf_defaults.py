@@ -58,7 +58,7 @@ def preset_default_rulesets(conn, force: bool = False) -> dict:
 
     返回 {"created": [name...], "skipped": [name...], "failed": [{name, reason}...]}。
     """
-    from core.cf_parser import parse_ruleset
+    from core.cf_parser import parse_content_filter_text
 
     results: dict = {"created": [], "skipped": [], "failed": []}
     for d in DEFAULT_CF_RULESETS:
@@ -85,7 +85,7 @@ def preset_default_rulesets(conn, force: bool = False) -> dict:
             results["failed"].append(
                 {"name": d["name"], "reason": "无公开来源，需手动导入"})
             continue
-        parsed = parse_ruleset(text, d["dialect"])
+        parsed = parse_content_filter_text(text, d["dialect"])
         try:
             conn.execute(
                 """INSERT INTO cf_rulesets

@@ -28,12 +28,12 @@ def _db():
     return c
 
 
-def _add(c, rid, name, rules, source_url="", enabled=1):
+def _add(c, rid, name, rules, source_url="", enabled=1, dialect="surge"):
     cfr.ensure_columns(c)
     c.execute(
         "INSERT INTO cf_rulesets(id, name, dialect, source_url, text, rules,"
         " enabled, updated_at, domain_count) VALUES (?,?,?,?,?,?,?,?,?)",
-        (rid, name, "surge", source_url, "old-text",
+        (rid, name, dialect, source_url, "old-text",
          json.dumps(rules), enabled, "2026-01-01T00:00:00",
          len({r["pattern"] for r in rules})))
     c.commit()
@@ -140,7 +140,57 @@ def main() -> int:
         assert rules_to_domains(sample) == [".b.com", "a.com", "b.com"], \
             rules_to_domains(sample)
 
-        # 7. Flask endpoint mapping (404 / 400 / cooldown / 502)
+        # 7. hosts-format refresh: a raw hosts file must parse to block
+        # rules even when the stored dialect is quantumultx (the dialect
+        # parsers only read [section] content, so without hosts
+        # detection a refresh would silently replace working rules
+        # with zero rules). Also covers the raised 4 MiB text cap.
+        from core import cf_parser as cp
+        hosts_text = (
+            "# StevenBlack-style sample\n"
+            "127.0.0.1 localhost\n"
+            "0.0.0.0 ads.example.com\n"
+            "0.0.0.0 tracker.example.org # trailing comment\n"
+            "0.0.0.0 ADS.EXAMPLE.COM\n"
+            "0.0.0.0 0.0.0.0\n"
+            "255.255.255.255 broadcasthost\n"
+            "::1 localhost\n"
+        )
+        assert cp.detect_hosts_format(hosts_text)
+        assert not cp.detect_hosts_format(
+            "[filter_local]\nhost-suffix, a.com, reject\n")
+        parsed_hosts = cp.parse_hosts(hosts_text)
+        assert rules_to_domains(parsed_hosts["rules"]) == [
+            "ads.example.com", "tracker.example.org"], parsed_hosts
+        # wrapper: hosts shape wins over the stored dialect
+        assert cp.parse_content_filter_text(
+            hosts_text, "quantumultx")["rules"] == parsed_hosts["rules"]
+        # cap: a 2.2 MB hosts file (current StevenBlack size) parses,
+        # anything over 4 MiB is still rejected
+        big_hosts = "".join(
+            f"0.0.0.0 host{i}.example.com\n" for i in range(90000))
+        assert len(big_hosts.encode()) > 2_000_000
+        assert len(cp.parse_content_filter_text(
+            big_hosts, "quantumultx")["rules"]) == 90000
+        try:
+            cp.parse_content_filter_text("x" * (cp.MAX_TEXT_BYTES + 1),
+                                         "surge")
+            raise AssertionError("over-cap text must be rejected")
+        except ValueError as e:
+            assert "MiB" in str(e), e
+        # end-to-end through refresh_ruleset with a mocked fetch
+        c2 = _db()
+        _add(c2, "rh", "RH", _rules(2), source_url="https://h.test/hosts",
+             dialect="quantumultx")
+        cfr.fetch_text = lambda url, timeout=30: hosts_text
+        r = cfr.refresh_ruleset(c2, "rh", force=True, now=NOW)
+        assert r["status"] == "updated" and r["domains"] == 2, r
+        row = c2.execute(
+            "SELECT rules, text FROM cf_rulesets WHERE id='rh'").fetchone()
+        assert len(json.loads(row[0])) == 2
+        assert row[1] == hosts_text  # stored complete, not truncated
+
+        # 8. Flask endpoint mapping (404 / 400 / cooldown / 502)
         from panel.app import create_app
         app = create_app(":memory:")
         t = app.test_client()

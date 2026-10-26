@@ -2186,7 +2186,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         
         Body: {name, dialect, text?, source_url?}
         """
-        from core.cf_parser import parse_ruleset
+        from core.cf_parser import MAX_TEXT_BYTES, parse_content_filter_text
         import hashlib, time, json
         data = request.get_json() or {}
         name = (data.get("name") or "").strip()
@@ -2213,7 +2213,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "text or source_url required"}), 400
         
         try:
-            parsed = parse_ruleset(text, dialect)
+            parsed = parse_content_filter_text(text, dialect)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         
@@ -2228,7 +2228,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             (id, name, dialect, source_url, text, rules, hostnames, arguments, scripts,
              enabled, updated_at, skipped_scripts, skipped_unsupported, skipped_routing, skipped_unrepresentable, domain_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)""",
-            (rid, name, dialect, source_url, text[:524288],
+            (rid, name, dialect, source_url, text[:MAX_TEXT_BYTES],
              json.dumps(parsed["rules"], ensure_ascii=False),
              json.dumps(parsed["hostnames"], ensure_ascii=False),
              json.dumps(parsed["arguments"], ensure_ascii=False),
