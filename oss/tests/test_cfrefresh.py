@@ -149,6 +149,8 @@ def main() -> int:
         hosts_text = (
             "# StevenBlack-style sample\n"
             "127.0.0.1 localhost\n"
+            "127.0.0.1 localhost.localdomain\n"
+            "127.0.0.1 local\n"
             "0.0.0.0 ads.example.com\n"
             "0.0.0.0 tracker.example.org # trailing comment\n"
             "0.0.0.0 ADS.EXAMPLE.COM\n"

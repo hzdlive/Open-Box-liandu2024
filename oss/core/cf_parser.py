@@ -56,7 +56,14 @@ def parse_ruleset(text: str, dialect: str) -> dict:
 _HOSTS_LINE_RE = re.compile(
     r"^(?:0\.0\.0\.0|127\.0\.0\.1)\s+(\S+)(?:\s+#.*)?\s*$")
 _LOCALHOST_NAMES = {"localhost", "broadcasthost", "localdomain",
+                    "localhost.localdomain", "local",
                     "ip6-localhost", "ip6-loopback"}
+
+
+def _is_local_name(domain: str) -> bool:
+    return (domain in _LOCALHOST_NAMES
+            or domain.endswith(".localhost")
+            or domain.endswith(".localdomain"))
 
 
 def _is_ip_literal(s: str) -> bool:
@@ -89,7 +96,8 @@ def parse_hosts(text: str) -> dict:
     result shape as the other parsers. Lines mapping to localhost, to an
     IP literal, or to nothing parseable are skipped, not turned into
     block rules (a suffix rule for 'localhost' or '0.0.0.0' would match
-    nothing real and only pollute the rule table). Domains are
+    nothing real and only pollute the rule table; a bare 'local' rule
+    would additionally match every .local mDNS name). Domains are
     lowercased and deduplicated, preserving first-seen order."""
     result = {
         "rules": [],
@@ -111,7 +119,7 @@ def parse_hosts(text: str) -> dict:
             result["skipped_unsupported"] += 1
             continue
         domain = m.group(1).lower()
-        if domain in _LOCALHOST_NAMES or _is_ip_literal(domain):
+        if _is_local_name(domain) or _is_ip_literal(domain):
             result["skipped_unsupported"] += 1
             continue
         if domain in seen:
