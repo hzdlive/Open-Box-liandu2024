@@ -207,7 +207,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(q, i) in filteredQueryLog" :key="i">
+            <tr v-for="(q, i) in pagedQueryLog" :key="i">
               <td class="font-mono text-xs">{{ q.time }}</td>
               <td class="font-mono text-xs">{{ q.domain }}</td>
               <td class="text-xs">{{ q.qtype }}</td>
@@ -222,6 +222,20 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="mt-2 flex items-center justify-between gap-2">
+        <span class="text-xs opacity-60">共 {{ filteredQueryLog.length }} 条<span v-if="qOverCap">，仅显示前 {{ Q_PAGE_SIZE * Q_MAX_PAGES }} 条</span></span>
+        <div class="join">
+          <button class="btn btn-xs join-item" :disabled="qPageSafe <= 1" @click="qPage = qPageSafe - 1">上一页</button>
+          <button
+            v-for="p in qTotalPages"
+            :key="p"
+            class="btn btn-xs join-item"
+            :class="p === qPageSafe ? 'btn-primary' : 'btn-ghost'"
+            @click="qPage = p"
+          >{{ p }}</button>
+          <button class="btn btn-xs join-item" :disabled="qPageSafe >= qTotalPages" @click="qPage = qPageSafe + 1">下一页</button>
+        </div>
       </div>
     </div>
   </div>
@@ -277,7 +291,7 @@
 
 <script setup lang="ts">
 import { ObxApiError, obxDel, obxGet, obxPost, obxPut } from '@/openbox/api'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -355,6 +369,20 @@ const filteredQueryLog = computed(() => {
   if (qFilter.value === 'blocked') list = list.filter((q) => q.blocked)
   return list
 })
+// 查询日志分页：每页 20 条、最多 10 页（即最多显示前 200 条），
+// 表格不再随日志无限延长；后端默认也只返回 200 条，两侧对齐。
+const Q_PAGE_SIZE = 20
+const Q_MAX_PAGES = 10
+const qPage = ref(1)
+const qTotalPages = computed(() => Math.max(1, Math.min(Math.ceil(filteredQueryLog.value.length / Q_PAGE_SIZE), Q_MAX_PAGES)))
+const qPageSafe = computed(() => Math.min(Math.max(qPage.value, 1), qTotalPages.value))
+const pagedQueryLog = computed(() => {
+  const start = (qPageSafe.value - 1) * Q_PAGE_SIZE
+  return filteredQueryLog.value.slice(start, start + Q_PAGE_SIZE)
+})
+const qOverCap = computed(() => filteredQueryLog.value.length > Q_PAGE_SIZE * Q_MAX_PAGES)
+// 搜索条件或筛选变化时回到第 1 页，避免停在越界页码
+watch([qSearch, qFilter], () => { qPage.value = 1 })
 
 async function load() {
   err.value = ''
@@ -583,6 +611,7 @@ async function loadQueryLog() {
     const d = await obxGet<any>('/api/dns/query-log')
     queryLog.value = d.queries || d.logs || d.records || []
     queryLogNote.value = d.note || ''
+    qPage.value = 1
   } catch { /* 忽略 */ }
 }
 
