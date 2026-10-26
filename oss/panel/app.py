@@ -1997,8 +1997,21 @@ def create_app(db_path: str = ":memory:") -> Flask:
             fakeip_enabled=get_setting(c, "dns_fakeip", "0") == "1",
             final_outbound=get_setting(c, "final_outbound", "所有-自动"),
         )
+        # Entry bypass wiring (was Phase C TODO): the entry set was
+        # never populated, so the blacklist branch of the nft generator
+        # never fired. Blacklist -> proxy/reject CIDRs (must enter the
+        # kernel); whitelist -> direct CIDRs (same list the plan
+        # reports). Disabled -> empty (the plan reports none either).
+        if direct_bypass:
+            from core.transparent import entry_cidr_sets as _ecs
+            _sets = _ecs(cfg.site_sets, cfg.front_rules, _gd.expand_geoip)
+            _entry_cidrs = _sets["proxy"] if _ep.mode == "blacklist" \
+                else _sets["direct"]
+        else:
+            _entry_cidrs = []
         return TransparentConfig(
             entry_mode=_ep.mode,
+            entry_cidrs=_entry_cidrs,
             direct_answer_enabled=_ep.direct_answer,
             tproxy_port=int(d.get("tproxy_port", 7893)),
             dns_port=int(d.get("dns_port", 1053)),
@@ -3009,11 +3022,24 @@ def create_app(db_path: str = ":memory:") -> Flask:
         enabled = get_setting(conn, "direct_bypass_kernel", "1") == "1"
         fakeip = get_setting(conn, "dns_fakeip", "0") == "1"
         final = get_setting(conn, "final_outbound", "所有-自动")
-        # TODO: 从站点集提取 direct/proxy CIDRs（Phase C）
+        # Entry bypass wiring (was Phase C TODO): same collection as
+        # the nft builder, so the plan reports the set the generator
+        # actually emits. Disabled -> both empty (plan reports none).
+        direct_cidrs: list[str] = []
+        proxy_cidrs: list[str] = []
+        if enabled:
+            import panel.db as dbmod
+            cfg = dbmod.load_app_config(conn)
+            from core import geodata as _gd
+            from core.transparent import entry_cidr_sets as _ecs
+            _sets = _ecs(cfg.site_sets, cfg.front_rules, _gd.expand_geoip)
+            direct_cidrs, proxy_cidrs = _sets["direct"], _sets["proxy"]
         plan = entry_plan(
             enabled=enabled,
             fakeip_enabled=fakeip,
             final_outbound=final,
+            direct_cidrs=direct_cidrs,
+            proxy_cidrs=proxy_cidrs,
         )
         return jsonify(plan_to_dict(plan))
 

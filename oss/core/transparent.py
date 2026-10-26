@@ -132,6 +132,49 @@ def front_geoip_direct_cidrs(front_rules, expand_geoip) -> list[str]:
     return out
 
 
+def entry_cidr_sets(site_sets, front_rules, expand_geoip) -> dict:
+    """CIDRs split by action side, for the entry bypass wiring.
+
+    "direct": direct site sets (literal ip_cidr plus geoip rule_sets
+    expanded via decompile) plus front ip_cidr/geoip rows targeted
+    direct/直连. "proxy": proxy + reject site sets the same way plus
+    front ip_cidr/geoip rows targeted anywhere else (a group, block:
+    the kernel must see that traffic to proxy or reject it).
+    Mirrors the panel builder's direct_ip_cidrs collection, extended
+    to the proxy side. A front row with no target cannot be placed on
+    either side and is skipped. Returns sorted, deduplicated lists.
+    """
+    direct: list[str] = []
+    proxy: list[str] = []
+    for s in site_sets or []:
+        action = getattr(s, "action", "")
+        if action == "direct":
+            target = direct
+        elif action in ("proxy", "reject"):
+            target = proxy
+        else:
+            continue
+        target.extend(x for x in (getattr(s, "ip_cidr", None) or []) if x)
+        for rs in (getattr(s, "rule_sets", None) or []):
+            target.extend(expand_geoip(rs))
+    for fr in front_rules or []:
+        if not isinstance(fr, dict):
+            continue
+        tgt = (fr.get("target") or "").strip().lower()
+        if not tgt:
+            continue
+        target = direct if tgt in ("direct", "直连") else proxy
+        val = (fr.get("domain") or "").strip()
+        if not val:
+            continue
+        rtype = fr.get("rtype") or ""
+        if rtype == "ip_cidr":
+            target.append(val)
+        elif rtype == "geoip":
+            target.extend(expand_geoip(f"geoip-{val}"))
+    return {"direct": sorted(set(direct)), "proxy": sorted(set(proxy))}
+
+
 def front_dns_direct_domains(front_rules, expand_geosite) -> list[str]:
     """Domains from front rules that send traffic direct, for the DNS
     ingress bypass (dnsmasq ipset= lines into obx_direct4).
