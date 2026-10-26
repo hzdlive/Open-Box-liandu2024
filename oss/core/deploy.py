@@ -43,6 +43,15 @@ Deliberate differences from /api/config/apply and /api/service/start:
   On success the pipeline additionally updates "applied_rev" and
   "deploy_state" so the existing kernel-page stale flag and
   deploy-state poll keep working after a pipeline deploy.
+- On success the result carries "dns_upstream_routes" (v8 #33):
+  one row per proxy DNS upstream traced through the routing oracle
+  (wan/host-supplied rows answer direct without a trace; a failed
+  trace is an error row, never a failed deploy). Deliberate
+  record-only scope: the original also feeds these rows back into
+  the config as dns-proxy detours (pi), but our build already sets
+  the detour (所有-自动, or direct outside the region) — rewriting
+  it to a traced leaf would pin proxy DNS to one node and drop the
+  urltest selection. Detour rewriting is a separate decision.
 """
 
 from __future__ import annotations
@@ -78,6 +87,153 @@ def _fail(stage: str, error: str, **extra) -> dict:
     d = {"ok": False, "stage": stage, "error": error}
     d.update(extra)
     return d
+
+
+# ---------------------------------------------------------------- DNS upstreams
+
+_DEFAULT_UPSTREAM_PORTS = {"udp": 53, "tcp": 53, "tls": 853,
+                           "https": 443, "quic": 443}
+
+
+def parse_proxy_upstreams(proxy_dns: str) -> list[dict]:
+    """Parse cfg.dns.proxy_dns into [{server, port, protocol, wan}].
+
+    Mirrors _dns_servers' splitting (comma-separated, per-entry label
+    stripping) except that "wan" collapses to a single untraceable row:
+    the host's own resolver goes direct by definition and cannot be
+    traced through the oracle. Identical triples dedupe, config order
+    kept. Returns [] when nothing is configured.
+    """
+    from core.singbox import _strip_upstream_label
+    import ipaddress as _ip
+
+    rows: list[dict] = []
+    seen: set[tuple] = set()
+
+    def _emit(row: dict) -> None:
+        key = (row["server"], row["port"], row["protocol"])
+        if key not in seen:
+            seen.add(key)
+            rows.append(row)
+
+    for entry in (proxy_dns or "").split(","):
+        entry = _strip_upstream_label(entry)
+        if not entry:
+            continue
+        if entry.lower() == "wan":
+            _emit({"server": "wan", "port": 53, "protocol": "udp",
+                   "wan": True})
+            continue
+        protocol = "udp"
+        rest = entry
+        if "://" in entry:
+            scheme, rest = entry.split("://", 1)
+            scheme = scheme.lower()
+            if scheme == "dhcp":
+                # DHCP-provided resolver: host-supplied, not a literal.
+                _emit({"server": entry, "port": 53, "protocol": "dhcp",
+                       "wan": True})
+                continue
+            if scheme not in _DEFAULT_UPSTREAM_PORTS:
+                _emit({"server": entry, "port": 53, "protocol": scheme,
+                       "wan": False})
+                continue
+            protocol = scheme
+        server, port = rest, _DEFAULT_UPSTREAM_PORTS[protocol]
+        if rest.startswith("["):
+            # [IPv6] or [IPv6]:port
+            import re as _re
+            m = _re.match(r"^\[([^\]]+)\](?::(\d+))?$", rest)
+            if m:
+                server = m.group(1)
+                if m.group(2):
+                    port = int(m.group(2))
+        else:
+            try:
+                _ip.ip_address(rest)
+            except ValueError:
+                if rest.count(":") == 1:
+                    host, port_s = rest.rsplit(":", 1)
+                    if port_s.isdigit():
+                        server, port = host, int(port_s)
+        _emit({"server": server, "port": port, "protocol": protocol,
+               "wan": False})
+    return rows
+
+
+def dns_upstream_routes(cfg, proxies=None, predict_fn=None) -> list[dict]:
+    """Trace each proxy DNS upstream through the routing oracle.
+
+    Returns one row per upstream, in config order:
+    {server, port, protocol, outbound, reject, owner, chain, ruleIndex,
+    assumptions} for traced rows; {server, port, protocol, error} when
+    the trace itself fails; and the wan shape (outbound direct,
+    wan: True) for host-supplied resolvers. predict_fn, when given,
+    replaces the oracle: predict_fn(server, port, network) -> a
+    route_oracle.predict-shaped dict (test seam). Never raises for a
+    bad row — a failed trace is a row, not a failed deploy.
+    """
+    rows: list[dict] = []
+    for spec in parse_proxy_upstreams(getattr(
+            getattr(cfg, "dns", None), "proxy_dns", "") or ""):
+        base = {"server": spec["server"], "port": spec["port"],
+                "protocol": spec["protocol"]}
+        if spec["wan"]:
+            rows.append({**base, "outbound": "direct", "reject": False,
+                         "owner": None, "chain": [], "ruleIndex": None,
+                         "assumptions": [], "wan": True})
+            continue
+        network = "udp" if spec["protocol"] == "udp" else "tcp"
+        try:
+            if predict_fn is not None:
+                res = predict_fn(spec["server"], spec["port"], network)
+            else:
+                from core.route_oracle import predict
+
+                res = predict(cfg, spec["server"], port=spec["port"],
+                              network=network, proxies=proxies)
+        except Exception as e:
+            rows.append({**base, "error": str(e)})
+            continue
+        matched = res.get("matched") or {}
+        final = res.get("final_outbound") or ""
+        reject = matched.get("action") == "reject" or final == "block"
+        rows.append({
+            **base,
+            "outbound": "" if reject else final,
+            "reject": reject,
+            "owner": matched.get("owner"),
+            "chain": res.get("chain") or [],
+            "ruleIndex": matched.get("rule_index"),
+            "assumptions": res.get("assumptions") or [],
+        })
+    return rows
+
+
+def _upstream_routes(conn, hooks: dict) -> list[dict]:
+    """Best-effort upstream table for a deploy result. Never raises:
+    a failed table is [] rather than a failed deploy."""
+    try:
+        from panel import db as dbmod
+
+        cfg = dbmod.load_app_config(conn)
+        if "upstream_proxies" in hooks:
+            proxies = hooks["upstream_proxies"]
+        else:
+            proxies = None
+            try:
+                from core.clashapi import get_proxies
+
+                ok, data = get_proxies()
+                if ok and isinstance(data, dict):
+                    proxies = data.get("proxies")
+            except Exception:
+                proxies = None
+        return dns_upstream_routes(
+            cfg, proxies=proxies,
+            predict_fn=hooks.get("upstream_predict"))
+    except Exception:
+        return []
 
 
 def _reconcile_before_build(conn) -> None:
@@ -177,6 +333,7 @@ def _run(conn, manager, hooks: dict) -> dict:
             "route_rules": len(cfg.get("route", {}).get("rules", [])),
             "validation": msg,
             "note": "sing-box 未安装，仅写入配置",
+            "dns_upstream_routes": _upstream_routes(conn, hooks),
             **ctx,
         }
 
@@ -206,6 +363,7 @@ def _run(conn, manager, hooks: dict) -> dict:
         "outbounds": len(cfg.get("outbounds", [])),
         "route_rules": len(cfg.get("route", {}).get("rules", [])),
         "validation": msg, "verify": ver,
+        "dns_upstream_routes": _upstream_routes(conn, hooks),
         **ctx,
     }
 
