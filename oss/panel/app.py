@@ -1101,14 +1101,34 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/openbox/penetration")
     def ob_penetration():
-        from core import penetration as _pen
+        from core import route_oracle as _orc
+        from core.clashapi import get_proxies as _get_proxies
         d = request.get_json(force=True, silent=True) or {}
         target = (d.get("target") or d.get("domain") or d.get("query") or "").strip()
         if not target:
             return jsonify({"error": "target is required"}), 400
+        port = d.get("port")
+        network = d.get("network") or "tcp"
+        ip_version = d.get("ip_version")
+        if ip_version is not None:
+            try:
+                ip_version = int(ip_version)
+            except (TypeError, ValueError):
+                return jsonify({"error": "ip_version 只能是 4 或 6"}), 400
         cfg = dbmod.load_app_config(db())
-        # 新版穿透：前置规则 -> 站点集 -> 兜底
-        res = _pen.penetrate(cfg, target)
+        # 实时链路展开：Clash 可达时用 live 选择，不可达时预言机回落 DB。
+        try:
+            ok, data = _get_proxies()
+        except Exception:
+            ok, data = False, {}
+        proxies = data.get("proxies") if ok and isinstance(data, dict) else None
+        try:
+            res = _orc.predict(cfg, target, port=port, network=network,
+                               ip_version=ip_version, proxies=proxies)
+        except _orc.TargetError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            return jsonify({"error": f"预言机评估失败：{e}"}), 500
         res["ok"] = True
         return jsonify(res)
 

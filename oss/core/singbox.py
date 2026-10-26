@@ -445,11 +445,23 @@ def front_rule_warnings(cfg: AppConfig) -> list[str]:
 
 
 def build_route_rules(cfg: AppConfig,
-                      skip_rule_sets: set[str] | None = None
+                      skip_rule_sets: set[str] | None = None,
+                      provenance: list | None = None
                       ) -> tuple[list[dict], list[dict], set[str]]:
-    """Build (route_rules, dns_rules, group_names) from site sets."""
+    """Build (route_rules, dns_rules, group_names) from site sets.
+
+    provenance: when a list is passed, one owner record is appended per
+    route rule, in the same order (the route oracle maps a matched rule
+    back to the front rule / site set / builtin that produced it).
+    When None (the default) nothing is recorded and the output is
+    byte-identical to before.
+    """
     groups = cfg.groups or default_groups()
     group_names = {g.name for g in groups}
+
+    def _prov(owner: dict) -> None:
+        if provenance is not None:
+            provenance.append(owner)
 
     dns_rules = []
     route_rules = []
@@ -483,6 +495,7 @@ def build_route_rules(cfg: AppConfig,
             "rules": _logical_rules,
             "outbound": "direct",
         })
+        _prov({"kind": "bypass", "name": "入口直连旁路"})
     # Terminal policies: "direct" terminals bypass the proxy at the route
     # level (evaluated before any site set). "bypass" terminals never reach
     # the kernel at all (handled in nftables, see core/transparent.py).
@@ -492,6 +505,7 @@ def build_route_rules(cfg: AppConfig,
         [t.ident for t in cfg.terminals if t.policy == "direct"])
     if direct_terms:
         route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
+        _prov({"kind": "terminal", "name": "终端直连策略"})
     # Terminal rules (1:1): proxy policy -> source_ip_cidr to specified outbound.
     # Evaluated before site sets. MAC targets resolve to current ARP IPs.
     # direct/whitelist policies are handled at nftables level (see transparent.py).
@@ -509,13 +523,15 @@ def build_route_rules(cfg: AppConfig,
                     cidrs.append(t if "/" in t else f"{t}/32")
         if cidrs:
             route_rules.append({"source_ip_cidr": cidrs, "outbound": tr.outbound})
+            _prov({"kind": "terminal",
+                   "name": f"终端策略（{tr.outbound}）"})
     # Front custom routing: user domain -> target mappings, evaluated before
     # every site set. Target is a group name, node tag, "direct" or "reject".
     # Front custom routing: typed user rules, evaluated before every site
     # set. Target is a group name, node tag, "direct" or "reject".
     # 8 types: domain_suffix | domain | domain_keyword | ip_cidr |
     #          geosite | geoip | ruleset_url | port
-    for fr in cfg.front_rules or []:
+    for _fr_idx, fr in enumerate(cfg.front_rules or []):
         if not isinstance(fr, dict):
             continue
         if not fr.get("enabled", True):
@@ -572,6 +588,8 @@ def build_route_rules(cfg: AppConfig,
             if cfg.dns.enable_fakeip:
                 dns_srv = "dns-fakeip"
         route_rules.append(rule)
+        _prov({"kind": "front", "name": "前置自定义分流",
+               "ref": _fr_idx, "note": fr.get("note", "")})
         if dns_sel is not None:
             dns_rules.append({**dns_sel, "server": dns_srv})
     # Subscription & node server domains go direct (keeps subscription updates
@@ -591,6 +609,7 @@ def build_route_rules(cfg: AppConfig,
             # 路由规则引用 obnode-direct rule_set
             route_rules.append({"rule_set": ["obnode-direct", "obnode-direct-ip"],
                                 "outbound": "direct"})
+            _prov({"kind": "obnode", "name": "订阅与节点直连"})
             dns_rules.append({"rule_set": ["obnode-direct"],
                               "server": "dns-direct"})
     # Collect remote ruleset URLs (side effect for build_config declarations)
@@ -672,6 +691,7 @@ def build_route_rules(cfg: AppConfig,
                     "port": 443,
                     "outbound": "block",
                 })
+                _prov({"kind": "quic", "name": f"QUIC 拦截：{s.name}"})
             elif rule.get("rule_set"):
                 # 纯 rule_set 引用的站点集：QUIC 规则直接引用（对标原版规则 6）
                 route_rules.append({
@@ -680,7 +700,9 @@ def build_route_rules(cfg: AppConfig,
                     "port": 443,
                     "outbound": "block",
                 })
+                _prov({"kind": "quic", "name": f"QUIC 拦截：{s.name}"})
         route_rules.append({**rule, "outbound": target})
+        _prov({"kind": "siteset", "name": s.name, "group": s.group})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
         dns_server = ("dns-fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
@@ -694,6 +716,7 @@ def build_route_rules(cfg: AppConfig,
             "domain_suffix": _blocked,
             "outbound": "block",
         })
+        _prov({"kind": "content", "name": "内容过滤"})
     return route_rules, dns_rules, group_names
 
 
