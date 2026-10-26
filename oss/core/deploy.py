@@ -216,7 +216,10 @@ def _upstream_routes(conn, hooks: dict) -> list[dict]:
     try:
         from panel import db as dbmod
 
-        cfg = dbmod.load_app_config(conn)
+        # Same table deploy emits: without blocked domains the oracle
+        # numbers rules on a cf-less table and ruleIndex drifts from the
+        # deployed file (cf moved before the split rules in item 5).
+        cfg = dbmod.load_app_config(conn, with_blocked_domains=True)
         if "upstream_proxies" in hooks:
             proxies = hooks["upstream_proxies"]
         else:

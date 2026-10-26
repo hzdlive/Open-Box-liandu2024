@@ -99,6 +99,45 @@ def test_no_blocked_list_no_content_rule():
     assert "content" not in ks
 
 
+def test_deploy_upstream_table_loads_blocked_domains(monkeypatch):
+    """Same fidelity gap on the deploy side: _upstream_routes must number
+    rules on the table deploy emits, or its ruleIndex drifts from the
+    deployed file once cf sits before the split rules."""
+    from core import deploy as deploy_mod
+    from panel import db as dbmod
+
+    seen = {}
+    fake = _cfg_proxy()
+
+    def fake_load(conn, with_blocked_domains=False):
+        seen["with_blocked_domains"] = with_blocked_domains
+        return fake
+
+    monkeypatch.setattr(dbmod, "load_app_config", fake_load)
+    calls = []
+
+    def predict(server, port, network):
+        calls.append((server, port, network))
+        return {"matched": {"action": "", "owner": {"kind": "siteset",
+                                                   "name": "国外"},
+                            "rule_index": 41},
+                "final_outbound": "node-a",
+                "chain": ["flip-11", "所有-自动", "node-a"],
+                "assumptions": []}
+
+    rows = deploy_mod._upstream_routes(
+        None, {"upstream_predict": predict})
+    assert seen["with_blocked_domains"] is True
+    assert rows[0]["ruleIndex"] == 41
+
+
+def _cfg_proxy():
+    from core.models import DnsConfig
+    c = AppConfig()
+    c.dns = DnsConfig(proxy_dns="tcp://1.1.1.1")
+    return c
+
+
 def test_penetration_endpoint_loads_blocked_domains(monkeypatch):
     """The penetration endpoint must build the same table deploy emits:
     with blocked domains, or blocked domains keep predicting 'proxy'."""
