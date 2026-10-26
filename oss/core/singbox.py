@@ -21,6 +21,45 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
+def resolve_host_ips(hosts: list[str], budget_s: float = 5.0) -> list[str]:
+    """Resolve hostnames to IPs (best-effort, bounded by a total budget).
+
+    Used to fill the obnode-direct-ip set: the reference resolves the
+    direct-host domains through the host's own resolvers at deploy time
+    (bv/resolveDirectHostCidrs). A hung resolver must never hang a
+    build, so all lookups run in one daemon worker thread joined with a
+    total budget; whatever resolved in time is returned, the rest is
+    skipped. Returns bare IP strings (no prefix), deduplicated, sorted.
+    """
+    import socket
+    import threading
+    out: list[str] = []
+
+    def _work():
+        for h in hosts:
+            try:
+                for _fam, _typ, _proto, _canon, sockaddr in \
+                        socket.getaddrinfo(h, None):
+                    out.append(sockaddr[0])
+            except OSError:
+                continue
+
+    t = threading.Thread(target=_work, daemon=True)
+    t.start()
+    t.join(timeout=budget_s)
+    seen: set[str] = set()
+    ips: list[str] = []
+    for ip in list(out):
+        try:
+            norm = str(ipaddress.ip_address(ip))
+        except ValueError:
+            continue
+        if norm not in seen:
+            seen.add(norm)
+            ips.append(norm)
+    return sorted(ips)
+
+
 def _tls_block(params: dict) -> dict | None:
     tls = params.get("tls")
     if not tls:
@@ -600,18 +639,38 @@ def build_route_rules(cfg: AppConfig,
         cfg._obnode_direct = {"domains": [], "cidrs": []}
     if cfg.sub_node_direct:
         snd = set(cfg.sub_domains or [])
+        cidrs: set[str] = set()
         for n in cfg.nodes or []:
             srv = (n.server or "").strip().lower()
-            if srv and not _is_ip_literal(srv):
+            if not srv:
+                continue
+            if _is_ip_literal(srv):
+                # IP-literal node servers need no resolving (reference
+                # directHostTargets' cidrs half).
+                ip = ipaddress.ip_address(srv)
+                cidrs.add(f"{ip}/{'128' if ip.version == 6 else '32'}")
+            else:
                 snd.add(srv)
-        if snd:
-            cfg._obnode_direct["domains"] = sorted(snd)
+        if snd or cidrs:
+            # Resolve the direct-host domains through the host's own
+            # resolvers (reference bv/resolveDirectHostCidrs): their IPs
+            # are what the logical bypass rule (rule 0) matches on.
+            # Best-effort: unresolved hosts simply contribute nothing.
+            # An empty set keeps the sentinel in the decl below and
+            # rule 0 stays inert, exactly as today.
+            if snd:
+                cfg._obnode_direct["domains"] = sorted(snd)
+                for ip in resolve_host_ips(sorted(snd)):
+                    cidrs.add(f"{ip}/{'128' if ':' in ip else '32'}")
+            if cidrs:
+                cfg._obnode_direct["cidrs"] = sorted(cidrs)
             # 路由规则引用 obnode-direct rule_set
             route_rules.append({"rule_set": ["obnode-direct", "obnode-direct-ip"],
                                 "outbound": "direct"})
             _prov({"kind": "obnode", "name": "订阅与节点直连"})
-            dns_rules.append({"rule_set": ["obnode-direct"],
-                              "server": "dns-direct"})
+            if snd:
+                dns_rules.append({"rule_set": ["obnode-direct"],
+                                  "server": "dns-direct"})
     # Collect remote ruleset URLs (side effect for build_config declarations)
     if not hasattr(cfg, "_remote_rulesets"):
         cfg._remote_rulesets = {}
