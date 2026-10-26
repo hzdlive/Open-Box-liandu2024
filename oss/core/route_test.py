@@ -395,10 +395,20 @@ def attribute_owner(rule_text: str, deployed: dict, flip_map: dict):
 
 
 def _poll_connections(connections_fn, is_settled, matches_target,
-                      matches_inbound):
+                      matches_inbound, baseline_ids=None):
     """The /connections poller: immediate first fetch, then the six
     backoff tiers; after the probe settles, a type-less candidate is
-    a hit, and three quiet rounds mean "not seen"."""
+    a hit, and three quiet rounds mean "not seen".
+
+    baseline_ids are the connection ids seen before this probe
+    started: a flow already present then cannot be this probe's flow,
+    so it is never a candidate. This is what keeps the host fallback
+    in _matches_target from reintroducing the lingering-flow
+    misattribution the family-scoped match_ips fixed: the exit6 poll
+    must not claim the exit probe's still-listed domain-routed flow.
+    Connections without an id cannot be excluded this way and stay
+    candidates (the old behaviour)."""
+    baseline_ids = baseline_ids or set()
     total = 0
     sample: list[str] = []
     settle_rounds = 0
@@ -417,7 +427,9 @@ def _poll_connections(connections_fn, is_settled, matches_target,
                   f"{c['metadata'].get('destinationIP', '')}"
                   for c in conns[-5:]]
         cands = sorted(
-            (c for c in conns if matches_target(c["metadata"])),
+            (c for c in conns
+             if matches_target(c["metadata"])
+             and (c.get("id") is None or c["id"] not in baseline_ids)),
             key=lambda c: str(c.get("start", "")), reverse=True)
         inbound = next((c for c in cands
                         if matches_inbound(c["metadata"])), None)
@@ -449,7 +461,9 @@ def _probe_one(target, *, port, secure, connect_to, method, mixed_host,
     from the exit probe would match the exit6 poll (same target,
     same inbound, same port) and report a v4 destination as the v6
     result — exactly the misattribution a measurement route must not
-    make.
+    make. The host fallback below is guarded against that by the
+    pre-probe baseline: only flows that appear after this probe
+    started are candidates at all.
     """
     url_host = f"[{target}]" if ":" in target else target
     if method in ("TCP", "TLS"):
@@ -466,7 +480,15 @@ def _probe_one(target, *, port, secure, connect_to, method, mixed_host,
 
     def _matches_target(md: dict) -> bool:
         if match_ips is not None:
-            return md.get("destinationIP") in match_ips
+            dest = md.get("destinationIP") or ""
+            if dest:
+                return dest in match_ips
+            # Domain-routed flows carry no destinationIP: the kernel
+            # routed by name (live shape: destinationIP "", host set).
+            # Fall back to the host, which is the queried domain for
+            # these flows. A non-empty address outside match_ips is
+            # still a miss, never a host match.
+            return str(md.get("host") or "").lower() == target.lower()
         return (str(md.get("host") or "").lower() == target.lower()
                 or md.get("destinationIP") == target)
 
@@ -475,10 +497,17 @@ def _probe_one(target, *, port, secure, connect_to, method, mixed_host,
                 and md.get("type") == f"mixed/{mixed_tag}"
                 and str(md.get("destinationPort")) == str(port))
 
+    try:
+        baseline = connections_fn() or []
+        baseline_ids = {c.get("id") for c in baseline
+                        if isinstance(c, dict) and c.get("id")}
+    except Exception:
+        baseline_ids = set()
+
     poller = threading.Thread(
         target=lambda: found.update(_poll_connections(
             connections_fn, settled.is_set, _matches_target,
-            _matches_inbound)),
+            _matches_inbound, baseline_ids)),
         daemon=True)
     poller.start()
     try:

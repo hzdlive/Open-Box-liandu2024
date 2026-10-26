@@ -198,6 +198,73 @@ def test_exit6_does_not_match_lingering_v4_flow():
     assert body["exit6"]["chains"] == ["node-b"]
 
 
+def _domain_flow(flow_id, host, dest_ip):
+    return {"id": flow_id,
+            "metadata": {"host": host, "destinationIP": dest_ip,
+                         "destinationPort": 443,
+                         "type": "mixed/mixed-in"},
+            "start": "2026-10-26T13:00:00+08:00",
+            "chains": ["JPAC转甲骨文新加坡"],
+            "rule": "rule_set=geosite-youtube => route(JPAC转甲骨文新加坡)",
+            "rulePayload": ""}
+
+
+def test_domain_routed_flow_matches_by_host():
+    # Regression: a domain-routed flow has destinationIP "" and only
+    # the host names the target. Resolution succeeded, so match_ips
+    # is set — the flow must still match, via the host fallback.
+    flow = _domain_flow("new-id", "www.youtube.com", "")
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else [flow]
+
+    status, body = rt.run_route_test(
+        {"target": "www.youtube.com"},
+        **_base(probe_fn=_probe_ok([]), connections_fn=fetch,
+                resolve_fn=lambda t: (["1.2.3.4"], [], 5)))
+    assert status == 200
+    assert body["exit"]["chains"] == ["JPAC转甲骨文新加坡"]
+    assert body["exit"]["destinationIP"] == ""
+    assert body["exit"]["owner"] == {"kind": "node",
+                                     "name": "JPAC转甲骨文新加坡"}
+
+
+def test_host_fallback_ignores_baseline_flow():
+    # The host fallback must not claim a flow that was already listed
+    # before this probe started (the lingering-flow case, now with
+    # domain routing instead of a v4 address).
+    lingering = _domain_flow("old-id", "www.youtube.com", "")
+    status, body = rt.run_route_test(
+        {"target": "www.youtube.com"},
+        **_base(probe_fn=_probe_ok([]),
+                connections_fn=_conns([lingering]),
+                resolve_fn=lambda t: (["1.2.3.4"], [], 5)))
+    assert status == 200
+    assert "chains" not in body["exit"]
+    assert body["exit"]["debug"]["connections"] == 1
+
+
+def test_host_fallback_rejects_wrong_address():
+    # A flow whose destinationIP is present but outside match_ips is
+    # a miss even when its host equals the target: the fallback only
+    # applies to the empty-address shape.
+    flow = _domain_flow("new-id", "www.youtube.com", "9.9.9.9")
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        return [] if calls["n"] == 1 else [flow]
+
+    status, body = rt.run_route_test(
+        {"target": "www.youtube.com"},
+        **_base(probe_fn=_probe_ok([]), connections_fn=fetch,
+                resolve_fn=lambda t: (["1.2.3.4"], [], 5)))
+    assert status == 200
+    assert "chains" not in body["exit"]
+
+
 def test_rule_text_parsing_and_final():
     conds, out = rt.parse_rule_text(
         "rule_set=[geosite-gfw geoip-google] => route(flip-11)")
