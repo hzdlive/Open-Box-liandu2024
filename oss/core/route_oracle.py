@@ -158,7 +158,8 @@ def parse_target(raw, ip_version=None) -> Target:
     labels = domain.split(".")
     if not labels or any(not lab or len(lab) > 63 for lab in labels):
         raise TargetError("target 格式不正确")
-    if any(not re.match(r"^[A-Za-z0-9_-]+$", lab) for lab in labels):
+    if any(not re.match(r"^[A-Za-z0-9_](?:[A-Za-z0-9_-]*[A-Za-z0-9_])?$",
+                        lab) for lab in labels):
         raise TargetError("target 格式不正确")
     return Target("domain", domain, port=port)
 

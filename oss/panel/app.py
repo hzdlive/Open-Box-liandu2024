@@ -1099,6 +1099,63 @@ def create_app(db_path: str = ":memory:") -> Flask:
             res["outbound"] = cfg.routing_fallback or cfg.final_outbound
         return jsonify(res)
 
+    @app.post("/api/openbox/route-test")
+    def ob_route_test():
+        """Route-test by measurement (v8 #34 对照）.
+
+        Dials the panel's own mixed inbound and looks the flow up in
+        the kernel's /connections, so the chain/rule/owner come from
+        the running kernel, not from a model of it. Error shape is
+        {message} (the diagnostics routes' contract, unlike the rest
+        of the panel's {error}); 200 even when the probe failed —
+        exit.ok carries the outcome.
+        """
+        import json as _json
+
+        from core import route_test as _rt
+        from core.clashapi import get_proxies as _get_proxies
+        from core.singbox import flip_tag as _flip_tag
+
+        d = request.get_json(force=True, silent=True) or {}
+        try:
+            manager = _manager()
+            deployed = None
+            try:
+                with open(manager.config_path) as f:
+                    deployed = _json.load(f)
+            except Exception:
+                deployed = None
+            mixed_host, mixed_port, mixed_tag = "127.0.0.1", 2080, None
+            if deployed:
+                for ib in deployed.get("inbounds") or []:
+                    if isinstance(ib, dict) and ib.get("type") == "mixed":
+                        mixed_tag = ib.get("tag")
+                        listen = ib.get("listen") or "127.0.0.1"
+                        mixed_host = ("127.0.0.1" if listen in
+                                      ("0.0.0.0", "::") else listen)
+                        mixed_port = ib.get("listen_port") or 2080
+                        break
+            try:
+                ok, data = _get_proxies()
+                proxies = data.get("proxies") if ok and isinstance(
+                    data, dict) else None
+            except Exception:
+                proxies = None
+            flip_map = {}
+            try:
+                cfg = dbmod.load_app_config(db())
+                flip_map = {_flip_tag(s): s.name
+                            for s in (cfg.site_sets or [])}
+            except Exception:
+                flip_map = {}
+            status, result = _rt.run_route_test(
+                d, deployed=deployed, mixed_host=mixed_host,
+                mixed_port=mixed_port, mixed_tag=mixed_tag,
+                proxies=proxies, flip_map=flip_map)
+            return jsonify(result), status
+        except Exception as e:
+            return jsonify({"message": str(e)}), 500
+
     @app.post("/api/openbox/penetration")
     def ob_penetration():
         from core import route_oracle as _orc

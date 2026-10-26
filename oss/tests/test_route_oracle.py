@@ -88,7 +88,8 @@ def test_parse_target_shapes():
 def test_parse_target_invalid():
     for bad in ("", "  ", "http://example.com", "exa mple.com",
                 "example.com:0", "example.com:99999", "example.com:abc",
-                "[::1", "[::1]:0", "a" * 64 + ".com"):
+                "[::1", "[::1]:0", "a" * 64 + ".com",
+                "-oops", "-a.com", "a-.com"):
         with pytest.raises(orc.TargetError):
             orc.parse_target(bad)
 
