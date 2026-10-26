@@ -339,6 +339,8 @@ const zh: LANG_MESSAGE = {
     contentFilter: '内容过滤',
     cfDescription: '管理规则与脚本快照。iOS 运行同步的副本离线。',
     cfEmpty: '暂无规则集。添加文件或 HTTPS URL。',
+    cfAutoUpdate: '每天自动刷新',
+    cfAutoUpdateHint: '每天指定时间自动拉取带来源 URL 的规则集与旧版名单；只更新名单，内核拦截规则在下次应用配置后生效。无来源 URL 的手动规则集不受影响。',
     contentFilterDesc: '拦截广告、跟踪器和恶意软件域名，基于离线规则快照',
     blockedDomains: '拦截域名',
     viewDetails: '查看详情',

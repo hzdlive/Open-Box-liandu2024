@@ -337,6 +337,8 @@ const en = {
     contentFilter: 'Content Filter',
     cfDescription: 'Manage rule and script snapshots. iOS runs the synced copy offline.',
     cfEmpty: 'No rule sets. Add a file or HTTPS URL.',
+    cfAutoUpdate: 'Auto refresh daily',
+    cfAutoUpdateHint: 'Automatically fetch sourced rule sets and legacy lists at the set time each day; only the stored lists are updated, and the kernel block rule picks them up on the next apply. Manual rule sets without a source URL are unaffected.',
     contentFilterDesc: 'Block ads, trackers and malware domains via offline snapshots',
     blockedDomains: 'Blocked domains',
     viewDetails: 'Details',
