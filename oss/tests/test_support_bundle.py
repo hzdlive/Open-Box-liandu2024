@@ -155,6 +155,17 @@ def test_assembly_failure_raises(tmp_path):
         raise AssertionError("expected collect to raise on manager failure")
 
 
+def test_ss_listen_parses_local_not_peer():
+    sample = (
+        "State  Recv-Q Send-Q  Local Address:Port  Peer Address:Port\n"
+        "LISTEN 0      32      0.0.0.0:53         0.0.0.0:*   \n"
+        "LISTEN 0      32      [::]:53            [::]:*   \n"
+        "LISTEN 0      4096    127.0.0.1:2080      0.0.0.0:*   \n"
+        "LISTEN 0      4096    [fd7a:115c:a1e0::1]%tailscale0:35480  [::]:*   \n"
+    )
+    assert sb._parse_ss_listen(sample) == ["0.0.0.0:53", "[::]:53"]
+
+
 def test_missing_config_still_collects(tmp_path):
     conn, workdir = _setup(str(tmp_path))
     os.remove(os.path.join(workdir, "config.json"))

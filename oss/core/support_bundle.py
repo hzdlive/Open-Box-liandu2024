@@ -151,18 +151,27 @@ def _board() -> str:
     return ""
 
 
+def _parse_ss_listen(text: str) -> list[str]:
+    """Local addresses listening on :53 from ``ss -tln`` output.
+
+    Columns are ``State Recv-Q Send-Q Local Peer``; the local address is
+    the 4th field (parts[3]), not the peer field.
+    """
+    found = set()
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0] == "LISTEN":
+            addr = parts[3]
+            if addr.endswith(":53"):
+                found.add(addr)
+    return sorted(found)
+
+
 def _dns_port53() -> list[str]:
     out = _run(["ss", "-tln"])
     if out.startswith("command failed"):
         return []
-    found = set()
-    for line in out.splitlines():
-        parts = line.split()
-        if len(parts) >= 5 and parts[0] == "LISTEN":
-            addr = parts[4]
-            if addr.endswith(":53"):
-                found.add(addr)
-    return sorted(found)
+    return _parse_ss_listen(out)
 
 
 def _split_upstream(value: str) -> tuple[str, str, int]:
