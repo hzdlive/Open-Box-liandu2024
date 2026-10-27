@@ -796,8 +796,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.delete("/api/subscriptions/<int:sid>")
     def sub_delete(sid: int):
-        if not dbmod.delete_subscription(db(), sid):
-            return jsonify({"error": "not found"}), 404
+        # Idempotent (unlike share delete, which 404s on unknown id):
+        # deleting an already-gone subscription still answers ok.
+        dbmod.delete_subscription(db(), sid)
         return jsonify({"ok": True})
 
     @app.post("/api/subscriptions/<int:sid>/refresh")
@@ -948,7 +949,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if not d.get("name"):
             return jsonify({"error": "name required"}), 400
         return jsonify(dbmod.create_sub_share(
-            db(), d["name"], d.get("node_filter", ""))), 201
+            db(), d["name"], d.get("node_filter", ""),
+            d.get("token"))), 201
 
     @app.patch("/api/subscription-shares/<int:sid>")
     def subshare_patch(sid: int):
@@ -1021,8 +1023,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     # ---- node exit info (via temp sing-box probe) ----
     def _node_by_tag(c, tag: str) -> dict | None:
+        # node-info serves nodes-table rows that are enabled. (The
+        # original scopes it to subscription nodes; our model stores
+        # manual nodes inside subscriptions too -- source defaults to
+        # 'manual' even for URL subscriptions -- so no source filter
+        # can separate them, and the enabled check is the operative
+        # part of the scope here.)
         for n in dbmod.list_nodes(c):
-            if n["tag"] == tag:
+            if n["tag"] == tag and not n.get("disabled"):
                 return n
         return None
 
@@ -1055,6 +1063,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "刷新过于频繁，请 15 秒后再试"}), 429
         try:
             r = _ni.probe_exit(node, manager_from_env().bin_path)
+        except _ni.OutboundError as e:
+            return jsonify({"error": f"生成不出这个节点的出站:{e}"}), 400
         except RuntimeError as e:
             return jsonify({"error": str(e)}), 409
         if r.get("ok"):

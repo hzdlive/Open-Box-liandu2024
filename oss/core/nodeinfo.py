@@ -20,6 +20,12 @@ import time
 import urllib.request
 
 
+class OutboundError(Exception):
+    """Outbound generation failed (e.g. wireguard nodes are endpoints,
+    not outbounds). The API answers 400 with prefix
+    "生成不出这个节点的出站:" for this."""
+
+
 def _free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -50,11 +56,14 @@ def probe_exit(node: dict, bin_path: str, timeout: float = 25.0) -> dict:
     from core.models import Node
     if not (os.path.isfile(bin_path) and os.access(bin_path, os.X_OK)):
         raise RuntimeError("sing-box binary not installed")
-    outbound = node_to_outbound(Node(
-        tag=node["tag"], protocol=node["protocol"], server=node["server"],
-        server_port=node["port"],
-        params=node.get("params") if isinstance(node.get("params"), dict)
-        else json.loads(node.get("params") or "{}")))
+    try:
+        outbound = node_to_outbound(Node(
+            tag=node["tag"], protocol=node["protocol"], server=node["server"],
+            server_port=node["port"],
+            params=node.get("params") if isinstance(node.get("params"), dict)
+            else json.loads(node.get("params") or "{}")))
+    except Exception as e:
+        raise OutboundError(str(e)) from e
     outbound["tag"] = "probe-out"
     port = _free_port()
     cfg = {

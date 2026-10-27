@@ -2134,10 +2134,28 @@ def list_sub_shares(conn: sqlite3.Connection) -> list[dict]:
                 " FROM subscription_shares ORDER BY id")]
 
 
-def create_sub_share(conn: sqlite3.Connection, name: str,
-                     node_filter: str = "") -> dict:
+def _new_share_token(conn: sqlite3.Connection,
+                     wanted: str | None = None) -> str:
+    """Share token: 24 random bytes -> 48 hex. A user-supplied token is
+    used only when it is 40-64 hex and unoccupied panel-wide; anything
+    else is silently replaced with a generated one."""
+    import re as _re
     import secrets as _secrets
-    token = _secrets.token_urlsafe(24)
+    if wanted and _re.fullmatch(r"[0-9a-fA-F]{40,64}", wanted):
+        if not conn.execute("SELECT id FROM subscription_shares WHERE token=?",
+                            (wanted,)).fetchone():
+            return wanted
+    while True:
+        token = _secrets.token_hex(24)
+        if not conn.execute("SELECT id FROM subscription_shares WHERE token=?",
+                            (token,)).fetchone():
+            return token
+
+
+def create_sub_share(conn: sqlite3.Connection, name: str,
+                     node_filter: str = "",
+                     token: str | None = None) -> dict:
+    token = _new_share_token(conn, token)
     now = time.strftime("%Y-%m-%dT%H:%M:%S")
     cur = conn.execute(
         "INSERT INTO subscription_shares(name, token, node_filter, enabled, created_at)"
@@ -2167,11 +2185,10 @@ def update_sub_share(conn: sqlite3.Connection, sid: int, name: str | None,
 
 
 def regenerate_sub_share(conn: sqlite3.Connection, sid: int) -> dict | None:
-    import secrets as _secrets
     if not conn.execute("SELECT id FROM subscription_shares WHERE id=?",
                         (sid,)).fetchone():
         return None
-    token = _secrets.token_urlsafe(24)
+    token = _new_share_token(conn)
     conn.execute("UPDATE subscription_shares SET token=? WHERE id=?",
                  (token, sid))
     conn.commit()
