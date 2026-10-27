@@ -164,6 +164,8 @@ class AppConfig:
     tun_mtu: int = 9000
     tun_address: str = "172.19.0.1/30"  # TUN interface address (sing-box >= 1.14 requires it)
     quic_block: bool = True      # reject UDP/443 for proxied traffic (default on)
+    direct_bypass_enabled: bool = True  # ingress bypass logical rule (rule 0);
+    # mirrors the direct_bypass_kernel setting, wired in load_app_config
     blocked_domains: list = None  # content filtering (0.1.328): domains to block
     clash_api_port: int = 9090
     clash_api_listen: str = "127.0.0.1"  # dashboard 二开分支：浏览器直连 clash API 时需改为 0.0.0.0

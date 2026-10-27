@@ -1163,6 +1163,7 @@ def load_app_config(conn: sqlite3.Connection, with_blocked_domains: bool = False
         tun_mtu=int(get_setting(conn, "tun_mtu", "9000") or 9000),
         tun_address=get_setting(conn, "tun_address", "172.19.0.1/30"),
         quic_block=get_setting(conn, "quic_block", "1") == "1",
+        direct_bypass_enabled=get_setting(conn, "direct_bypass_kernel", "1") == "1",
         blocked_domains=get_blocked_domains(conn) if with_blocked_domains else [],
         clash_api_port=int(get_setting(conn, "clash_api_port", "9090") or 9090),
         clash_api_listen=get_setting(conn, "clash_api_listen", "127.0.0.1"),
@@ -1433,7 +1434,19 @@ def list_groups(conn: sqlite3.Connection) -> list[dict]:
         g = _group_row(r)
         gm = _Group(name=g["name"], type=g["type"], members=g["members"],
                     dynamic_keywords=g["dynamic_keywords"])
-        g["member_count"] = len(resolve_group_members(gm, node_tags, chain_tags))
+        if g["type"] == "failover":
+            # Failover members live in lanes, not members, so the
+            # generic resolver counts 0. Count unique lane members
+            # that resolve to live nodes/chains, same filter as above.
+            lane_tags = set()
+            for lane in (g["lanes"] or []):
+                if isinstance(lane, dict):
+                    for m in (lane.get("members") or []):
+                        if m in node_tags or m in chain_tags:
+                            lane_tags.add(m)
+            g["member_count"] = len(lane_tags)
+        else:
+            g["member_count"] = len(resolve_group_members(gm, node_tags, chain_tags))
         g["dynamic"] = bool(g["dynamic_keywords"]) or \
             any(m in ("*nodes*", "*all*") for m in (g["members"] or []))
         out.append(g)

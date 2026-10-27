@@ -526,14 +526,15 @@ def build_route_rules(cfg: AppConfig,
 
     dns_rules = []
     route_rules = []
-    # Rule 1 (1:1 对标原版): logical 入口绕过规则
+    # rule 0 (1:1 对标原版): logical 入口绕过规则
     # rule_set=obnode-direct-ip && !(ip_cidr=172.19.0.0/30) && !(rule_set=[proxy geosites]) && !(port=53)
     # → bypass() (nftables 在入口放行，不进内核)
     # 仅当 direct_bypass_kernel 开启且 obnode-direct-ip 有内容时生成
-    from panel.db import get_setting as _gs
-    # 注意：这里需要 conn，暂时用 cfg 中的设置判断
-    # 实际的条件在调用处传入，这里先构建基础结构
-    _direct_bypass_on = getattr(cfg, '_direct_bypass_enabled', True)
+    # Ingress bypass switch, wired in load_app_config from the
+    # direct_bypass_kernel setting (default on). Previously this read
+    # a never-assigned underscore attribute, so it was always True
+    # even when the user turned the setting off.
+    _direct_bypass_on = getattr(cfg, 'direct_bypass_enabled', True)
     if _direct_bypass_on:
         # 收集代理站点集的 geosite（用于排除）
         _proxy_geosites = []
