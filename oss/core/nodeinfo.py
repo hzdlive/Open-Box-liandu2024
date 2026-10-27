@@ -26,6 +26,70 @@ class OutboundError(Exception):
     "生成不出这个节点的出站:" for this."""
 
 
+def chain_cache_key(chain: dict) -> str:
+    """Cache key for a chain probe: tag + front + exit identity.
+
+    The front is part of the key (the exit depends on the path), as
+    is the exit server (an exit edit must invalidate the old probe).
+    Params are excluded on purpose: a credential change does not
+    change the exit IP the probe measured.
+    """
+    return (f"{chain['name']}\0{chain.get('front') or ''}\0"
+            f"{chain.get('exit_protocol')}:"
+            f"{chain.get('server')}:{chain.get('server_port')
+                                    or chain.get('port')}")
+
+
+def probe_chain(chain: dict, cfg, timeout: float = 25.0) -> dict:
+    """Probe a chain's exit through its front via a scratch sing-box.
+
+    Reuses chain_front resolution (node/sub/group/chain fronts) and
+    chain_test's scratch kernel + convergence gate, then maps the
+    result onto the node-info shape. Raises OutboundError when the
+    exit outbound cannot be built, RuntimeError when the binary is
+    missing. A front that cannot be resolved returns ok=False
+    (test_chain would fail fast on it anyway).
+    """
+    import os as _os
+
+    from core import chain_front as _cf
+    from core import chain_test as _ct
+    from core.models import Chain as _Chain
+    from core.singbox import chain_to_outbound as _cto
+
+    if not (_os.path.isfile("/usr/local/bin/sing-box")
+            and _os.access("/usr/local/bin/sing-box", _os.X_OK)):
+        raise RuntimeError("sing-box binary not installed")
+    try:
+        _cto(_Chain(
+            name=chain["name"],
+            exit_protocol=chain.get("exit_protocol", "socks"),
+            server=chain.get("server", ""),
+            server_port=int(chain.get("server_port") or chain.get("port")
+                            or 0),
+            params=chain.get("params") or {},
+            front=chain.get("front") or "direct"))
+    except Exception as e:
+        raise OutboundError(str(e)) from e
+    front = chain.get("front") or ""
+    front_ob, deps, gate_members, gate_group = _cf.resolve_chain_front(
+        cfg, front)
+    if front and front not in ("direct", "block") and front_ob is None:
+        return {"ok": False, "error": f"chain front not found: {front}"}
+    try:
+        r = _ct.test_chain(
+            chain, front_outbound=front_ob, front_deps=deps,
+            timeout=int(timeout), gate_members=gate_members,
+            gate_group=gate_group)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error") or "probe failed"}
+    return {"ok": True, "ip": r.get("exit_ip"), "country": r.get("country"),
+            "latency_ms": r.get("latency_ms"), "via": "chain",
+            "proxy_type": chain.get("exit_protocol")}
+
+
 def _free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))

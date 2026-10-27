@@ -1022,26 +1022,36 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify({"ok": True})
 
     # ---- node exit info (via temp sing-box probe) ----
-    def _node_by_tag(c, tag: str) -> dict | None:
-        # node-info serves nodes-table rows that are enabled. (The
-        # original scopes it to subscription nodes; our model stores
-        # manual nodes inside subscriptions too -- source defaults to
-        # 'manual' even for URL subscriptions -- so no source filter
-        # can separate them, and the enabled check is the operative
-        # part of the scope here.)
+    def _probe_target(c, tag: str):
+        """Resolve a node-info tag to (kind, target, cache_key).
+
+        kind "node": an enabled nodes-table row, keyed by tag (the
+        original scopes node-info to subscription nodes; our model
+        stores manual nodes inside subscriptions too -- source
+        defaults to 'manual' even for URL subscriptions -- so no
+        source filter can separate them, and the enabled check is
+        the operative part of the scope here).
+        kind "chain": an enabled chain proxy, keyed by tag + front +
+        exit identity (a front or exit edit must invalidate the old
+        probe). Anything else -> None.
+        """
+        from core import nodeinfo as _ni
         for n in dbmod.list_nodes(c):
             if n["tag"] == tag and not n.get("disabled"):
-                return n
+                return ("node", n, tag)
+        for ch in dbmod.list_chains(c):
+            if ch["name"] == tag and ch.get("enabled", True):
+                return ("chain", ch, _ni.chain_cache_key(ch))
         return None
 
     @app.get("/api/node-info/<tag>")
     def node_info(tag: str):
-        from core import nodeinfo as _ni
         c = db()
-        node = _node_by_tag(c, tag)
-        if not node:
+        target = _probe_target(c, tag)
+        if not target:
             return jsonify({"error": "not found"}), 404
-        cached = dbmod.get_node_info_cache(c, tag)
+        _, _, key = target
+        cached = dbmod.get_node_info_cache(c, key)
         if cached:
             cached["cached"] = True
             return jsonify(cached)
@@ -1050,35 +1060,44 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.post("/api/node-info/<tag>/exit")
     def node_info_exit(tag: str):
-        """Refresh exit info. Throttled to 15s per node (like the original)."""
+        """Refresh exit info. Throttled to 15s per probe key (like the
+        original); chains probe their exit through their front."""
         import time as _time
         from core import nodeinfo as _ni
         from core.service import manager_from_env
         c = db()
-        node = _node_by_tag(c, tag)
-        if not node:
+        target = _probe_target(c, tag)
+        if not target:
             return jsonify({"error": "not found"}), 404
-        cached = dbmod.get_node_info_cache(c, tag, max_age_s=2**31)
+        kind, tgt, key = target
+        cached = dbmod.get_node_info_cache(c, key, max_age_s=2**31)
         if cached and cached.get("_age_s", 1e9) < 15:
             return jsonify({"error": "刷新过于频繁，请 15 秒后再试"}), 429
         try:
-            r = _ni.probe_exit(node, manager_from_env().bin_path)
+            if kind == "chain":
+                cfg = dbmod.load_app_config(c)
+                r = _ni.probe_chain(tgt, cfg)
+            else:
+                r = _ni.probe_exit(tgt, manager_from_env().bin_path)
         except _ni.OutboundError as e:
             return jsonify({"error": f"生成不出这个节点的出站:{e}"}), 400
         except RuntimeError as e:
             return jsonify({"error": str(e)}), 409
         if r.get("ok"):
             r["_fetched_at"] = _time.strftime("%Y-%m-%dT%H:%M:%S")
-            dbmod.set_node_info_cache(c, tag, r)
+            dbmod.set_node_info_cache(c, key, r)
         return jsonify(r)
 
     @app.get("/api/node-info/<tag>/entry-country")
     def node_info_entry(tag: str):
         from core import nodeinfo as _ni
-        node = _node_by_tag(db(), tag)
-        if not node:
+        target = _probe_target(db(), tag)
+        if not target:
             return jsonify({"error": "not found"}), 404
-        return jsonify(_ni.entry_country(node))
+        _, tgt, _ = target
+        # Chains have no single entry hop; use the exit server address,
+        # the same field nodes use (their dial target).
+        return jsonify(_ni.entry_country({"server": tgt["server"]}))
 
     # ---- site sets ----
     @app.get("/api/sitesets")
