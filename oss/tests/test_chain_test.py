@@ -149,6 +149,37 @@ def test_curl_uses_sS_flag(monkeypatch):
     assert "-s" not in argvs[0]
 
 
+def test_saved_chain_port_key_is_honored(monkeypatch):
+    # Regression: db.list_chains returns "port", not "server_port".
+    # Reading only "server_port" built the probe with port 0, so
+    # every saved-chain speedtest failed with "proxy request
+    # failed:" while the modal (unsaved) form worked.
+    from core import singbox as sbmod
+    seen = {}
+
+    def fake_chain_to_outbound(ch):
+        seen["server_port"] = ch.server_port
+        return {"type": "direct", "tag": "chain-test"}
+
+    monkeypatch.setattr(sbmod, "chain_to_outbound",
+                        fake_chain_to_outbound)
+    db_row = {"name": "t", "exit_protocol": "shadowsocks",
+              "server": "singapore.extls.pp.ua", "port": 22101,
+              "params": {}, "front": "direct"}
+    monkeypatch.setattr(ct, "_wait_for_port", lambda port: True)
+    monkeypatch.setattr(ct.subprocess, "Popen",
+                        lambda *a, **k: _Proc(None))
+    monkeypatch.setattr(ct.subprocess, "run",
+                        lambda argv, **kw: _Result(
+                            0) if argv[0].endswith("sing-box")
+                        else _Result(0, stdout=b'{"status":"success",'
+                                                b'"country":"SG",'
+                                                b'"query":"1.2.3.4"}'))
+    result = ct.test_chain(db_row, None, None, timeout=15)
+    assert seen["server_port"] == 22101
+    assert result["ok"] is True
+
+
 def test_singbox_start_failure(monkeypatch):
     script = [_Result(0, stdout=b'{"status":"success"}')]
     result, _ = _run_probe(monkeypatch, script, proc_poll=0)

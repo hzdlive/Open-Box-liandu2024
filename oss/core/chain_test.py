@@ -110,7 +110,13 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         name="chain-test",
         exit_protocol=chain.get("exit_protocol", "socks"),
         server=chain.get("server", ""),
-        server_port=int(chain.get("server_port", 0)),
+        # Saved chains (db.list_chains) carry "port"; the unsaved
+        # modal form carries "server_port". Reading only the latter
+        # built every saved-chain probe with port 0 — the actual
+        # cause of the reported "proxy request failed:" on the chain
+        # page (the probe dialled port 0, not the chain's port).
+        server_port=int(chain.get("server_port") or chain.get("port")
+                        or 0),
         params=chain.get("params", {}) or {},
         front=chain.get("front", "direct"),
     )
