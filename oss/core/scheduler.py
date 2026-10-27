@@ -110,8 +110,15 @@ def _maybe_run_failover(conn: sqlite3.Connection) -> None:
             cfg = dbmod.load_app_config(conn)
             api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
             secret = getattr(cfg, "clash_api_secret", "") or ""
+            snapshot = _fsm.snapshot_switch(st)
             result = _fsm.run_round(st, api_base, secret)
-            # 持久化
+            # 先应用切换（含读回验证），失败则回滚内存状态，再持久化，
+            # 这样 DB 永不声称一次内核没做出的切换。
+            if result.get("switched"):
+                applied, apply_msg = _fsm.apply_decided_switch(
+                    st, snapshot, g["name"], api_base, secret)
+            else:
+                applied, apply_msg = None, ""
             conn.execute(
                 "INSERT INTO failover_state(group_name, current_tag, updated_at, last_switch_at, state_json)"
                 " VALUES (?, ?, ?, ?, ?)"
@@ -122,9 +129,12 @@ def _maybe_run_failover(conn: sqlite3.Connection) -> None:
                  st.last_switch, _json.dumps(st.to_dict(), ensure_ascii=False)))
             conn.commit()
             if result.get("switched"):
-                print(f"[scheduler] failover {g['name']}: switched to {result['currentTag']} "
-                      f"({result['reason']})", flush=True)
-                _fsm.apply_switch(api_base, secret, g["name"], result["currentTag"])
+                if applied:
+                    print(f"[scheduler] failover {g['name']}: switched to {result['currentTag']} "
+                          f"({result['reason']})", flush=True)
+                else:
+                    print(f"[scheduler] failover {g['name']}: switch to {result['currentTag']} "
+                          f"FAILED ({apply_msg}); state reverted", flush=True)
             else:
                 print(f"[scheduler] failover {g['name']}: round done ({result['reason']})",
                       flush=True)

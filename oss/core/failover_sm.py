@@ -11,9 +11,11 @@ This is a clean-room implementation of the publicly observable behavior:
 the panel runs health probes and decides which lane should be active,
 then applies the decision via sing-box's public Clash API.
 
-The sing-box config renders failover groups as `urltest` (see singbox.py),
-but the panel's state machine provides the intelligent lane switching
-that urltest alone cannot (priority order, fail streaks, restore hold).
+The sing-box config renders a failover group's lanes as `urltest`
+(multi-member) and the group itself as a top-level `selector`
+(see singbox.py); the panel's state machine drives that selector via
+the Clash API, providing the intelligent lane switching that urltest
+alone cannot (priority order, fail streaks, restore hold).
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import socket
 import time
 import urllib.request
 import urllib.error
+import urllib.parse
 import uuid
 from dataclasses import dataclass, field, asdict
 
@@ -92,6 +95,16 @@ REASON_ALL_FAILED = "all-failed"    # 所有通道均不可达
 REASON_HEALTHY = "healthy"          # 当前通道健康，保持
 # Backward compat alias
 REASON_PRIMARY_RESTORED = REASON_RESTORE
+
+# A round whose probes never reached the kernel (Clash API itself
+# unreachable for every lane) is a failed round, not a lane verdict.
+ROUND_FAILED_INFRA = "probe-infrastructure-failed"
+# A urltest lane with no kernel selection yet is "unconfirmed": it is
+# neither up nor down. After this many consecutive unconfirmed rounds
+# (5 min at the 60s tick, well past the ~2 min worst-case urltest
+# convergence seen live) it counts as failed, so a never-converging
+# lane cannot pin the group forever.
+UNCONFIRMED_MAX_ROUNDS = 5
 
 # ---- Probe failure reasons (REA §26.4: 11 codes, must not be merged) ----
 FAIL_CLOSED = "closed"          # 连接已关闭
@@ -200,6 +213,9 @@ class FailoverState:
     plan_full: bool = False  # 当前/上次是否为完整轮次
     # Logs (recent switch history)
     logs: list = field(default_factory=list)
+    # Last kernel-switch attempt that failed read-back verification
+    # ("" when the last switch, if any, applied cleanly).
+    last_switch_error: str = ""
     # Settings
     settings: dict = field(default_factory=dict)
 
@@ -224,6 +240,7 @@ class FailoverState:
             last_round_result=d.get("last_round_result", ""),
             plan_full=d.get("plan_full", False),
             logs=d.get("logs", []),
+            last_switch_error=d.get("last_switch_error", ""),
             settings=d.get("settings", {}),
         )
 
@@ -274,6 +291,7 @@ def failover_init(group_name: str, lanes_config: list[dict],
             "evaluated": False,
             "at": None,
             "status": "unknown",
+            "unconfirmed_streak": 0,
         })
     st.lanes = lanes
     st.lane_order = [l["id"] for l in lanes]
@@ -330,7 +348,10 @@ def probe_lane(api_base: str, secret: str, lane: dict,
                timeout_ms: int = DEFAULT_PROBE_TIMEOUT_MS) -> dict:
     """Probe a single lane's health via Clash API.
 
-    Returns: {"ok": bool, "latency_ms": int|None, "reason": str}
+    Returns: {"ok": bool, "latency_ms": int|None, "reason": str} plus
+    optional flags: "infra" (the Clash API itself could not be reached,
+    so this is not a lane verdict at all) and "unconfirmed" (a urltest
+    lane with no kernel selection yet: neither up nor down).
     """
     # For urltest lanes, query the Clash API for the lane's latency
     # For single-member lanes, check the member directly
@@ -340,22 +361,36 @@ def probe_lane(api_base: str, secret: str, lane: dict,
         req = urllib.request.Request(url, headers=_auth_headers(secret))
         with urllib.request.urlopen(req, timeout=timeout_ms / 1000) as r:
             data = json.loads(r.read())
+            # urltest lane with no kernel selection yet: only the node
+            # the kernel actually selected counts as up, so an
+            # unconverged urltest is "unconfirmed", not failed.
+            if str(data.get("type", "")).lower() == "urltest" \
+                    and not data.get("now"):
+                return {"ok": False, "unconfirmed": True,
+                        "latency_ms": None, "reason": "unconfirmed"}
             # Always run a fresh delay test; cached history may be stale
             # (e.g. from before a failure) and would mask real outages.
             return _delay_test(api_base, secret, tag, timeout_ms)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             return {"ok": False, "latency_ms": None, "reason": FAIL_NOT_FOUND}
+        if e.code >= 500:
+            return {"ok": False, "infra": True,
+                    "latency_ms": None, "reason": FAIL_ERROR}
         return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
     except urllib.error.URLError as e:
         reason = str(e.reason) if hasattr(e, "reason") else str(e)
         if "refused" in reason.lower():
-            return {"ok": False, "latency_ms": None, "reason": FAIL_REFUSED}
+            return {"ok": False, "infra": True,
+                    "latency_ms": None, "reason": FAIL_REFUSED}
         if "name" in reason.lower() or "dns" in reason.lower():
-            return {"ok": False, "latency_ms": None, "reason": FAIL_DNS}
-        return {"ok": False, "latency_ms": None, "reason": FAIL_UNREACHABLE}
+            return {"ok": False, "infra": True,
+                    "latency_ms": None, "reason": FAIL_DNS}
+        return {"ok": False, "infra": True,
+                "latency_ms": None, "reason": FAIL_UNREACHABLE}
     except Exception:
-        return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
+        return {"ok": False, "infra": True,
+                "latency_ms": None, "reason": FAIL_ERROR}
 
 
 def _delay_test(api_base: str, secret: str, tag: str,
@@ -381,12 +416,16 @@ def _delay_test(api_base: str, secret: str, tag: str,
         reason = str(e.reason) if hasattr(e, "reason") else str(e)
         rl = reason.lower()
         if "refused" in rl:
-            return {"ok": False, "latency_ms": None, "reason": FAIL_REFUSED}
+            # The API socket itself is down: infrastructure, not lane.
+            return {"ok": False, "infra": True,
+                    "latency_ms": None, "reason": FAIL_REFUSED}
         if "tls" in rl or "ssl" in rl or "certificate" in rl:
             return {"ok": False, "latency_ms": None, "reason": FAIL_TLS}
         if "name" in rl or "dns" in rl:
-            return {"ok": False, "latency_ms": None, "reason": FAIL_DNS}
-        return {"ok": False, "latency_ms": None, "reason": FAIL_UNREACHABLE}
+            return {"ok": False, "infra": True,
+                    "latency_ms": None, "reason": FAIL_DNS}
+        return {"ok": False, "infra": True,
+                "latency_ms": None, "reason": FAIL_UNREACHABLE}
     except Exception:
         return {"ok": False, "latency_ms": None, "reason": FAIL_ERROR}
 
@@ -398,16 +437,32 @@ def _auth_headers(secret: str) -> dict:
     return h
 
 
-def failover_observe(state: FailoverState, results: list[dict]) -> None:
+def failover_observe(state: FailoverState, results: list[dict],
+                     round_id: str | None = None) -> None:
     """Ingest probe results (REA: failoverObserve).
 
     results: [{"laneId": ..., "ok": bool, "latency_ms": ..., "reason": ...}, ...]
+    round_id: staleness token — results from any round other than the
+    current one are ignored, so a late round can never clobber newer
+    state. "infra" results (Clash API unreachable) are not lane
+    verdicts and leave streak/health untouched; "unconfirmed" results
+    (urltest without a kernel selection yet) only advance the
+    unconfirmed streak, which assess_lane bounds.
     """
+    if round_id is not None and round_id != state.last_round_id:
+        return
     result_map = {r["laneId"]: r for r in results}
     for lane in state.lanes:
         r = result_map.get(lane["id"])
         if not r:
             continue
+        if r.get("infra"):
+            continue
+        if r.get("unconfirmed"):
+            lane["unconfirmed_streak"] = lane.get("unconfirmed_streak", 0) + 1
+            lane["at"] = _now_iso()
+            continue
+        lane["unconfirmed_streak"] = 0
         lane["evaluated"] = True
         lane["at"] = _now_iso()
         if r["ok"]:
@@ -434,6 +489,16 @@ def assess_lane(state: FailoverState) -> None:
         if not lane["valid"]:
             lane["health"] = "invalid"
             lane["ok"] = False
+            continue
+        # A urltest lane that never converges is effectively dead, but
+        # only after the grace window: before that it keeps its previous
+        # health (checked before "evaluated", so never-evaluated lanes
+        # are covered too).
+        if lane.get("unconfirmed_streak", 0) >= UNCONFIRMED_MAX_ROUNDS:
+            lane["health"] = "failed"
+            lane["ok"] = False
+            lane["fail_streak"] = max(lane.get("fail_streak", 0), threshold)
+            lane["up_since"] = None
             continue
         if not lane.get("evaluated"):
             lane["health"] = "unknown"
@@ -547,6 +612,11 @@ def failover_finish(state: FailoverState, decision: dict) -> dict:
 
     state.last_reason = decision["reason"]
     state.last_round_result = decision["reason"]
+    if not switched:
+        # No switch attempted this round: any earlier switch error is
+        # stale (the lane either recovered or the next switch attempt
+        # will set it fresh).
+        state.last_switch_error = ""
 
     # Schedule next round
     interval_s = state.settings.get("probe_interval_s", DEFAULT_PROBE_INTERVAL_S)
@@ -585,8 +655,24 @@ def run_round(state: FailoverState, api_base: str, secret: str) -> dict:
         lane = next(l for l in state.lanes if l["id"] == item["laneId"])
         probe = probe_lane(api_base, secret, lane,
                           state.settings.get("probe_timeout_ms", DEFAULT_PROBE_TIMEOUT_MS))
-        results.append({"laneId": item["laneId"], **probe})
-    failover_observe(state, results)
+        results.append({"laneId": item["laneId"],
+                        "roundId": plan["roundId"], **probe})
+    # Failed round: the Clash API itself was unreachable for every
+    # probe. That round must not switch anything (the kernel keeps
+    # routing; only our observation failed), so no state change and
+    # next_round_at stays due for a prompt retry next tick.
+    if results and all(r.get("infra") for r in results):
+        state.last_round_result = ROUND_FAILED_INFRA
+        return {
+            "switched": False,
+            "currentLaneId": state.current_lane_id,
+            "currentTag": state.current_id,
+            "reason": ROUND_FAILED_INFRA,
+            "roundFailed": True,
+            "decision": None,
+            "probe_results": results,
+        }
+    failover_observe(state, results, round_id=plan["roundId"])
 
     # Stage 3: Assess
     assess_lane(state)
@@ -603,23 +689,76 @@ def run_round(state: FailoverState, api_base: str, secret: str) -> dict:
 
 def apply_switch(api_base: str, secret: str, group_tag: str,
                  target_tag: str) -> tuple[bool, str]:
-    """Apply a lane switch via Clash API.
+    """Apply a lane switch via Clash API, with read-back verification.
 
     Failover groups are rendered as selector (top-level), so we use
     PUT /proxies/{group} to force the switch to the target lane.
-    This implements "primary preferred, switch on failure" semantics.
+    A 200/204 alone is not proof: the selector's actual choice is read
+    back, and a mismatch is reported as
+    "切换失败:切到 B 后读回的是 A".
 
     Returns (ok, message).
     """
     try:
-        import urllib.request, urllib.parse, json
         url = f"{api_base}/proxies/{urllib.parse.quote(group_tag)}"
         data = json.dumps({"name": target_tag}).encode()
         req = urllib.request.Request(url, data=data, method="PUT",
                                      headers={"Content-Type": "application/json", **_auth_headers(secret)})
         with urllib.request.urlopen(req, timeout=10) as r:
-            if r.status in (200, 204):
-                return True, f"switched {group_tag} -> {target_tag}"
-            return False, f"API returned {r.status}"
+            if r.status not in (200, 204):
+                return False, f"switch failed: API returned {r.status}"
     except Exception as e:
         return False, f"switch failed: {e}"
+    try:
+        url = f"{api_base}/proxies/{urllib.parse.quote(group_tag)}"
+        req = urllib.request.Request(url, headers=_auth_headers(secret))
+        with urllib.request.urlopen(req, timeout=10) as r:
+            now = json.loads(r.read()).get("now")
+        if now == target_tag:
+            return True, f"switched {group_tag} -> {target_tag}"
+        return False, (f"切换失败:切到 {target_tag} 后读回的是 "
+                       f"{now if now else '（无选择）'}")
+    except Exception as e:
+        return False, f"切换失败:切到 {target_tag} 后读回失败: {e}"
+
+
+def snapshot_switch(state: FailoverState) -> dict:
+    """Snapshot the switch-related fields before a round, so a kernel
+    switch that fails verification can be rolled back in memory."""
+    return {
+        "current_lane_id": state.current_lane_id,
+        "current_id": state.current_id,
+        "current_since": state.current_since,
+        "last_switch": state.last_switch,
+        "logs_len": len(state.logs),
+    }
+
+
+def revert_switch(state: FailoverState, snapshot: dict) -> None:
+    """Roll back a decided-but-unapplied switch (see snapshot_switch).
+
+    The decision reason stays (the lane really did fail); only the
+    selection, switch time and the success log entry are reverted, so
+    the persisted state keeps matching what the kernel serves."""
+    state.current_lane_id = snapshot["current_lane_id"]
+    state.current_id = snapshot["current_id"]
+    state.current_since = snapshot["current_since"]
+    state.last_switch = snapshot["last_switch"]
+    state.logs = state.logs[:snapshot["logs_len"]]
+
+
+def apply_decided_switch(state: FailoverState, snapshot: dict,
+                         group_tag: str, api_base: str,
+                         secret: str) -> tuple[bool, str]:
+    """Apply the switch a round just decided (state.current_id), with
+    read-back verification. On failure the in-memory state is reverted
+    to the snapshot and last_switch_error records the detail; on
+    success the error is cleared. Callers persist the state after this
+    returns, so the DB never claims a switch the kernel did not make."""
+    ok, msg = apply_switch(api_base, secret, group_tag, state.current_id)
+    if ok:
+        state.last_switch_error = ""
+        return True, msg
+    revert_switch(state, snapshot)
+    state.last_switch_error = msg
+    return False, msg

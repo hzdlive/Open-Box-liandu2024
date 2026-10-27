@@ -3313,6 +3313,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 "currentLaneId": st.current_lane_id,
                 "reason": st.last_reason,
                 "reasonText": _fsm_reason_text(st.last_reason),
+                # 0.1.337+ status 字段：上一轮是否要求重测（all-failed 时
+                # 每分钟重试即 recheck 待处理）；lastSwitchError 为上次
+                # 内核切换读回失败的详情，空即上次切换干净。
+                "recheckPending": st.last_reason == _fsm.REASON_ALL_FAILED,
+                "lastSwitchError": st.last_switch_error,
                 "lastSwitch": st.last_switch,
                 "lastSwitchText": (
                     f"{last_log['from']} → {last_log['to']} ({_fsm_reason_text(last_log['reason'])})"
@@ -3357,8 +3362,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
         secret = getattr(cfg, "clash_api_secret", "") or ""
         try:
+            snapshot = _fsm.snapshot_switch(st)
             result = _fsm.run_round(st, api_base, secret)
-            # 持久化状态
+            # 先应用切换（含读回验证），失败则回滚内存状态，再持久化
+            if result.get("switched"):
+                applied, apply_msg = _fsm.apply_decided_switch(
+                    st, snapshot, target["name"], api_base, secret)
+            else:
+                applied, apply_msg = None, ""
             c.execute(
                 "INSERT INTO failover_state(group_name, current_tag, updated_at, last_switch_at, state_json)"
                 " VALUES (?, ?, ?, ?, ?)"
@@ -3368,15 +3379,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 (target["name"], st.current_id, _fsm._now_iso(),
                  st.last_switch, _json.dumps(st.to_dict(), ensure_ascii=False)))
             c.commit()
-            # 应用切换（如果需要）
-            if result.get("switched"):
-                _fsm.apply_switch(api_base, secret, target["name"], result["currentTag"])
             return jsonify({
                 "ok": True,
                 "groupId": gid,
                 "groupName": target["name"],
                 "switched": result.get("switched", False),
-                "current": result.get("currentTag"),
+                "switchApplied": applied,
+                "switchError": apply_msg if applied is False else "",
+                "current": st.current_id,
                 "reason": result.get("reason"),
                 "reasonText": _fsm_reason_text(result.get("reason", "")),
             })
