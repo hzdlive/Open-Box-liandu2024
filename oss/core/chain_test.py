@@ -44,27 +44,36 @@ def _fetch_clash_proxies(clash_port: int) -> dict:
         return json.load(r).get("proxies", {})
 
 
-def _wait_for_front_ready(clash_port: int, member_tags: list,
-                          budget_s: float = 20.0, fetch=None,
+def _wait_for_front_ready(clash_port: int, member_tags: list | None = None,
+                          group_tag: str | None = None,
+                          budget_s: float = 150.0, fetch=None,
                           sleep=None) -> str:
-    """Wait until a temp urltest front has measured at least one live
-    member. Returns "ready", "no-live-member" (the API answered but
-    no member ever got a delay within budget), or "api-unavailable"
-    (the API never answered at all: the gate is inconclusive, so the
-    caller should probe anyway rather than fail on a gate fault).
+    """Wait until a temp urltest front has converged.
 
-    This is the correct fix for the urltest cold start: a temp
-    urltest starts with no delay history, so probing immediately can
-    pin the connection to a dead member even when the group has live
-    members. Retrying after failure cannot rescue such an attempt —
-    the connection is already pinned — so the probe must wait for
-    convergence first. A member counts as live only with a delay > 0
-    (failed tests record no usable delay).
+    Group mode (group_tag given): returns "ready" only when the
+    group's Clash API entry has a non-empty "now" SELECTION. Waiting
+    for first-member delay is NOT convergence: a 53-member sub group
+    measured its first live member at ~1s, but its urltest round
+    (dead members each cost seconds) only produced a selection at
+    ~115s — probing at ~1s ran through a selection-less group and
+    failed with curl 97/52/28 artifacts that looked like a broken
+    chain. Returns "not-converged" when the budget expires with live
+    members but no selection yet (the caller must fail clearly, not
+    probe a selection-less group), "no-live-member" when the API
+    answered but no member ever got a delay, or "api-unavailable"
+    (the API never answered at all: inconclusive, so the caller
+    probes anyway rather than failing on a gate fault).
+
+    Member mode (group_tag None, member_tags given) is the legacy
+    rule for callers without a resolver: any member delay counts as
+    ready. A member counts as live only with a delay > 0 (failed
+    tests record no usable delay).
     """
     fetch = fetch or (lambda: _fetch_clash_proxies(clash_port))
     sleep = sleep or time.sleep
     deadline = time.time() + budget_s
     api_ok = False
+    any_live = False
     while time.time() < deadline:
         try:
             proxies = fetch()
@@ -72,18 +81,28 @@ def _wait_for_front_ready(clash_port: int, member_tags: list,
         except Exception:
             sleep(1)
             continue
-        for tag in member_tags:
+        if group_tag:
+            if (proxies.get(group_tag) or {}).get("now"):
+                return "ready"
+        for tag in (member_tags or []):
             history = (proxies.get(tag) or {}).get("history") or []
             if history and (history[-1] or {}).get("delay"):
-                return "ready"
+                any_live = True
+                if not group_tag:
+                    return "ready"
         sleep(1)
-    return "no-live-member" if api_ok else "api-unavailable"
+    if not api_ok:
+        return "api-unavailable"
+    if group_tag:
+        return "not-converged" if any_live else "no-live-member"
+    return "no-live-member"
 
 
 def test_chain(chain: dict, front_outbound: dict | None = None,
                front_deps: list[dict] | None = None,
                timeout: int = 15,
-               gate_members: list | None = None) -> dict:
+               gate_members: list | None = None,
+               gate_group: str | None = None) -> dict:
     """Test a chain proxy by routing through it.
 
     chain: {"name": ..., "exit_protocol": "socks"|"http"|"shadowsocks"|"vmess"|"vless"|"trojan"|"tuic"|"hysteria2"|"anytls",
@@ -98,15 +117,17 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
 
     timeout is the curl budget for the single probe. When gate_members
     is given (urltest/sub groups, or a failover front's primary auto
-    lane), the probe additionally waits (up to 20s) for a live member
-    to be measured first: a temp urltest starts with no delay
-    history, so probing immediately can pin the connection to a dead
-    member even when the group has live members, and no retry can
-    rescue an already-pinned attempt. Callers that do not pass
-    gate_members get the legacy rule (gate on a urltest front's
-    members). A front that cannot be resolved at all fails fast with
-    a clear message instead of probing through a dangling detour
-    (sing-box check does not catch those, rc=0).
+    lane), the probe additionally waits for the front to CONVERGE
+    (up to 150s for large groups): a temp urltest starts with no
+    selection, so probing before the round completes runs through a
+    selection-less group and fails a working chain. gate_group names
+    the urltest outbound whose selection to wait for (in the
+    resolver's natural tags; the caller translates it to the temp
+    tag). Callers that do not pass gate_members get the legacy rule
+    (gate on a urltest front's members, group tag "front"). A front
+    that cannot be resolved at all fails fast with a clear message
+    instead of probing through a dangling detour (sing-box check
+    does not catch those, rc=0).
     """
     # Build a minimal sing-box config with the chain
     # 复用 chain_to_outbound 以支持全协议（ss/vmess/vless/trojan/tuic/hy2/anytls）
@@ -146,6 +167,7 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
 
     # If there's a front, the chain dials through it
     outbounds = [chain_ob, {"type": "direct", "tag": "direct"}]
+    orig_tag = None
     if front_outbound:
         # Add front outbound and its dependencies, set chain to detour
         front_ob = dict(front_outbound)
@@ -181,8 +203,15 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         gate_members = list(front_outbound.get("outbounds") or []) \
             if front_outbound and \
             front_outbound.get("type") == "urltest" else []
+        if gate_members:
+            gate_group = "front"  # legacy: the renamed front outbound
     gate_members = [m for m in (gate_members or []) if m != "direct"]
-    clash_port = _free_port() if gate_members else None
+    # The resolver names the gate group in natural tags; the temp
+    # config renames the outermost front outbound to "front".
+    # (Both None must NOT translate: no front means no gate.)
+    if gate_group is not None and gate_group == orig_tag:
+        gate_group = "front"
+    clash_port = _free_port() if (gate_members or gate_group) else None
 
     config = {
         "log": {"level": "error"},
@@ -190,7 +219,7 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         "outbounds": outbounds,
         "route": {"final": "chain-test"},
     }
-    if gate_members:
+    if gate_members or gate_group:
         config["experimental"] = {
             "clash_api": {
                 "external_controller": f"127.0.0.1:{clash_port}",
@@ -228,17 +257,24 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
                                is not None else
                                "sing-box test proxy did not start in time")}
 
-        # Wait for convergence before probing: without a measured
-        # live member the probe can pin to a dead member and fail a
-        # working chain. A front with no live member at all is itself
-        # the diagnosis, reported directly. (Gate inconclusive ->
-        # probe anyway; see the gate docstring.)
-        if gate_members:
-            gate = _wait_for_front_ready(clash_port, gate_members)
+        # Wait for convergence before probing: without a selection
+        # the probe runs through a selection-less group and fails a
+        # working chain. A front with no live member at all, or one
+        # that never converges within budget, is itself the
+        # diagnosis, reported directly. (Gate inconclusive -> probe
+        # anyway; see the gate docstring.)
+        if gate_members or gate_group:
+            gate = _wait_for_front_ready(clash_port, gate_members,
+                                         group_tag=gate_group)
             if gate == "no-live-member":
                 return {"ok": False, "latency_ms": None,
                         "exit_ip": None, "country": None,
                         "error": "front urltest has no live member"}
+            if gate == "not-converged":
+                return {"ok": False, "latency_ms": None,
+                        "exit_ip": None, "country": None,
+                        "error": (f"front {_front_tag} did not converge "
+                                  f"in 150s")}
 
         # Probe via the SOCKS proxy: fetch IP info. -sS keeps the
         # progress meter silent but preserves curl's error text:

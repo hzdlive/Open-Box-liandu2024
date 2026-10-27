@@ -1441,9 +1441,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         # Resolve front outbound (node/group/sub/chain, see chain_front)
         cfg = dbmod.load_app_config(c)
-        front_ob, front_deps, gate = _rcf(cfg, chain.get("front", ""))
+        front_ob, front_deps, gate, gate_group = _rcf(
+            cfg, chain.get("front", ""))
         result = _ct.test_chain(chain, front_ob, front_deps,
-                                gate_members=gate)
+                                gate_members=gate, gate_group=gate_group)
         return jsonify(result)
 
     @app.post("/api/chains/speedtest")
@@ -1463,9 +1464,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
         c = db()
         # Resolve front if specified (node/group/sub/chain)
         cfg = dbmod.load_app_config(c)
-        front_ob, front_deps, gate = _rcf(cfg, d.get("front", ""))
+        front_ob, front_deps, gate, gate_group = _rcf(
+            cfg, d.get("front", ""))
         result = _ct.test_chain(d, front_ob, front_deps,
-                                gate_members=gate)
+                                gate_members=gate, gate_group=gate_group)
         return jsonify(result)
 
     # ---- groups ----

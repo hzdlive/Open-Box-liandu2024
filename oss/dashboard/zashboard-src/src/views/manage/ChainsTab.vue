@@ -30,7 +30,7 @@
         <div class="flex-1">
           <div class="flex items-center gap-2">
             <span class="font-medium">{{ c.name }}</span>
-            <span class="badge badge-ghost badge-sm">{{ $t('obx.via') }} {{ c.front }}</span>
+            <span class="badge badge-ghost badge-sm">{{ $t('obx.via') }} {{ frontLabel(c.front) }}</span>
           </div>
           <div class="text-xs opacity-60 font-mono">
             {{ c.exit_protocol }} · {{ c.server }}:{{ c.port }}
@@ -201,7 +201,7 @@
             class="input input-bordered relative w-full pr-8 text-left"
             @click="openObSel()"
           >
-            <span class="block truncate">{{ dlg.front || $t('obx.selectOutbound') }}</span>
+            <span class="block truncate">{{ frontLabel(dlg.front) || $t('obx.selectOutbound') }}</span>
             <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-60">▾</span>
           </button>
           <p class="mt-1 text-xs opacity-60">{{ $t('obx.chainUpstreamDesc') }}</p>
@@ -272,7 +272,21 @@ type Chain = {
 }
 
 const chains = ref<Chain[]>([])
+const subs = ref<any[]>([])
 const err = ref('')
+
+// 上游显示名：选择器只 emit 原始 tag（sub-4），名字在 emit 边界就
+// 丢了；弹窗与卡片直接显示 tag 就会出现“选了良心云却显示 sub-4”。
+// 存的值仍是 tag（后端按 tag 解析），这里只做显示映射。
+function frontLabel(front: string) {
+  if (!front) return ''
+  const m = front.match(/^sub-(\d+)$/)
+  if (m) {
+    const s = subs.value.find((x: any) => String(x.id) === m[1])
+    if (s) return s.name || front
+  }
+  return front
+}
 const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
@@ -285,6 +299,10 @@ async function load() {
   err.value = ''
   try { chains.value = await obxGet<Chain[]>('/api/chains') }
   catch (e) { err.value = e instanceof ObxApiError ? e.message : '加载失败' }
+  // 订阅名映射必须在弹窗打开前就绪（不能等到点开选择器才加载，
+  // 否则编辑已有链时上游仍回退显示原始 sub-4）。
+  try { subs.value = await obxGet<any[]>('/api/subscriptions') }
+  catch { subs.value = [] }
 }
 
 function openAdd() {

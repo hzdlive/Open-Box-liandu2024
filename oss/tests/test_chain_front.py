@@ -54,29 +54,29 @@ def _cfg():
 
 
 def test_node_front():
-    ob, deps, gate = resolve_chain_front(_cfg(), "n1")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "n1")
     assert ob["type"] == "vless" and ob["tag"] == "n1"
-    assert deps == [] and gate == []
+    assert deps == [] and gate == [] and grp is None
 
 
 def test_selector_front_uses_persisted_default():
     cfg = _cfg()
     cfg.groups[0].default_outbound = "n2"
-    ob, deps, gate = resolve_chain_front(cfg, "sel")
+    ob, deps, gate, grp = resolve_chain_front(cfg, "sel")
     assert ob["type"] == "selector" and ob["default"] == "n2"
     assert {d["tag"] for d in deps} == {"n1", "n2"}
-    assert gate == []  # selectors pick statically: no convergence gate
+    assert gate == [] and grp is None  # selectors: no convergence gate
 
 
 def test_urltest_front_gate_members():
-    ob, deps, gate = resolve_chain_front(_cfg(), "ut")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "ut")
     assert ob["type"] == "urltest" and ob["outbounds"] == ["n1", "n2"]
     assert ob["url"] == "http://x/generate_204"
-    assert gate == ["n1", "n2"]
+    assert gate == ["n1", "n2"] and grp == "ut"
 
 
 def test_failover_front_mirrors_lanes():
-    ob, deps, gate = resolve_chain_front(_cfg(), "fo")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "fo")
     assert ob["type"] == "selector" and ob["tag"] == "fo"
     # Primary auto lane -> urltest lane outbound; backup manual lane ->
     # selector lane outbound; top selector defaults to the primary lane.
@@ -86,36 +86,37 @@ def test_failover_front_mirrors_lanes():
     assert ob["outbounds"] == ["fo#primary", "fo#backup"]
     assert ob["default"] == "fo#primary"
     assert gate == ["n1", "n2"]  # primary auto lane's members
+    assert grp == "fo#primary"  # gate waits for the lane's selection
 
 
 def test_failover_single_node_primary_needs_no_gate():
-    ob, deps, gate = resolve_chain_front(_cfg(), "fo-single")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "fo-single")
     assert ob["type"] == "selector"
     assert ob["outbounds"] == ["n1"] and ob["default"] == "n1"
-    assert gate == []
+    assert gate == [] and grp is None
 
 
 def test_sub_front():
-    ob, deps, gate = resolve_chain_front(_cfg(), "sub-7")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "sub-7")
     assert ob["type"] == "urltest" and ob["tag"] == "sub-7"
     assert ob["outbounds"] == ["n1", "n2"]
-    assert gate == ["n1", "n2"]
+    assert gate == ["n1", "n2"] and grp == "sub-7"
     # Disabled subscription: unresolvable.
-    assert resolve_chain_front(_cfg(), "sub-8") == (None, None, [])
+    assert resolve_chain_front(_cfg(), "sub-8") == (None, None, [], None)
 
 
 def test_chain_front_recursive():
-    ob, deps, gate = resolve_chain_front(_cfg(), "c-front")
+    ob, deps, gate, grp = resolve_chain_front(_cfg(), "c-front")
     assert ob["type"] == "shadowsocks" and ob["tag"] == "c-front"
     assert ob["detour"] == "n1"  # its own front, resolved
     assert [d["tag"] for d in deps] == ["n1"]
-    assert gate == []
+    assert gate == [] and grp is None  # inner front is a node
 
 
 def test_cycle_unknown_disabled_unresolvable():
     cfg = _cfg()
-    assert resolve_chain_front(cfg, "c-cycle-a") == (None, None, [])
-    assert resolve_chain_front(cfg, "no-such-thing") == (None, None, [])
-    assert resolve_chain_front(cfg, "off") == (None, None, [])
-    assert resolve_chain_front(cfg, "direct") == (None, None, [])
-    assert resolve_chain_front(cfg, "block") == (None, None, [])
+    assert resolve_chain_front(cfg, "c-cycle-a") == (None, None, [], None)
+    assert resolve_chain_front(cfg, "no-such-thing") == (None, None, [], None)
+    assert resolve_chain_front(cfg, "off") == (None, None, [], None)
+    assert resolve_chain_front(cfg, "direct") == (None, None, [], None)
+    assert resolve_chain_front(cfg, "block") == (None, None, [], None)

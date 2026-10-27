@@ -107,6 +107,56 @@ def test_gate_no_live_member_vs_api_down():
                                     sleep=lambda s: None) == "api-unavailable"
 
 
+def test_gate_waits_for_group_selection_not_first_member():
+    # Regression: a 53-member sub group measured its first live member
+    # at ~1s but its urltest round only produced a selection at ~115s.
+    # The gate must wait for the group's "now" selection, not for any
+    # member delay — members alive from the start must NOT make it
+    # return ready while the selection is still empty.
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        now = "m2" if calls["n"] >= 3 else ""
+        return {"g": {"now": now, "history": []},
+                "m1": {"history": [{"delay": 50, "time": "t"}]},
+                "m2": {"history": [{"delay": 90, "time": "t"}]}}
+
+    assert ct._wait_for_front_ready(0, ["m1", "m2"], group_tag="g",
+                                    budget_s=5, fetch=fetch,
+                                    sleep=lambda s: None) == "ready"
+    assert calls["n"] == 3
+
+
+def test_gate_group_never_selects_reports_not_converged():
+    # Members alive but the group never selects within budget: the
+    # gate must say so explicitly instead of letting the probe run
+    # through a selection-less group (curl 97/52/28 artifacts).
+    assert ct._wait_for_front_ready(
+        0, ["m1"], group_tag="g", budget_s=0.5,
+        fetch=lambda: {"g": {"now": "", "history": []},
+                       "m1": {"history": [{"delay": 50, "time": "t"}]}},
+        sleep=lambda s: None) == "not-converged"
+    # No live member at all in group mode stays no-live-member.
+    assert ct._wait_for_front_ready(
+        0, ["m1"], group_tag="g", budget_s=0.5,
+        fetch=lambda: {"g": {"now": "", "history": []},
+                       "m1": {"history": []}},
+        sleep=lambda s: None) == "no-live-member"
+
+
+def test_not_converged_front_fails_fast(monkeypatch):
+    front = {"type": "urltest", "tag": "g", "outbounds": ["m1", "m2"]}
+    result, argvs = _run_probe(
+        monkeypatch,
+        [_Result(0, stdout=b'{"status":"success"}')],
+        front_ob=front, gate="not-converged",
+        chain=dict(CHAIN, front="g"))
+    assert result["ok"] is False
+    assert "did not converge" in result["error"]
+    assert argvs == []
+
+
 def test_urltest_front_without_live_member_skips_probe(monkeypatch):
     # Gate says no live member: the chain is reported down with the
     # front diagnosis, and no probe is attempted at all.
