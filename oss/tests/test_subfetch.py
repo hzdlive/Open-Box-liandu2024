@@ -102,7 +102,11 @@ def test_all_rejected_falls_back_to_curl():
     assert info == {"upload": 10, "total": 20}
     assert len(calls) == len(subfetch.UA_LADDER)
     run.assert_called_once()
-    assert run.call_args[0][0][0] == "curl"
+    argv = run.call_args[0][0]
+    assert argv[0] == "curl"
+    # Headers must reach stdout ahead of the body, or the size_header
+    # split in _parse_curl_output truncates the body (regression).
+    assert "-D" in argv and "-" in argv
 
 
 def test_curl_failure_reports_ladder_exhausted():
@@ -140,6 +144,47 @@ def test_parse_userinfo():
         "upload=123; download=456; total=789; expire=1700000000; junk") == {
         "upload": 123, "download": 456, "total": 789, "expire": 1700000000}
     assert subfetch.parse_userinfo("upload=abc") == {}
+
+
+def test_real_curl_against_local_stub():
+    """End-to-end: the real curl binary, headers + body + trailer."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    body = b"vmess://e30=\n\nsecond-line"
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            if self.path == "/429":
+                self.send_response(429)
+                self.end_headers()
+                self.wfile.write(b"slow down")
+                return
+            self.send_response(200)
+            self.send_header("subscription-userinfo",
+                             "upload=5; total=6")
+            self.end_headers()
+            self.wfile.write(body)
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        text, info = subfetch._fetch_curl(base + "/sub", 10)
+        assert text == "vmess://e30=\n\nsecond-line"
+        assert info == {"upload": 5, "total": 6}
+        try:
+            subfetch._fetch_curl(base + "/429", 10)
+            raise AssertionError("expected _RateLimited")
+        except subfetch._RateLimited:
+            pass
+    finally:
+        srv.shutdown()
+        srv.server_close()
 
 
 def test_curl_output_429_and_bad_status():

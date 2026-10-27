@@ -117,6 +117,7 @@ def _fetch_curl(url: str, timeout: float) -> tuple[str, dict]:
         raise ValueError("系统无 curl 可用")
     proc = subprocess.run(
         ["curl", "-sSL", "--max-time", str(int(timeout)),
+         "-D", "-",  # headers to stdout, ahead of the body
          "-w", "\n%{http_code} %{size_header}", url],
         capture_output=True, timeout=timeout + 10)
     if proc.returncode != 0:
