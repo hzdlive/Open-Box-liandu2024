@@ -3,6 +3,7 @@ documented management capabilities; no proprietary code involved."""
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import sqlite3
@@ -395,6 +396,39 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.errorhandler(404)
     def not_found(e):
         return jsonify({"error": "not found"}), 404
+
+    # ---- HTTP surface (1:1 original) ----
+    # The original runs on Express with no custom 404 handler: an unmatched
+    # path falls through to finalhandler, which answers `404 text/html`
+    # with `Cannot <METHOD> <path>` (path only, no query) in a <pre>
+    # block, plus `X-Content-Type-Options: nosniff` and
+    # `Content-Security-Policy: default-src 'none'`. API handlers that
+    # abort(404) for a missing resource keep the JSON error above; only
+    # unmatched paths get this page. (On the original, most /api/*
+    # paths never reach finalhandler because auth answers 401 first;
+    # authorization is out of this panel's scope, so every unmatched
+    # /api/* path here falls through to this page.)
+    def finalhandler_404():
+        body = (
+            "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n"
+            "<meta charset=\"utf-8\">\n<title>Error</title>\n</head>\n"
+            "<body>\n<pre>Cannot %s %s</pre>\n</body>\n</html>\n"
+            % (request.method, html.escape(request.path))
+        )
+        resp = app.response_class(body, status=404,
+                                  content_type="text/html; charset=utf-8")
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        resp.headers["Content-Security-Policy"] = "default-src 'none'"
+        return resp
+
+    @app.after_request
+    def http_surface_headers(resp):
+        # Express leaves X-Powered-By enabled; mirror it on every response.
+        # (The Werkzeug `Server` header is added by the WSGI server after
+        # the app returns, so it cannot be removed here; it stays as the
+        # one known remaining header difference.)
+        resp.headers["X-Powered-By"] = "Express"
+        return resp
 
     # ---- auth ----
     @app.get("/api/auth/status")
@@ -4136,20 +4170,35 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return send_from_directory(LEGACY_FRONTEND_DIR, "index.html")
 
     # ---- frontend (Vue build output) ----
+    # Unmatched /api/* paths (any method) fall through to the Express
+    # finalhandler page; the /api/ exclusion is case-sensitive, so
+    # /API/* and /Api/* still get the SPA shell, exactly like the
+    # original. Static cache rules mirror the original's setHeaders:
+    # hashed JS/CSS immutable, shell/manifest never stored, everything
+    # else public with max-age=0 (revalidate every time).
+    @app.route("/api/<path:path>",
+               methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def api_fallthrough(path: str):
+        return finalhandler_404()
+
     @app.get("/", defaults={"path": ""})
     @app.get("/<path:path>")
     def frontend(path: str):
         if path.startswith("api/"):
-            return jsonify({"error": "not found"}), 404
+            return finalhandler_404()
         full = os.path.join(FRONTEND_DIR, path)
         if path and os.path.isfile(full):
             resp = send_from_directory(FRONTEND_DIR, path)
             # JS/CSS 带 content hash，可长期缓存；index.html 永不缓存
             if path.endswith(('.js', '.css')):
                 resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+            elif path == 'index.html' or path.endswith('.webmanifest'):
+                resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            else:
+                resp.headers['Cache-Control'] = 'public, max-age=0'
             return resp
         resp = send_from_directory(FRONTEND_DIR, "index.html")
-        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         return resp
 
     # background jobs: subscription auto-update, DNS filter auto-update
