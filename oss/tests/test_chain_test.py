@@ -42,8 +42,10 @@ class _Result:
         self.stderr = stderr
 
 
-def _run_probe(monkeypatch, curl_script, proc_poll=None):
-    """Run test_chain with stubbed Popen/run/port-wait.
+def _run_probe(monkeypatch, curl_script, proc_poll=None, front_ob=None,
+               gate=None):
+    """Run test_chain with stubbed Popen/run/port-wait (and, for a
+    urltest front, a stubbed readiness gate).
 
     curl_script: list of _Result, one per curl call in order (extra
     calls reuse the last entry). Returns (result, curl_argvs).
@@ -53,6 +55,9 @@ def _run_probe(monkeypatch, curl_script, proc_poll=None):
     monkeypatch.setattr(ct, "_wait_for_port", lambda port: True)
     monkeypatch.setattr(ct.subprocess, "Popen",
                         lambda *a, **k: _Proc(proc_poll))
+    if gate is not None:
+        monkeypatch.setattr(ct, "_wait_for_front_ready",
+                            lambda *a, **k: gate)
 
     def fake_run(argv, **kwargs):
         if argv and argv[0].endswith("sing-box"):
@@ -63,26 +68,66 @@ def _run_probe(monkeypatch, curl_script, proc_poll=None):
         return curl_script[idx]
 
     monkeypatch.setattr(ct.subprocess, "run", fake_run)
-    result = ct.test_chain(dict(CHAIN), timeout=15)
+    result = ct.test_chain(dict(CHAIN), front_ob, None, timeout=15)
     return result, curl_argvs
 
 
-def test_retry_after_cold_start_failure(monkeypatch):
-    # First attempt hits a dead urltest member (the cold-start
-    # false negative); the second attempt, after the urltest round
-    # settles, succeeds. The chain must be reported up.
-    script = [
-        _Result(97, stderr=b"curl: (97) cannot complete SOCKS5 connection"),
-        _Result(0, stdout=b'{"status":"success","country":"Singapore",'
-                           b'"query":"1.2.3.4"}'),
-    ]
-    result, argvs = _run_probe(monkeypatch, script)
+def test_gate_waits_for_live_member():
+    # No delay at first, then one member measures: the gate must
+    # report ready (it does not require every member to be alive).
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return {"m1": {"history": []}, "m2": {"history": []}}
+        return {"m1": {"history": []},
+                "m2": {"history": [{"delay": 90, "time": "t"}]}}
+
+    assert ct._wait_for_front_ready(0, ["m1", "m2"], budget_s=5,
+                                    fetch=fetch,
+                                    sleep=lambda s: None) == "ready"
+    assert calls["n"] == 3
+
+
+def test_gate_no_live_member_vs_api_down():
+    # API answers but nobody ever measures -> no-live-member;
+    # API never answers -> api-unavailable (gate inconclusive).
+    assert ct._wait_for_front_ready(
+        0, ["m1"], budget_s=0.5,
+        fetch=lambda: {"m1": {"history": []}},
+        sleep=lambda s: None) == "no-live-member"
+
+    def boom():
+        raise ConnectionError("refused")
+
+    assert ct._wait_for_front_ready(0, ["m1"], budget_s=0.5, fetch=boom,
+                                    sleep=lambda s: None) == "api-unavailable"
+
+
+def test_urltest_front_without_live_member_skips_probe(monkeypatch):
+    # Gate says no live member: the chain is reported down with the
+    # front diagnosis, and no probe is attempted at all.
+    front = {"type": "urltest", "tag": "g", "outbounds": ["m1", "m2"]}
+    result, argvs = _run_probe(
+        monkeypatch,
+        [_Result(0, stdout=b'{"status":"success"}')],
+        front_ob=front, gate="no-live-member")
+    assert result["ok"] is False
+    assert result["error"] == "front urltest has no live member"
+    assert argvs == []
+
+
+def test_urltest_front_ready_probes_once(monkeypatch):
+    # Gate says ready: exactly one probe runs and its result stands.
+    front = {"type": "urltest", "tag": "g", "outbounds": ["m1", "m2"]}
+    script = [_Result(0, stdout=b'{"status":"success","country":"SG",'
+                                 b'"query":"1.2.3.4"}')]
+    result, argvs = _run_probe(monkeypatch, script, front_ob=front,
+                               gate="ready")
     assert result["ok"] is True
     assert result["exit_ip"] == "1.2.3.4"
-    assert result["country"] == "Singapore"
-    assert result["latency_ms"] is not None
-    assert result["error"] is None
-    assert len(argvs) == 2
+    assert len(argvs) == 1
 
 
 def test_error_keeps_curl_stderr(monkeypatch):
