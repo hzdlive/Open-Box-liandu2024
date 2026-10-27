@@ -430,6 +430,43 @@ def create_app(db_path: str = ":memory:") -> Flask:
         resp.headers["X-Powered-By"] = "Express"
         return resp
 
+    # ---- body limits (1:1 original effective behavior) ----
+    # The original mounts a body parser on each router; the FIRST parser
+    # whose prefix matches wins, so the service router's 1mb covers
+    # every /api/openbox/* route (the larger per-route declarations are
+    # void) while backup/import carries its own 32mb parser. Two
+    # consequences verified live against the original panel: a parser
+    # only runs for a prefix-matching route, so an unmatched path is
+    # never 413'd (2MB POST to /api/HEALTH answers 404, not 413); and
+    # auth answers 401 before any parser runs, so the 1mb/32mb values
+    # themselves come from the third-party contract, not from a live
+    # read this session. Mirrored here: 1mb for real /api/* routes,
+    # 32mb for the backup import (our POST /api/backup), no check for
+    # unmatched paths (fallthrough/frontend/legacy) or for methods
+    # that carry no API body. Only Content-Length clients are gated;
+    # the WSGI server de-chunks the rest, so this covers real clients.
+    BODY_LIMIT_DEFAULT = 1024 * 1024
+    BODY_LIMIT_BACKUP_IMPORT = 32 * 1024 * 1024
+    _BODY_LIMIT_EXEMPT_ENDPOINTS = {"api_fallthrough", "frontend",
+                                    "legacy_frontend"}
+
+    @app.before_request
+    def body_limit():
+        if request.method not in ("POST", "PUT", "PATCH"):
+            return None
+        rule = request.url_rule
+        if rule is None or rule.endpoint in _BODY_LIMIT_EXEMPT_ENDPOINTS:
+            return None
+        if not request.path.startswith("/api/"):
+            return None
+        limit = (BODY_LIMIT_BACKUP_IMPORT
+                 if request.path == "/api/backup"
+                 else BODY_LIMIT_DEFAULT)
+        cl = request.content_length
+        if cl is not None and cl > limit:
+            return jsonify({"error": "request entity too large"}), 413
+        return None
+
     # ---- auth ----
     @app.get("/api/auth/status")
     def auth_status():
