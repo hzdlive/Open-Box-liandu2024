@@ -2588,7 +2588,6 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     keywords) are applied on import. Per-node custom names and disabled
     flags survive refreshes (matched by original tag).
     """
-    import urllib.request
     row = conn.execute(
         "SELECT name, url, urls, rename_enabled, rename_prefix, rename_order,"
         " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
@@ -2612,24 +2611,19 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     from core.subscription import parse_subscription
     from core.clash import parse_clash_yaml, looks_like_clash
     from core import rename as _rn
+    from core.subfetch import fetch_subscription_text
     nodes = []
     userinfo: dict = {}
     for u in urls:
-        req = urllib.request.Request(u, headers={"User-Agent": "openbox-oss/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            content = r.read().decode("utf-8", "replace")
-            if not userinfo:
-                for part in r.headers.get("subscription-userinfo", "").split(";"):
-                    if "=" in part:
-                        k, v = part.split("=", 1)
-                        k, v = k.strip(), v.strip()
-                        if k in ("upload", "download", "total", "expire"):
-                            try:
-                                userinfo[k] = int(v)
-                            except ValueError:
-                                pass
+        # UA 阶梯拉取：429 直接停、全被拒才走 curl（见 core/subfetch）。
+        content, info = fetch_subscription_text(u, timeout=timeout)
+        if not userinfo:
+            userinfo = info
         nodes.extend(parse_clash_yaml(content) if looks_like_clash(content)
                      else parse_subscription(content))
+    # 拉取成功但解析出 0 节点：报"订阅是空的"，绝不以空结果清空现有节点。
+    if not nodes:
+        raise ValueError("订阅是空的")
     return _replace_nodes(conn, sid, name, nodes, userinfo,
                           _rename_cfg_from_row(row))
 

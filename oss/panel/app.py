@@ -816,7 +816,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         """预览订阅：拉取 URL 并解析节点，返回给前端显示（1:1 对标原版）。"""
         from core.subscription import parse_subscription
         from core.clash import parse_clash_yaml, looks_like_clash
-        import urllib.request
+        from core.subfetch import fetch_subscription_text
         d = request.get_json(force=True, silent=True) or {}
         urls = d.get("urls", [])
         if isinstance(urls, str):
@@ -836,15 +836,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
             if not u:
                 continue
             try:
-                req = urllib.request.Request(u, headers={"User-Agent": "Open-Box/1.0"})
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    text = r.read().decode("utf-8", errors="ignore")
-                    fetched.append({"url": u, "length": len(text)})
-                    if looks_like_clash(text):
-                        nodes = parse_clash_yaml(text)
-                    else:
-                        nodes = parse_subscription(text)
-                    all_nodes.extend(nodes)
+                text, _info = fetch_subscription_text(u, timeout=30)
+                fetched.append({"url": u, "length": len(text)})
+                if looks_like_clash(text):
+                    nodes = parse_clash_yaml(text)
+                else:
+                    nodes = parse_subscription(text)
+                if not nodes:
+                    errors.append({"url": u, "error": "订阅是空的"})
+                all_nodes.extend(nodes)
             except Exception as e:
                 errors.append({"url": u, "error": str(e)})
 
