@@ -138,13 +138,30 @@ def node_to_endpoint(node) -> dict:
 
 
 def node_to_outbound(node: Node) -> dict:
-    """Map a Node to a sing-box outbound object."""
+    """Map a Node to a sing-box outbound object.
+
+    Protocol names are normalized to sing-box's own outbound types:
+    - "socks5" -> "socks" (version 5 is the default and is omitted,
+      like the socks branch below does);
+    - "https" -> "http" + tls enabled (sing-box has no "https"
+      outbound type; emitting it verbatim fails config check);
+    - "http" carries username/password (previously dropped, so any
+      credentialed HTTP proxy/node failed auth in both the deployed
+      config and the chain speedtest).
+    """
+    proto = node.protocol
+    if proto == "socks5":
+        proto = "socks"
+    elif proto == "https":
+        proto = "http"
     p, ob = node.params, {
-        "type": node.protocol,
+        "type": proto,
         "tag": node.tag,
         "server": node.server,
         "server_port": node.server_port,
     }
+    if node.protocol == "https":
+        ob["tls"] = {"enabled": True}
     if node.protocol == "vmess":
         ob.update(uuid=p.get("uuid", ""), alter_id=p.get("alter_id", 0), security=p.get("security", "auto"))
     elif node.protocol == "vless":
@@ -170,7 +187,7 @@ def node_to_outbound(node: Node) -> dict:
             ob["obfs"] = p["obfs"]
     elif node.protocol == "anytls":
         ob["password"] = p.get("password", "")
-    elif node.protocol == "socks":
+    elif proto == "socks":
         # The panel omits version when it is "5" (golden socks-* ignore).
         if p.get("username") is not None:
             ob["username"] = p["username"]
@@ -178,6 +195,11 @@ def node_to_outbound(node: Node) -> dict:
             ob["password"] = p["password"]
         if p.get("version") not in (None, "5"):
             ob["version"] = p["version"]
+    elif proto == "http":
+        if p.get("username") is not None:
+            ob["username"] = p["username"]
+        if p.get("password") is not None:
+            ob["password"] = p["password"]
     elif node.protocol == "wireguard":
         # sing-box 1.13+ removed the wireguard OUTBOUND type (check:
         # "unknown field server" for every legacy field). WG nodes are

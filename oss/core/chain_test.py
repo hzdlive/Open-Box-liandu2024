@@ -82,7 +82,8 @@ def _wait_for_front_ready(clash_port: int, member_tags: list,
 
 def test_chain(chain: dict, front_outbound: dict | None = None,
                front_deps: list[dict] | None = None,
-               timeout: int = 15) -> dict:
+               timeout: int = 15,
+               gate_members: list | None = None) -> dict:
     """Test a chain proxy by routing through it.
 
     chain: {"name": ..., "exit_protocol": "socks"|"http"|"shadowsocks"|"vmess"|"vless"|"trojan"|"tuic"|"hysteria2"|"anytls",
@@ -95,12 +96,17 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
               "exit_ip": str|None, "country": str|None,
               "error": str|None}
 
-    timeout is the curl budget for the single probe. For a urltest
-    front, the probe additionally waits (up to 20s) for the temp
-    urltest to measure a live member first: a temp urltest starts
-    with no delay history, so probing immediately can pin the
-    connection to a dead member even when the group has live
-    members, and no retry can rescue an already-pinned attempt.
+    timeout is the curl budget for the single probe. When gate_members
+    is given (urltest/sub groups, or a failover front's primary auto
+    lane), the probe additionally waits (up to 20s) for a live member
+    to be measured first: a temp urltest starts with no delay
+    history, so probing immediately can pin the connection to a dead
+    member even when the group has live members, and no retry can
+    rescue an already-pinned attempt. Callers that do not pass
+    gate_members get the legacy rule (gate on a urltest front's
+    members). A front that cannot be resolved at all fails fast with
+    a clear message instead of probing through a dangling detour
+    (sing-box check does not catch those, rc=0).
     """
     # Build a minimal sing-box config with the chain
     # 复用 chain_to_outbound 以支持全协议（ss/vmess/vless/trojan/tuic/hy2/anytls）
@@ -121,6 +127,22 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         front=chain.get("front", "direct"),
     )
     chain_ob = chain_to_outbound(_chain)
+
+    # Fail fast on a front that cannot be resolved: chain_to_outbound
+    # already stamped detour=<front tag>, and sing-box check does NOT
+    # catch a dangling detour (rc=0), so without this the probe would
+    # fail later with a generic SOCKS error that names no cause.
+    # (direct needs no resolution; block cannot be probed at all.)
+    _front_tag = chain.get("front", "direct")
+    if front_outbound is None:
+        if _front_tag == "block":
+            return {"ok": False, "latency_ms": None,
+                    "exit_ip": None, "country": None,
+                    "error": "front is block"}
+        if _front_tag not in ("direct", "", None):
+            return {"ok": False, "latency_ms": None,
+                    "exit_ip": None, "country": None,
+                    "error": f"front not found: {_front_tag}"}
 
     # If there's a front, the chain dials through it
     outbounds = [chain_ob, {"type": "direct", "tag": "direct"}]
@@ -150,14 +172,17 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         "listen_port": test_port,
     }]
 
-    # A urltest front needs its own Clash API so the probe can wait
-    # for convergence (see _wait_for_front_ready); other fronts
-    # (selector/direct/none) pick statically and need no gate.
-    front_is_urltest = bool(front_outbound) and \
-        front_outbound.get("type") == "urltest"
-    front_members = list(front_outbound.get("outbounds") or []) \
-        if front_is_urltest else []
-    clash_port = _free_port() if front_is_urltest else None
+    # The probe waits for convergence only when the front needs it:
+    # gate_members (urltest/sub groups, or a failover front's primary
+    # auto lane) from the resolver, or legacy fallback: a urltest
+    # front's own member list. A front that resolved to nothing but
+    # "direct" (empty group) routes direct and needs no gate.
+    if gate_members is None:
+        gate_members = list(front_outbound.get("outbounds") or []) \
+            if front_outbound and \
+            front_outbound.get("type") == "urltest" else []
+    gate_members = [m for m in (gate_members or []) if m != "direct"]
+    clash_port = _free_port() if gate_members else None
 
     config = {
         "log": {"level": "error"},
@@ -165,7 +190,7 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
         "outbounds": outbounds,
         "route": {"final": "chain-test"},
     }
-    if front_is_urltest:
+    if gate_members:
         config["experimental"] = {
             "clash_api": {
                 "external_controller": f"127.0.0.1:{clash_port}",
@@ -203,13 +228,13 @@ def test_chain(chain: dict, front_outbound: dict | None = None,
                                is not None else
                                "sing-box test proxy did not start in time")}
 
-        # For a urltest front, wait for convergence before probing:
-        # without a measured live member the probe can pin to a dead
-        # member and fail a working chain. A front with no live
-        # member at all is itself the diagnosis, reported directly.
-        # (Gate inconclusive -> probe anyway; see the gate docstring.)
-        if front_is_urltest:
-            gate = _wait_for_front_ready(clash_port, front_members)
+        # Wait for convergence before probing: without a measured
+        # live member the probe can pin to a dead member and fail a
+        # working chain. A front with no live member at all is itself
+        # the diagnosis, reported directly. (Gate inconclusive ->
+        # probe anyway; see the gate docstring.)
+        if gate_members:
+            gate = _wait_for_front_ready(clash_port, gate_members)
             if gate == "no-live-member":
                 return {"ok": False, "latency_ms": None,
                         "exit_ip": None, "country": None,

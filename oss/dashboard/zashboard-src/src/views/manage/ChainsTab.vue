@@ -412,11 +412,18 @@ async function testSpeed(c: Chain) {
 }
 
 async function testDlgSpeed() {
-  if (!dlg.value?.server) return
+  // 链接模式下字段是空的（server 等只在字段模式填写），旧代码直接
+  // return，等于测速按钮在链接模式是死的；改为把链接发给后端精化。
+  const isLink = dlg.value?.inputMode === 'link'
+  if (isLink ? !dlg.value?.link?.trim() : !dlg.value?.server) return
   testing.value = true
   testResult.value = null
   try {
-    const r = await obxPost<any>('/api/chains/speedtest', {
+    const r = await obxPost<any>('/api/chains/speedtest', isLink ? {
+      name: dlg.value.name || 'test',
+      link: dlg.value.link.trim(),
+      front: dlg.value.front,
+    } : {
       name: dlg.value.name || 'test',
       exit_protocol: dlg.value.exit_protocol || 'socks',
       server: dlg.value.server,

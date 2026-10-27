@@ -43,7 +43,7 @@ class _Result:
 
 
 def _run_probe(monkeypatch, curl_script, proc_poll=None, front_ob=None,
-               gate=None):
+               gate=None, chain=None, gate_members="unset"):
     """Run test_chain with stubbed Popen/run/port-wait (and, for a
     urltest front, a stubbed readiness gate).
 
@@ -68,7 +68,9 @@ def _run_probe(monkeypatch, curl_script, proc_poll=None, front_ob=None,
         return curl_script[idx]
 
     monkeypatch.setattr(ct.subprocess, "run", fake_run)
-    result = ct.test_chain(dict(CHAIN), front_ob, None, timeout=15)
+    kwargs = {} if gate_members == "unset" else {"gate_members": gate_members}
+    result = ct.test_chain(dict(chain or CHAIN), front_ob, None,
+                           timeout=15, **kwargs)
     return result, curl_argvs
 
 
@@ -178,6 +180,35 @@ def test_saved_chain_port_key_is_honored(monkeypatch):
     result = ct.test_chain(db_row, None, None, timeout=15)
     assert seen["server_port"] == 22101
     assert result["ok"] is True
+
+
+def test_unresolvable_front_fails_fast(monkeypatch):
+    # A front that cannot be resolved must not probe through a
+    # dangling detour (sing-box check passes those, rc=0); the error
+    # must name the front. Block cannot be probed at all.
+    ok_script = [_Result(0, stdout=b'{"status":"success"}')]
+    chain = dict(CHAIN, front="deleted-group")
+    result, argvs = _run_probe(monkeypatch, ok_script, chain=chain)
+    assert result["ok"] is False
+    assert result["error"] == "front not found: deleted-group"
+    assert argvs == []
+    chain = dict(CHAIN, front="block")
+    result, _ = _run_probe(monkeypatch, ok_script, chain=chain)
+    assert result["error"] == "front is block"
+
+
+def test_direct_only_group_skips_gate(monkeypatch):
+    # A front that resolved to nothing but "direct" (empty group)
+    # routes direct: the gate must not run (it would report
+    # no-live-member for a working direct path).
+    front = {"type": "urltest", "tag": "g", "outbounds": ["direct"]}
+    script = [_Result(0, stdout=b'{"status":"success","country":"SG",'
+                                 b'"query":"1.2.3.4"}')]
+    result, argvs = _run_probe(monkeypatch, script, front_ob=front,
+                               gate="no-live-member",
+                               gate_members=["direct"])
+    assert result["ok"] is True
+    assert len(argvs) == 1
 
 
 def test_singbox_start_failure(monkeypatch):

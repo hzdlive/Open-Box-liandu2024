@@ -1261,7 +1261,64 @@ def list_chains(conn: sqlite3.Connection) -> list[dict]:
         "SELECT id, name, exit_protocol, server, port, params, front, enabled FROM chains ORDER BY id")]
 
 
+def refine_chain_link(link: str) -> dict | None:
+    """Derive a chain's protocol/server/port/params from its share link.
+
+    The chain modal's link parser collapses every non-http scheme to
+    http ("ss/vless/trojan 等暂按 http 处理，由后端细化") — but no
+    backend refinement existed, so pasting an ss:// link stored an
+    http chain with no cipher method (chain 14's exact failure: the
+    probe sent HTTP bytes to a Shadowsocks server, which dropped
+    them). This is the promised refinement, reusing the subscription
+    link parsers (the same code that parses subscription nodes), so
+    link-mode creation is correct for every supported scheme.
+
+    Returns {"exit_protocol", "server", "port", "params"} (params keep
+    the original link) or None when the link is empty, http/https
+    (the modal already parses those correctly), or unparseable — in
+    which case the caller keeps the frontend-supplied values.
+    """
+    link = (link or "").strip()
+    if not link:
+        return None
+    scheme = link.split("://", 1)[0].lower() if "://" in link else ""
+    if scheme in ("http", "https", ""):
+        return None
+    try:
+        from core.subscription import parse_subscription
+        nodes = parse_subscription(link)
+    except Exception:
+        return None
+    if not nodes:
+        return None
+    n = nodes[0]
+    if not n.server or not 1 <= n.server_port <= 65535:
+        return None
+    params = dict(n.params)
+    params["link"] = link
+    return {"exit_protocol": n.protocol, "server": n.server,
+            "port": n.server_port, "params": params}
+
+
+def _apply_link_refinement(d: dict) -> dict:
+    """If d carries a link in params, replace protocol/server/port/
+    params with the refined parse (link wins over the modal's
+    collapsed values). Returns a copy; d is untouched on no-op."""
+    params = d.get("params") or {}
+    link = params.get("link") if isinstance(params, dict) else None
+    if not link:
+        return d
+    refined = refine_chain_link(link)
+    if not refined:
+        return d
+    out = dict(d)
+    out.update(refined)
+    return out
+
+
 def create_chain(conn: sqlite3.Connection, d: dict) -> dict:
+    # Link mode: the link is the source of truth (see refine_chain_link).
+    d = _apply_link_refinement(d)
     _allowed = ("socks", "socks5", "http", "https", "shadowsocks",
                 "vmess", "vless", "trojan", "tuic", "hysteria2", "anytls")
     if d.get("exit_protocol", "socks") not in _allowed:
@@ -1290,6 +1347,10 @@ def update_chain(conn: sqlite3.Connection, cid: int, d: dict) -> dict | None:
         (cid,)).fetchone()
     if not row:
         return None
+    # Link mode: a new link re-derives protocol/server/port/params
+    # (see refine_chain_link); a fields-mode edit (link "" or absent)
+    # leaves them to the explicitly sent fields.
+    d = _apply_link_refinement(d)
     # Front validation when the chain will be enabled and its name, its
     # front, or its live-ness changes (disabling makes the front inert;
     # re-enabling makes a legacy bad front live again). Unrelated edits
