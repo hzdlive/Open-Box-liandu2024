@@ -1715,6 +1715,18 @@ def create_app(db_path: str = ":memory:") -> Flask:
         from core.diagnostics import collect
         return jsonify(collect(db(), _manager()))
 
+    @app.get("/api/openbox/diagnostics")
+    def openbox_diagnostics():
+        """One-click support bundle, original-panel shape (see
+        core/support_bundle.py). Probe failures render as text; only an
+        assembly failure answers 500."""
+        from core import support_bundle as _sb
+        try:
+            mgr = _manager()
+            return jsonify(_sb.collect(db(), mgr, mgr.workdir))
+        except Exception as e:
+            return jsonify({"message": str(e)}), 500
+
     @app.post("/api/config/apply")
     def config_apply():
         from core.apply import apply_config, ApplyVerifyError
