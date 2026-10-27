@@ -101,7 +101,9 @@
       v-if="dlg"
       class="modal modal-open"
     >
-      <div class="modal-box max-w-2xl">
+      <!-- 672px (max-w-2xl) 装不下双列节点选择器 + 4 列检测表单，
+           右侧（已选列、延迟容差单位、状态码）被裁切；放宽到 1024px -->
+      <div class="modal-box max-w-5xl">
         <div class="mb-4 flex items-center justify-between">
           <h3 class="text-lg font-bold">
             {{ dlg.id ? $t('obx.editGroup') : $t('obx.addGroup') }}
