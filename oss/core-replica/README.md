@@ -127,8 +127,52 @@ explicitly when running the harness.
    enabled policies; ruleUrls count as rule content; urltest
    idleTimeout default "12h"; unknown group types -> selector;
    positional policy id/name defaults by analogy with groups).
-2. builtinTags, routingFingerprint (hash algorithm from pairs).
-3. emitGroups (121 cases — the bulk; do it in slices by group kind).
-4. classes, entryPlan, bypassPlan, forwardPlan.
-5. migrateStoredRouting.
-6. configDetailed (25 cases, 18-field state, 9 sections — last).
+2. DONE (2026-10-29): builtinTags — 2/2 golden cases
+   (methods/tags.py). Identification is by group id; renamed or
+   disabled builtins are INFERRED (both measured cases use the
+   defaults with enabled true).
+3. OPEN: routingFingerprint — see below. Deliberately NOT
+   implemented with a guessed hash: a wrong fingerprint silently
+   breaks change detection, while "not implemented yet" fails loudly.
+4. emitGroups (121 cases — the bulk; do it in slices by group kind).
+5. classes, entryPlan, bypassPlan, forwardPlan.
+6. migrateStoredRouting.
+7. configDetailed (25 cases, 18-field state, 9 sections — last).
+
+## routingFingerprint: derivation status (OPEN, not guessed)
+
+Values are 16 hex chars (64-bit). Proven constraints from the 8
+golden pairs (equivalence classes, hash-function independent):
+
+- empty == nullValue == noPolicies == garbage (all d8a2998b77cba36e).
+  noPolicies differs from empty ONLY in fallback.default
+  ("direct" vs "") after normalization, so fallback.default is
+  EXCLUDED from the hash input.
+- garbage == empty: mistyped policies/fallbackName normalize to the
+  defaults, so the hash input is normalized, not raw.
+- real != duplicateNames with IDENTICAL custom and fallback fields:
+  policies DEFINITIVELY enter the hash.
+- real != fallbackMissing (differ in custom + fallback icon):
+  custom or fallback icon enters.
+- policyWithoutRules != empty: consistent with custom entering
+  (it carries the real custom rules); it does not by itself prove
+  ruleless policies survive normalization.
+
+Ruled out for the empty case (hash implementations verified against
+known vectors: FNV-1a, xxhash64, Murmur3): every JSON serialization
+(sorted / insertion-order / all key permutations, compact / spaced /
+2-space indent, UTF-8 / ASCII, Go HTML-escaped, omitempty, with or
+without trailing newline) of the normalized routing and its subsets
+(full, policies+custom, policies+custom+fallback-name/icon,
+custom-only), times FNV-1a, FNV-1, xxhash64, xxh3_64, xxh128,
+CRC64-ISO/ECMA, SHA-256, MD5, SHA-1, BLAKE2b-8, SHA-512 (first 8
+bytes, big- and little-endian), FNV-1a-128, Murmur3 x64_128;
+Go %v struct formats; and 16 constant prefixes. None matches
+d8a2998b77cba36e.
+
+Next experiment to crack it (needs a new capture, not more guessing):
+vary ONE field at a time from the empty routing — add one minimal
+policy; rename custom; change fallback icon; change fallback
+default — and record which variations change the hash. That pins
+down exactly which fields enter, after which the serialization can
+be re-attacked with the field set known.

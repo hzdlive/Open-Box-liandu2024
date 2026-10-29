@@ -12,10 +12,12 @@ from .normalize import (  # noqa: F401
     normalize_policy,
     normalize_routing,
 )
+from .tags import builtin_tags  # noqa: F401
 
 IMPLEMENTATIONS = {
     "normalizeRouting": normalize_routing,
     "normalizeGroups": normalize_groups,
     "normalizePolicy": normalize_policy,
     "normalizeCustom": normalize_custom,
+    "builtinTags": builtin_tags,
 }
