@@ -96,7 +96,12 @@ def _hello(_args):
 
 # name -> implementation. Unimplemented implementable methods are
 # absent here on purpose: absence means "not implemented yet".
-_METHODS = {}
+# Method modules live in methods/; importing them here keeps main.py
+# to the wire protocol and dispatch.
+try:
+    from methods import IMPLEMENTATIONS as _METHODS
+except ImportError:  # pragma: no cover - direct script runs set this up
+    _METHODS = {}
 
 
 def _field(req, name):
@@ -190,7 +195,8 @@ def handle(raw):
         present, a = _field(req, "args")
         args = a if (present and a is not None) else []
         try:
-            return _METHODS[m](args)
+            # Method functions return the value; the envelope wraps it.
+            return _ok(_METHODS[m](args))
         except Exception as e:
             return _err(str(e) or e.__class__.__name__)
     if m in IMPLEMENTABLE_METHODS:
@@ -200,7 +206,11 @@ def handle(raw):
 
 def main():
     raw = sys.stdin.buffer.read()
-    sys.stdout.write(json.dumps(handle(raw), ensure_ascii=False))
+    # sort_keys=True: Go's json.Marshal sorts map keys, so this is
+    # byte-faithful for object outputs (tests compare parsed values,
+    # but the bytes should match the original's too).
+    sys.stdout.write(json.dumps(handle(raw), ensure_ascii=False,
+                                sort_keys=True))
     sys.stdout.write("\n")
     return 0
 

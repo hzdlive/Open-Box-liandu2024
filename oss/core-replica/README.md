@@ -120,8 +120,13 @@ explicitly when running the harness.
 
 ## Queue (after this slice)
 
-1. normalizeRouting / normalizeGroups / normalizePolicy /
-   normalizeCustom (pure, small, golden pairs available).
+1. DONE (2026-10-29): normalizeRouting / normalizeGroups /
+   normalizePolicy / normalizeCustom — 21/21 golden cases via
+   harness.py (8+9+2+2). Rules in methods/normalize.py; anything not
+   directly measured is marked INFERRED there (activePolicies =
+   enabled policies; ruleUrls count as rule content; urltest
+   idleTimeout default "12h"; unknown group types -> selector;
+   positional policy id/name defaults by analogy with groups).
 2. builtinTags, routingFingerprint (hash algorithm from pairs).
 3. emitGroups (121 cases — the bulk; do it in slices by group kind).
 4. classes, entryPlan, bypassPlan, forwardPlan.

@@ -52,19 +52,23 @@ def test_protocol_cases_exact():
             assert v["implementation"] == "oss-python", (case["id"], v)
             assert v["protocol"] == 1, (case["id"], v)
             assert v["buildID"] == core_main.VERSION, (case["id"], v)
-            assert v["methods"] == [], (case["id"], v)
+            assert v["methods"] == sorted(core_main._METHODS), (
+                case["id"], v)
             assert "bindingSha256" not in v, (case["id"], v)
 
 
 def test_hello_returns_our_identity():
     """Handshake: our own implementation/buildID, never the original's
-    go-native pin (we do not impersonate; see core-replica/README.md)."""
+    go-native pin (we do not impersonate; see core-replica/README.md).
+    methods lists exactly what this replica implements (and grows as
+    methods land)."""
     got = core_main.handle(json.dumps(
         {"protocol": 1, "method": "hello", "args": []}))
     assert got["ok"] is True and got["protocol"] == 1
     assert got["value"]["implementation"] == "oss-python"
     assert got["value"]["protocol"] == 1
     assert got["value"]["buildID"] == core_main.VERSION
+    assert got["value"]["methods"] == sorted(core_main._METHODS)
 
 
 def test_unknown_method_and_licence_methods_are_distinct():
@@ -74,8 +78,10 @@ def test_unknown_method_and_licence_methods_are_distinct():
     got = core_main.handle(json.dumps({**base, "method": "nope"}))
     assert got == {"protocol": 1, "ok": False,
                    "error": "unsupported native-core method"}
+    # A known method with no implementation yet (emitGroups is next
+    # in the queue) answers "not implemented yet", not "unsupported".
     got = core_main.handle(json.dumps(
-        {**base, "method": "normalizeRouting"}))
+        {**base, "method": "emitGroups"}))
     assert got == {"protocol": 1, "ok": False,
                    "error": "not implemented yet"}
     for m in ("activationState", "checkActivationCode", "verifyLicense",
