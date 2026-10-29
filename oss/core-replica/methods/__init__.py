@@ -13,6 +13,7 @@ from .normalize import (  # noqa: F401
     normalize_routing,
 )
 from .tags import builtin_tags  # noqa: F401
+from .emit import emit_groups  # noqa: F401
 
 IMPLEMENTATIONS = {
     "normalizeRouting": normalize_routing,
@@ -20,4 +21,5 @@ IMPLEMENTATIONS = {
     "normalizePolicy": normalize_policy,
     "normalizeCustom": normalize_custom,
     "builtinTags": builtin_tags,
+    "emitGroups": emit_groups,
 }

@@ -78,10 +78,11 @@ def test_unknown_method_and_licence_methods_are_distinct():
     got = core_main.handle(json.dumps({**base, "method": "nope"}))
     assert got == {"protocol": 1, "ok": False,
                    "error": "unsupported native-core method"}
-    # A known method with no implementation yet (emitGroups is next
-    # in the queue) answers "not implemented yet", not "unsupported".
+    # A known method with no implementation yet (configDetailed is
+    # next in the queue after emitGroups) answers "not implemented
+    # yet", not "unsupported".
     got = core_main.handle(json.dumps(
-        {**base, "method": "emitGroups"}))
+        {**base, "method": "configDetailed"}))
     assert got == {"protocol": 1, "ok": False,
                    "error": "not implemented yet"}
     for m in ("activationState", "checkActivationCode", "verifyLicense",

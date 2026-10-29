@@ -134,7 +134,19 @@ explicitly when running the harness.
 3. OPEN: routingFingerprint — see below. Deliberately NOT
    implemented with a guessed hash: a wrong fingerprint silently
    breaks change detection, while "not implemented yet" fails loudly.
-4. emitGroups (121 cases — the bulk; do it in slices by group kind).
+4. DONE (2026-10-29): emitGroups — 121/121 golden cases
+   (methods/emit.py). Rules: normalize-then-emit in group order;
+   builtins short-circuit to direct/block outbounds; disabled user
+   groups skipped; selector/urltest members resolve against
+   allOutbounds tags (empty -> placeholder [directTag]); urltest
+   intervals kept RAW while failover intervals go through
+   strict+salvage validation ([5s, 24h], salvage extracts the first
+   duration token or bare seconds, whitespace -> bad); failover
+   lanes dedup, mode single/urltest/empty by valid count, sub
+   idle_timeout = max(interval, 12h) with idleTimeout ignored;
+   mode "dynamic" groups expand to ALL allOutbounds tags; dropped
+   is always [] in the corpus; args[2] (chain outbounds) has no
+   measured effect on validity.
 5. classes, entryPlan, bypassPlan, forwardPlan.
 6. migrateStoredRouting.
 7. configDetailed (25 cases, 18-field state, 9 sections — last).
