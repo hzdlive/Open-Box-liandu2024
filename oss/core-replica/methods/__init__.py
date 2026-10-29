@@ -14,6 +14,8 @@ from .normalize import (  # noqa: F401
 )
 from .tags import builtin_tags  # noqa: F401
 from .emit import emit_groups  # noqa: F401
+from .plans import (bypass_plan, classes_fn, entry_plan,  # noqa: F401
+                    forward_plan)
 
 IMPLEMENTATIONS = {
     "normalizeRouting": normalize_routing,
@@ -22,4 +24,8 @@ IMPLEMENTATIONS = {
     "normalizeCustom": normalize_custom,
     "builtinTags": builtin_tags,
     "emitGroups": emit_groups,
+    "classes": classes_fn,
+    "entryPlan": entry_plan,
+    "bypassPlan": bypass_plan,
+    "forwardPlan": forward_plan,
 }

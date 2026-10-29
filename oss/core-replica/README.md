@@ -147,7 +147,17 @@ explicitly when running the harness.
    mode "dynamic" groups expand to ALL allOutbounds tags; dropped
    is always [] in the corpus; args[2] (chain outbounds) has no
    measured effect on validity.
-5. classes, entryPlan, bypassPlan, forwardPlan.
+5. DONE (2026-10-29): classes (2/2), entryPlan (3/3), bypassPlan
+   (3/3), forwardPlan (3/3) — methods/plans.py. classes resolves
+   each policy + the fallback through live selections (direct /
+   block builtins, else proxy). entry/bypass share the entry
+   gating (enabled flag, FakeIP, fallback class) with fixed
+   Chinese reason strings; entryPlan whitelist collects proxy/block
+   geoip sets + cidrs (custom first, deduped); bypassPlan lists
+   direct policies with geoip sets as pending against earlier
+   proxy/block IP conditions (templated reason); forwardPlan
+   collects proxy domains + geosite expansions (+ rewriteDomains
+   last), mode all vs domains by fallback class.
 6. migrateStoredRouting.
 7. configDetailed (25 cases, 18-field state, 9 sections — last).
 
