@@ -447,6 +447,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
     # the WSGI server de-chunks the rest, so this covers real clients.
     BODY_LIMIT_DEFAULT = 1024 * 1024
     BODY_LIMIT_BACKUP_IMPORT = 32 * 1024 * 1024
+    # Upgrade-report item 3: the subscriptions router carries 10mb in
+    # the original (new _meta.corrections, index.mjs:9826-9831). Applied
+    # to both the /api/openbox/subscriptions router and our /api/subscriptions
+    # alias (same resource); shares stay at the 1mb default.
+    BODY_LIMIT_SUBSCRIPTIONS = 10 * 1024 * 1024
     _BODY_LIMIT_EXEMPT_ENDPOINTS = {"api_fallthrough", "frontend",
                                     "legacy_frontend"}
 
@@ -459,9 +464,13 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return None
         if not request.path.startswith("/api/"):
             return None
-        limit = (BODY_LIMIT_BACKUP_IMPORT
-                 if request.path == "/api/backup"
-                 else BODY_LIMIT_DEFAULT)
+        if request.path == "/api/backup":
+            limit = BODY_LIMIT_BACKUP_IMPORT
+        elif (request.path.startswith("/api/openbox/subscriptions")
+              or request.path.startswith("/api/subscriptions")):
+            limit = BODY_LIMIT_SUBSCRIPTIONS
+        else:
+            limit = BODY_LIMIT_DEFAULT
         cl = request.content_length
         if cl is not None and cl > limit:
             return jsonify({"error": "request entity too large"}), 413
@@ -826,6 +835,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
         url = d.get("url", "") or ""
         if url:
             urls = [url] + urls
+        # Wave5 parity: preview with neither urls nor content is 400
+        # (previously it answered 200 with an empty node list).
+        if not urls and not content.strip():
+            return jsonify({"error": "url or content is required"}), 400
 
         all_nodes = []
         errors = []
@@ -886,7 +899,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.put("/api/openbox/subscriptions/order")
     def ob_subs_order():
         d = request.get_json(force=True, silent=True) or {}
-        ids = d.get("ids", [])
+        # Wave5 parity: a missing or non-list ids is 400. An explicit
+        # empty list stays a no-op (unprobed, least change).
+        if "ids" not in d or not isinstance(d["ids"], list):
+            return jsonify({"error": "ids must be a list"}), 400
+        ids = d["ids"]
         c = db()
         for pos, sid in enumerate(ids):
             c.execute("UPDATE subscriptions SET position=? WHERE id=?", (pos, sid))
@@ -1275,8 +1292,12 @@ def create_app(db_path: str = ":memory:") -> Flask:
         from core.clashapi import get_proxies as _get_proxies
         d = request.get_json(force=True, silent=True) or {}
         target = (d.get("target") or d.get("domain") or d.get("query") or "").strip()
+        # Wave5 parity: this route's error shape is {message}, like
+        # route-test and terminal-test (fail-shapes 400 ['message']).
+        # The UI never triggers these paths (it blocks empty queries
+        # and sends no ip_version), so no display change follows.
         if not target:
-            return jsonify({"error": "target is required"}), 400
+            return jsonify({"message": "target is required"}), 400
         port = d.get("port")
         network = d.get("network") or "tcp"
         ip_version = d.get("ip_version")
@@ -1284,7 +1305,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             try:
                 ip_version = int(ip_version)
             except (TypeError, ValueError):
-                return jsonify({"error": "ip_version 只能是 4 或 6"}), 400
+                return jsonify({"message": "ip_version 只能是 4 或 6"}), 400
         # 预言机必须看到与部署一致的规则表：内容过滤规则是部署时
         # 生成的（apply 用 with_blocked_domains=True），不加载它，
         # 被拦截域名会被误判为走代理/直连。
@@ -2341,6 +2362,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def cf_ruleset_patch(rid: str):
         data = request.get_json() or {}
         conn = db()
+        # Wave5 parity: patching a ruleset that does not exist is 404.
+        if conn.execute("SELECT id FROM cf_rulesets WHERE id = ?",
+                        (rid,)).fetchone() is None:
+            return jsonify({"error": "not found"}), 404
         if "enabled" in data and data["enabled"]:
             # Enabling emits this ruleset's domains into the config: the
             # caps apply here just as at create/refresh.
@@ -3217,6 +3242,13 @@ def create_app(db_path: str = ":memory:") -> Flask:
     def ob_subshares_create():
         import json as _json, secrets, time
         d = request.get_json(force=True, silent=True) or {}
+        # Wave5 parity: an empty object for a route that declares fields
+        # is 400. Only the no-declared-fields case is constrained here;
+        # which single field is required is unprobed, so single-field
+        # bodies keep the old lenient behavior.
+        if not any(k in d for k in ("host", "name", "protocol",
+                                    "subscriptionIds", "token")):
+            return jsonify({"error": "missing share fields"}), 400
         c = db()
         token = d.get("token") or secrets.token_urlsafe(16)
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
@@ -3258,12 +3290,20 @@ def create_app(db_path: str = ":memory:") -> Flask:
             c.execute(f"UPDATE ob_subscription_shares SET {', '.join(fields)} WHERE id=?", vals)
             c.commit()
         row = c.execute("SELECT token FROM ob_subscription_shares WHERE id=?", (sid,)).fetchone()
-        return jsonify({"share": {"id": sid, "token": row[0] if row else ""}})
+        # Wave5 parity: patching a share that does not exist is 404.
+        if row is None:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"share": {"id": sid, "token": row[0]}})
 
     @app.post("/api/openbox/subscription-shares/<int:sid>/regenerate")
     def ob_subshares_regen(sid):
         import secrets
         c = db()
+        # Wave5 parity: regenerating a share that does not exist is 404
+        # (previously it minted a token for a nonexistent share).
+        if c.execute("SELECT id FROM ob_subscription_shares WHERE id=?",
+                     (sid,)).fetchone() is None:
+            return jsonify({"error": "not found"}), 404
         token = secrets.token_urlsafe(16)
         c.execute("UPDATE ob_subscription_shares SET token=? WHERE id=?", (token, sid))
         c.commit()
@@ -3366,6 +3406,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
         import json as _json
         d = request.get_json(force=True, silent=True) or {}
         gid = d.get("groupId") or d.get("id")
+        # Wave5 parity: a missing group id is a bad request (400), not
+        # a not-found (404); the 404 below is for a specified group
+        # that does not exist.
+        if not gid:
+            return jsonify({"error": "groupId is required"}), 400
         c = db()
         groups = dbmod.list_groups(c)
         target = None

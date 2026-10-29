@@ -1,0 +1,209 @@
+{
+  "_meta": {
+    "artifact": "Open-Box core wire protocol — failure paths, one per case",
+    "capturedFrom": "openbox-core v0.1.337 on the lab box 192.168.2.115",
+    "why": "core-golden.json can only express {method, args}, so it cannot reach the boundary itself. These four sentences are user-visible: rpc.mjs throws CoreError(body.error) and the /api handler copies the message into 500 {error}.",
+    "order": "trailing data is checked BEFORE protocol; both are checked after the first decode",
+    "inputsAreUtf8Text": true,
+    "caseCount": 28,
+    "warning": "Do not hand-edit. Re-run `node rea-tools/core-protocol.mjs --capture`."
+  },
+  "cases": [
+    {
+      "id": "empty",
+      "note": "no bytes at all",
+      "input": "",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "blank",
+      "note": "whitespace only — still no value",
+      "input": "   \n",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "not-json",
+      "note": "syntax error",
+      "input": "not json",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "array",
+      "note": "a value, but not an object",
+      "input": "[]",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "args-not-array",
+      "note": "`args` is an object — the field is array-typed",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":{}}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "protocol-string",
+      "note": "`protocol` is a string",
+      "input": "{\"protocol\":\"1\",\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "protocol-float",
+      "note": "`protocol` is a float — Go will not narrow 1.0 into an int field",
+      "input": "{\"protocol\":1.0,\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "license-number",
+      "note": "`license` is a number",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[],\"license\":123}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "geotags-string",
+      "note": "`geoTags` is a string",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[],\"geoTags\":\"cn\"}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "bom",
+      "note": "a UTF-8 BOM is not JSON whitespace",
+      "input": "﻿{\"protocol\":1,\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"invalid native-core request\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "two-objects",
+      "note": "two values",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[]}{\"protocol\":1,\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"trailing native-core request data\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "trailing-garbage",
+      "note": "one value plus junk",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[]} trailing",
+      "exit": 0,
+      "stdout": "{\"error\":\"trailing native-core request data\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "proto2-plus-trailing",
+      "note": "wrong protocol *and* trailing — answers trailing, which fixes the order",
+      "input": "{\"protocol\":2,\"method\":\"hello\",\"args\":[]}{\"x\":1}",
+      "exit": 0,
+      "stdout": "{\"error\":\"trailing native-core request data\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "null",
+      "note": "decodes into the zero request, so protocol 0",
+      "input": "null",
+      "exit": 0,
+      "stdout": "{\"error\":\"native-core protocol mismatch\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "object-no-method",
+      "note": "zero request",
+      "input": "{}",
+      "exit": 0,
+      "stdout": "{\"error\":\"native-core protocol mismatch\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "protocol-only",
+      "note": "protocol fine, no method",
+      "input": "{\"protocol\":1}",
+      "exit": 0,
+      "stdout": "{\"error\":\"unsupported native-core method\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "protocol-2",
+      "note": "the one wrong value",
+      "input": "{\"protocol\":2,\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"native-core protocol mismatch\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "no-protocol",
+      "note": "protocol absent",
+      "input": "{\"method\":\"hello\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"native-core protocol mismatch\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "unknown-method",
+      "note": "not in the table",
+      "input": "{\"protocol\":1,\"method\":\"nope\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"unsupported native-core method\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "unknown-method-no-args",
+      "note": "not in the table, and no args",
+      "input": "{\"protocol\":1,\"method\":\"nope\"}",
+      "exit": 0,
+      "stdout": "{\"error\":\"unsupported native-core method\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "method-empty-string",
+      "note": "empty method",
+      "input": "{\"protocol\":1,\"method\":\"\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"unsupported native-core method\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "method-uppercase",
+      "note": "method names are case sensitive",
+      "input": "{\"protocol\":1,\"method\":\"HELLO\",\"args\":[]}",
+      "exit": 0,
+      "stdout": "{\"error\":\"unsupported native-core method\",\"ok\":false,\"protocol\":1}\n"
+    },
+    {
+      "id": "hello-no-args",
+      "note": "`args` may be absent entirely",
+      "input": "{\"protocol\":1,\"method\":\"hello\"}",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    },
+    {
+      "id": "args-null",
+      "note": "`args` may be null",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":null}",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    },
+    {
+      "id": "keys-capitalised",
+      "note": "Go's decoder matches field names case-insensitively",
+      "input": "{\"Protocol\":1,\"Method\":\"hello\",\"Args\":[]}",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    },
+    {
+      "id": "unknown-field",
+      "note": "unknown fields are ignored",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[],\"extra\":true}",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    },
+    {
+      "id": "leading-newline",
+      "note": "surrounding whitespace is fine",
+      "input": "\n\n{\"protocol\":1,\"method\":\"hello\",\"args\":[]}\n",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    },
+    {
+      "id": "trailing-whitespace-only",
+      "note": "trailing whitespace decodes to EOF, not to data",
+      "input": "{\"protocol\":1,\"method\":\"hello\",\"args\":[]}   \n\t ",
+      "exit": 0,
+      "stdout": "{\"ok\":true,\"protocol\":1,\"value\":{\"bindingSha256\":\"1a985f1d09909faef4cfbe774f69fce8d71f55bddf065bafc25f0b845d8de680\",\"buildID\":\"ad37b93430f83ad2b8c050f9ddf962380c185a382f3f91a1494687c2423c80d1\",\"implementation\":\"go-native\",\"methods\":[\"configDetailed\",\"normalizeRouting\",\"normalizePolicy\",\"normalizeCustom\",\"classes\",\"entryPlan\",\"bypassPlan\",\"forwardPlan\",\"emitGroups\",\"checkActivationCode\",\"verifyLicense\",\"authorizationState\",\"featureAccess\"],\"protocol\":1}}\n"
+    }
+  ]
+}

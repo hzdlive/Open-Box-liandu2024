@@ -1,0 +1,675 @@
+{
+ "POST /api/auth/change-password": [
+  200,
+  400,
+  401,
+  409
+ ],
+ "POST /api/auth/login": [
+  200,
+  401
+ ],
+ "POST /api/auth/logout": [
+  200
+ ],
+ "POST /api/auth/setup": [
+  200,
+  400,
+  409
+ ],
+ "GET /api/auth/status": [
+  200
+ ],
+ "DELETE /api/background-image": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/background-image": [
+  200,
+  401,
+  403
+ ],
+ "PUT /api/background-image": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/health": [
+  200
+ ],
+ "DELETE /api/openbox/activation": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/activation": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/activation": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "PUT /api/openbox/activation": [
+  200,
+  400,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/backup": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/backup/import": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "POST /api/openbox/chain-proxies/latency": [
+  200,
+  400,
+  401,
+  403,
+  409,
+  500
+ ],
+ "POST /api/openbox/client-app/egress-country": [
+  200,
+  401,
+  403,
+  500,
+  503
+ ],
+ "GET /api/openbox/client-app/info": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/client-config": [
+  200,
+  401,
+  403
+ ],
+ "PUT /api/openbox/client-config/enabled": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/client-config/file": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/clients": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/config/preview": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/content-filter": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/content-filter": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "DELETE /api/openbox/content-filter/:id": [
+  200,
+  401,
+  403
+ ],
+ "PATCH /api/openbox/content-filter/:id": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "GET /api/openbox/content-filter/:id/source": [
+  200,
+  401,
+  403,
+  404
+ ],
+ "GET /api/openbox/defaults/groups": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/defaults/routing": [
+  200,
+  401,
+  403,
+  503
+ ],
+ "POST /api/openbox/deploy": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/deploy/state": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/diagnostics": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/dns-filter/": [
+  200,
+  401,
+  403
+ ],
+ "PUT /api/openbox/dns-filter/": [
+  200,
+  400,
+  401,
+  403,
+  409
+ ],
+ "POST /api/openbox/dns-filter/apply": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/dns-filter/preview": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/dns-filter/records": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/dns-filter/summary": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/dns/flush-cache": [
+  200,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/dns/region-detect": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/dns/region-detect": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/dns/upstream-test": [
+  200,
+  400,
+  401,
+  403,
+  500,
+  503
+ ],
+ "GET /api/openbox/dns/wan": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/factory-reset": [
+  200,
+  401,
+  403,
+  500,
+  503
+ ],
+ "POST /api/openbox/failover/recheck": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "POST /api/openbox/failover/refresh": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/failover/status": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/groups": [
+  200,
+  401,
+  403
+ ],
+ "PUT /api/openbox/groups": [
+  200,
+  400,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/kernel/version": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/latency-history": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/latency-history/samples": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "POST /api/openbox/latency-history/sync": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/latency-history/version": [
+  200,
+  401,
+  403
+ ],
+ "DELETE /api/openbox/license": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/license": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/license": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/node-info/:tag": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "GET /api/openbox/node-info/:tag/entry-country": [
+  200,
+  401,
+  403,
+  404
+ ],
+ "POST /api/openbox/node-info/:tag/exit": [
+  200,
+  401,
+  403,
+  404
+ ],
+ "POST /api/openbox/nodes/latency": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/nodes/latency/queue": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/penetration": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/policies/entries": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/profile/": [
+  200,
+  401,
+  403
+ ],
+ "PUT /api/openbox/profile/": [
+  200,
+  400,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/profile/defaults": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/rollback": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "POST /api/openbox/route-test": [
+  200,
+  400,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/rulesets/entries": [
+  200,
+  400,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/rulesets/import": [
+  200,
+  400,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/rulesets/preview": [
+  200,
+  400,
+  401,
+  403,
+  503
+ ],
+ "POST /api/openbox/rulesets/refresh": [
+  200,
+  400,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/servers/port-check": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/service/core/:action": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/service/status": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/site-latency/": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/site-latency/": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/site-latency/history": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/subscription-shares/": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/subscription-shares/": [
+  201,
+  400,
+  401,
+  403
+ ],
+ "DELETE /api/openbox/subscription-shares/:id": [
+  200,
+  401,
+  403,
+  404
+ ],
+ "PATCH /api/openbox/subscription-shares/:id": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "POST /api/openbox/subscription-shares/:id/regenerate": [
+  200,
+  401,
+  403,
+  404
+ ],
+ "GET /api/openbox/subscriptions/": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/subscriptions/": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "DELETE /api/openbox/subscriptions/:id": [
+  200,
+  401,
+  403
+ ],
+ "PATCH /api/openbox/subscriptions/:id": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "POST /api/openbox/subscriptions/:id/refresh": [
+  200,
+  400,
+  401,
+  403,
+  404
+ ],
+ "PUT /api/openbox/subscriptions/order": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "POST /api/openbox/subscriptions/preview": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/system/timezone": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "PUT /api/openbox/system/timezone": [
+  200,
+  400,
+  401,
+  403,
+  409,
+  500
+ ],
+ "POST /api/openbox/terminal-test": [
+  200,
+  400,
+  401,
+  403,
+  409,
+  500
+ ],
+ "GET /api/openbox/terminal-test/capability": [
+  200,
+  401,
+  403,
+  500
+ ],
+ "GET /api/openbox/traffic/day": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/traffic/drill": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/traffic/month": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /api/openbox/traffic/usage": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/tutorial-videos": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/tutorial-videos/refresh": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/update/cancel": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/openbox/update/check": [
+  200,
+  401,
+  403,
+  503
+ ],
+ "GET /api/openbox/update/notes": [
+  200,
+  401,
+  403
+ ],
+ "POST /api/openbox/update/run": [
+  200,
+  400,
+  401,
+  403,
+  409,
+  503
+ ],
+ "GET /api/openbox/update/status": [
+  200,
+  401,
+  403
+ ],
+ "GET /api/storage": [
+  200,
+  401,
+  403
+ ],
+ "PATCH /api/storage": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "PUT /api/storage": [
+  200,
+  400,
+  401,
+  403
+ ],
+ "GET /client/v1/:routerId/background": [
+  200
+ ],
+ "GET /client/v1/:routerId/config/:token": [
+  200,
+  500
+ ],
+ "GET /client/v1/:routerId/config/:token/background": [
+  200
+ ],
+ "GET /client/v1/:routerId/config/:token/content-filter": [
+  200
+ ],
+ "GET /client/v1/:routerId/config/:token/content-filter/:hash": [
+  200,
+  404
+ ],
+ "GET /client/v1/:routerId/config/:token/rule-set/:tag": [
+  200,
+  404
+ ],
+ "GET /client/v1/:routerId/geodata/:tag": [
+  200,
+  404
+ ],
+ "GET /client/v1/:routerId/regions": [
+  200
+ ],
+ "GET /client/v1/home/:routerId": [
+  200
+ ],
+ "GET /registerSW.js": [
+  200
+ ],
+ "GET /sub/:token": [
+  200,
+  404,
+  502
+ ],
+ "GET /sw.js": [
+  200
+ ]
+}

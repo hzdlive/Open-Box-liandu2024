@@ -1,0 +1,3570 @@
+{
+  "_meta": {
+    "capturedAt": "2026-10-29T03:03:08.577Z",
+    "tool": "rea-tools/capture-fail-shapes.mjs",
+    "note": "Failure bodies measured against a scratch panel this tool booted. The gate rounds sweep every /api/* route; the route round sends malformed requests with the gate off. Rows whose `why` names this host (no native core, no Linux, no network) describe the host, not the shipped panel.",
+    "contract": {
+      "endpoints": 122,
+      "gated": 110
+    },
+    "counts": {
+      "routes": 122,
+      "measured": 117,
+      "skipped": 5,
+      "failureObservations": 94
+    }
+  },
+  "gate": {
+    "setupRequired": {
+      "code": "PASSWORD_SETUP_REQUIRED",
+      "status": 403,
+      "keys": [
+        "error"
+      ],
+      "covers": 104,
+      "agrees": 104,
+      "covered": [
+        "DELETE /api/background-image",
+        "GET /api/background-image",
+        "PUT /api/background-image",
+        "DELETE /api/openbox/activation",
+        "GET /api/openbox/activation",
+        "POST /api/openbox/activation",
+        "PUT /api/openbox/activation",
+        "GET /api/openbox/backup",
+        "POST /api/openbox/backup/import",
+        "POST /api/openbox/chain-proxies/latency",
+        "POST /api/openbox/client-app/egress-country",
+        "GET /api/openbox/client-app/info",
+        "GET /api/openbox/client-config",
+        "PUT /api/openbox/client-config/enabled",
+        "GET /api/openbox/client-config/file",
+        "GET /api/openbox/clients",
+        "GET /api/openbox/config/preview",
+        "GET /api/openbox/content-filter",
+        "POST /api/openbox/content-filter",
+        "DELETE /api/openbox/content-filter/:id",
+        "PATCH /api/openbox/content-filter/:id",
+        "GET /api/openbox/content-filter/:id/source",
+        "GET /api/openbox/defaults/groups",
+        "GET /api/openbox/defaults/routing",
+        "POST /api/openbox/deploy",
+        "GET /api/openbox/deploy/state",
+        "GET /api/openbox/diagnostics",
+        "GET /api/openbox/dns-filter/",
+        "PUT /api/openbox/dns-filter/",
+        "POST /api/openbox/dns-filter/apply",
+        "GET /api/openbox/dns-filter/preview",
+        "GET /api/openbox/dns-filter/records",
+        "GET /api/openbox/dns-filter/summary",
+        "POST /api/openbox/dns/flush-cache",
+        "GET /api/openbox/dns/region-detect",
+        "POST /api/openbox/dns/region-detect",
+        "POST /api/openbox/dns/upstream-test",
+        "GET /api/openbox/dns/wan",
+        "POST /api/openbox/factory-reset",
+        "POST /api/openbox/failover/recheck",
+        "POST /api/openbox/failover/refresh",
+        "GET /api/openbox/failover/status",
+        "GET /api/openbox/groups",
+        "PUT /api/openbox/groups",
+        "GET /api/openbox/kernel/version",
+        "GET /api/openbox/latency-history",
+        "POST /api/openbox/latency-history/samples",
+        "POST /api/openbox/latency-history/sync",
+        "GET /api/openbox/latency-history/version",
+        "DELETE /api/openbox/license",
+        "GET /api/openbox/license",
+        "POST /api/openbox/license",
+        "GET /api/openbox/node-info/:tag",
+        "GET /api/openbox/node-info/:tag/entry-country",
+        "POST /api/openbox/node-info/:tag/exit",
+        "POST /api/openbox/nodes/latency",
+        "GET /api/openbox/nodes/latency/queue",
+        "POST /api/openbox/penetration",
+        "GET /api/openbox/policies/entries",
+        "GET /api/openbox/profile/",
+        "PUT /api/openbox/profile/",
+        "GET /api/openbox/profile/defaults",
+        "POST /api/openbox/rollback",
+        "POST /api/openbox/route-test",
+        "GET /api/openbox/rulesets/entries",
+        "GET /api/openbox/rulesets/import",
+        "GET /api/openbox/rulesets/preview",
+        "POST /api/openbox/rulesets/refresh",
+        "GET /api/openbox/servers/port-check",
+        "POST /api/openbox/service/core/:action",
+        "GET /api/openbox/service/status",
+        "GET /api/openbox/site-latency/",
+        "POST /api/openbox/site-latency/",
+        "GET /api/openbox/site-latency/history",
+        "GET /api/openbox/subscription-shares/",
+        "POST /api/openbox/subscription-shares/",
+        "DELETE /api/openbox/subscription-shares/:id",
+        "PATCH /api/openbox/subscription-shares/:id",
+        "POST /api/openbox/subscription-shares/:id/regenerate",
+        "GET /api/openbox/subscriptions/",
+        "POST /api/openbox/subscriptions/",
+        "DELETE /api/openbox/subscriptions/:id",
+        "PATCH /api/openbox/subscriptions/:id",
+        "POST /api/openbox/subscriptions/:id/refresh",
+        "PUT /api/openbox/subscriptions/order",
+        "POST /api/openbox/subscriptions/preview",
+        "GET /api/openbox/system/timezone",
+        "PUT /api/openbox/system/timezone",
+        "POST /api/openbox/terminal-test",
+        "GET /api/openbox/terminal-test/capability",
+        "GET /api/openbox/traffic/day",
+        "GET /api/openbox/traffic/drill",
+        "GET /api/openbox/traffic/month",
+        "GET /api/openbox/traffic/usage",
+        "GET /api/openbox/tutorial-videos",
+        "POST /api/openbox/tutorial-videos/refresh",
+        "POST /api/openbox/update/cancel",
+        "GET /api/openbox/update/check",
+        "GET /api/openbox/update/notes",
+        "POST /api/openbox/update/run",
+        "GET /api/openbox/update/status",
+        "GET /api/storage",
+        "PATCH /api/storage",
+        "PUT /api/storage"
+      ],
+      "shapes": [
+        {
+          "keys": [
+            "error"
+          ],
+          "count": 104
+        }
+      ],
+      "dissent": [],
+      "public": [
+        {
+          "route": "POST /api/auth/change-password",
+          "status": 409,
+          "keys": [
+            "error",
+            "message"
+          ],
+          "kind": "error-and-message",
+          "excerpt": "{\"error\":\"PASSWORD_SETUP_REQUIRED\",\"message\":\"Access password has not been configured yet\"}"
+        },
+        {
+          "route": "POST /api/auth/login",
+          "status": 403,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"PASSWORD_SETUP_REQUIRED\"}"
+        },
+        {
+          "route": "POST /api/auth/logout",
+          "status": 403,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"PASSWORD_SETUP_REQUIRED\"}"
+        },
+        {
+          "route": "GET /api/auth/status",
+          "status": 200,
+          "keys": [
+            "authenticated",
+            "enabled",
+            "passwordSet"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":false,\"authenticated\":true,\"passwordSet\":false}"
+        },
+        {
+          "route": "GET /api/health",
+          "status": 200,
+          "keys": [
+            "dbPath",
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true,\"dbPath\":\"E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\.tmp\\\\fail-shapes\\\\gate-setup\\\\zashboard.sqlite\"}"
+        }
+      ],
+      "skipped": [
+        {
+          "route": "POST /api/auth/setup",
+          "why": "configures a password; the round would stop meaning anything"
+        }
+      ]
+    },
+    "authRequired": {
+      "code": "ACCESS_PASSWORD_REQUIRED",
+      "status": 401,
+      "keys": [
+        "authenticated",
+        "code",
+        "enabled",
+        "message"
+      ],
+      "covers": 104,
+      "agrees": 104,
+      "covered": [
+        "DELETE /api/background-image",
+        "GET /api/background-image",
+        "PUT /api/background-image",
+        "DELETE /api/openbox/activation",
+        "GET /api/openbox/activation",
+        "POST /api/openbox/activation",
+        "PUT /api/openbox/activation",
+        "GET /api/openbox/backup",
+        "POST /api/openbox/backup/import",
+        "POST /api/openbox/chain-proxies/latency",
+        "POST /api/openbox/client-app/egress-country",
+        "GET /api/openbox/client-app/info",
+        "GET /api/openbox/client-config",
+        "PUT /api/openbox/client-config/enabled",
+        "GET /api/openbox/client-config/file",
+        "GET /api/openbox/clients",
+        "GET /api/openbox/config/preview",
+        "GET /api/openbox/content-filter",
+        "POST /api/openbox/content-filter",
+        "DELETE /api/openbox/content-filter/:id",
+        "PATCH /api/openbox/content-filter/:id",
+        "GET /api/openbox/content-filter/:id/source",
+        "GET /api/openbox/defaults/groups",
+        "GET /api/openbox/defaults/routing",
+        "POST /api/openbox/deploy",
+        "GET /api/openbox/deploy/state",
+        "GET /api/openbox/diagnostics",
+        "GET /api/openbox/dns-filter/",
+        "PUT /api/openbox/dns-filter/",
+        "POST /api/openbox/dns-filter/apply",
+        "GET /api/openbox/dns-filter/preview",
+        "GET /api/openbox/dns-filter/records",
+        "GET /api/openbox/dns-filter/summary",
+        "POST /api/openbox/dns/flush-cache",
+        "GET /api/openbox/dns/region-detect",
+        "POST /api/openbox/dns/region-detect",
+        "POST /api/openbox/dns/upstream-test",
+        "GET /api/openbox/dns/wan",
+        "POST /api/openbox/factory-reset",
+        "POST /api/openbox/failover/recheck",
+        "POST /api/openbox/failover/refresh",
+        "GET /api/openbox/failover/status",
+        "GET /api/openbox/groups",
+        "PUT /api/openbox/groups",
+        "GET /api/openbox/kernel/version",
+        "GET /api/openbox/latency-history",
+        "POST /api/openbox/latency-history/samples",
+        "POST /api/openbox/latency-history/sync",
+        "GET /api/openbox/latency-history/version",
+        "DELETE /api/openbox/license",
+        "GET /api/openbox/license",
+        "POST /api/openbox/license",
+        "GET /api/openbox/node-info/:tag",
+        "GET /api/openbox/node-info/:tag/entry-country",
+        "POST /api/openbox/node-info/:tag/exit",
+        "POST /api/openbox/nodes/latency",
+        "GET /api/openbox/nodes/latency/queue",
+        "POST /api/openbox/penetration",
+        "GET /api/openbox/policies/entries",
+        "GET /api/openbox/profile/",
+        "PUT /api/openbox/profile/",
+        "GET /api/openbox/profile/defaults",
+        "POST /api/openbox/rollback",
+        "POST /api/openbox/route-test",
+        "GET /api/openbox/rulesets/entries",
+        "GET /api/openbox/rulesets/import",
+        "GET /api/openbox/rulesets/preview",
+        "POST /api/openbox/rulesets/refresh",
+        "GET /api/openbox/servers/port-check",
+        "POST /api/openbox/service/core/:action",
+        "GET /api/openbox/service/status",
+        "GET /api/openbox/site-latency/",
+        "POST /api/openbox/site-latency/",
+        "GET /api/openbox/site-latency/history",
+        "GET /api/openbox/subscription-shares/",
+        "POST /api/openbox/subscription-shares/",
+        "DELETE /api/openbox/subscription-shares/:id",
+        "PATCH /api/openbox/subscription-shares/:id",
+        "POST /api/openbox/subscription-shares/:id/regenerate",
+        "GET /api/openbox/subscriptions/",
+        "POST /api/openbox/subscriptions/",
+        "DELETE /api/openbox/subscriptions/:id",
+        "PATCH /api/openbox/subscriptions/:id",
+        "POST /api/openbox/subscriptions/:id/refresh",
+        "PUT /api/openbox/subscriptions/order",
+        "POST /api/openbox/subscriptions/preview",
+        "GET /api/openbox/system/timezone",
+        "PUT /api/openbox/system/timezone",
+        "POST /api/openbox/terminal-test",
+        "GET /api/openbox/terminal-test/capability",
+        "GET /api/openbox/traffic/day",
+        "GET /api/openbox/traffic/drill",
+        "GET /api/openbox/traffic/month",
+        "GET /api/openbox/traffic/usage",
+        "GET /api/openbox/tutorial-videos",
+        "POST /api/openbox/tutorial-videos/refresh",
+        "POST /api/openbox/update/cancel",
+        "GET /api/openbox/update/check",
+        "GET /api/openbox/update/notes",
+        "POST /api/openbox/update/run",
+        "GET /api/openbox/update/status",
+        "GET /api/storage",
+        "PATCH /api/storage",
+        "PUT /api/storage"
+      ],
+      "shapes": [
+        {
+          "keys": [
+            "authenticated",
+            "code",
+            "enabled",
+            "message"
+          ],
+          "count": 104
+        }
+      ],
+      "dissent": [],
+      "public": [
+        {
+          "route": "POST /api/auth/change-password",
+          "status": 401,
+          "keys": [
+            "code",
+            "message"
+          ],
+          "kind": "code-and-message",
+          "excerpt": "{\"code\":\"ACCESS_PASSWORD_INVALID\",\"message\":\"Current password is incorrect\"}"
+        },
+        {
+          "route": "POST /api/auth/login",
+          "status": 401,
+          "keys": [
+            "authenticated",
+            "code",
+            "enabled",
+            "message"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"code\":\"ACCESS_PASSWORD_INVALID\",\"message\":\"Invalid access password\",\"enabled\":true,\"authenticated\":false}"
+        },
+        {
+          "route": "POST /api/auth/logout",
+          "status": 200,
+          "keys": [
+            "authenticated",
+            "enabled"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":true,\"authenticated\":false}"
+        },
+        {
+          "route": "GET /api/auth/status",
+          "status": 200,
+          "keys": [
+            "authenticated",
+            "enabled",
+            "passwordSet"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":true,\"authenticated\":false,\"passwordSet\":true}"
+        },
+        {
+          "route": "GET /api/health",
+          "status": 200,
+          "keys": [
+            "dbPath",
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true,\"dbPath\":\"E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\.tmp\\\\fail-shapes\\\\gate-auth\\\\zashboard.sqlite\"}"
+        }
+      ],
+      "skipped": [
+        {
+          "route": "POST /api/auth/setup",
+          "why": "as above"
+        }
+      ]
+    }
+  },
+  "routes": {
+    "POST /api/auth/change-password": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 401,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "code",
+            "message"
+          ],
+          "kind": "code-and-message",
+          "excerpt": "{\"code\":\"ACCESS_PASSWORD_INVALID\",\"message\":\"Current password is incorrect\"}",
+          "code": "ACCESS_PASSWORD_INVALID"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 401,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "code",
+            "message"
+          ],
+          "kind": "code-and-message",
+          "excerpt": "{\"code\":\"ACCESS_PASSWORD_INVALID\",\"message\":\"Current password is incorrect\"}",
+          "code": "ACCESS_PASSWORD_INVALID"
+        }
+      ],
+      "failures": [
+        {
+          "status": 401,
+          "keys": [
+            "code",
+            "message"
+          ],
+          "kind": "code-and-message"
+        },
+        {
+          "status": 401,
+          "keys": [
+            "code",
+            "message"
+          ],
+          "kind": "code-and-message"
+        }
+      ]
+    },
+    "POST /api/auth/login": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "authenticated",
+            "enabled"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":false,\"authenticated\":true}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "authenticated",
+            "enabled"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":false,\"authenticated\":true}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/auth/logout": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "authenticated",
+            "enabled"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":false,\"authenticated\":true}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/auth/setup": {
+      "skipped": "configures a password and changes every later answer"
+    },
+    "GET /api/auth/status": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "authenticated",
+            "enabled",
+            "passwordSet"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":false,\"authenticated\":true,\"passwordSet\":true}"
+        }
+      ],
+      "failures": []
+    },
+    "DELETE /api/background-image": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/background-image": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "image"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"image\":\"\"}"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/background-image": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"image must be a string\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"image must be a string\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/health": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "dbPath",
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true,\"dbPath\":\"E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\.tmp\\\\fail-shapes\\\\routes\\\\zashboard.sqlite\"}"
+        }
+      ],
+      "failures": []
+    },
+    "DELETE /api/openbox/activation": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/activation": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/activation": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "PUT /api/openbox/activation": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/backup": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "backgroundImage",
+            "contentFilter",
+            "exportedAt",
+            "format",
+            "groups",
+            "includes",
+            "nodes",
+            "openboxVersion",
+            "panelSettings",
+            "profile",
+            "subscriptions",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"format\":\"open-box-backup\",\"version\":1,\"exportedAt\":\"2026-10-29T03:02:56.452Z\",\"openboxVersion\":\"\",\"includes\":{\"subscriptions\":true,\"chainProxies\":true,\"clientRoutes\":true,\"servers\":true},\"profile\":{\"ipv6\":false,\"ipv6Proxy\":\"node\",\"directForNodes\":true,\"rejectQuic\":true,\"directBypass\":true,\"bypassP"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "backgroundImage",
+            "contentFilter",
+            "exportedAt",
+            "format",
+            "groups",
+            "includes",
+            "nodes",
+            "openboxVersion",
+            "panelSettings",
+            "profile",
+            "subscriptions",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"format\":\"open-box-backup\",\"version\":1,\"exportedAt\":\"2026-10-29T03:02:56.465Z\",\"openboxVersion\":\"\",\"includes\":{\"subscriptions\":true,\"chainProxies\":true,\"clientRoutes\":true,\"servers\":true},\"profile\":{\"ipv6\":false,\"ipv6Proxy\":\"node\",\"directForNodes\":true,\"rejectQuic\":true,\"directBypass\":true,\"bypassP"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/backup/import": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"不是 Open-Box 导出的文件\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscriptions 应为 replace / append\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/chain-proxies/latency": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"节点内容不能为空\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/client-app/egress-country": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "at",
+            "country",
+            "ip"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"country\":\"\",\"ip\":\"\",\"at\":0}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/client-app/info": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "defaultShareRegions",
+            "egressCountry",
+            "lanAddresses",
+            "lanSubnets",
+            "panelPort",
+            "routerId",
+            "routerName",
+            "serverInfo",
+            "serverInfoDefaults",
+            "shareRegions",
+            "shareRegionsCustomized"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"routerId\":\"9a8e50534c002f727337a761abffbf1e\",\"routerName\":\"DESKTOP-90GA3OM\",\"lanAddresses\":[],\"lanSubnets\":[],\"panelPort\":39545,\"shareRegions\":[{\"id\":\"cn\",\"name\":\"中国大陆\",\"description\":\"中国大陆站点本地直连，其余流量走代理（回路由器）\",\"regions\":[\"CN\"],\"default\":true,\"rules\":[{\"type\":\"domainSuffix\",\"value\":\"browserleaks.co"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/client-config": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "device",
+            "enabled",
+            "key",
+            "lanAddresses",
+            "panelPort",
+            "routerId",
+            "routerName",
+            "token"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"device\":{\"id\":\"d8f6ddb8b029d\",\"name\":\"app\",\"createdAt\":1793242976490,\"lastSyncAt\":0,\"lastSyncFrom\":\"\"},\"enabled\":true,\"token\":\"7f61b78f3eca89cb5cf58b4a664ad3bff8a3d67aced3125b\",\"key\":\"AauBlh0MAR99CmcBZyTcp-wzrm85cGigTwwOtAWkPv0\",\"routerId\":\"9a8e50534c002f727337a761abffbf1e\",\"routerName\":\"DESKTOP-9"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/openbox/client-config/enabled": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"enabled must be a boolean\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"enabled must be a boolean\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/client-config/file": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/clients": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "clients"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"clients\":[]}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/config/preview": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/content-filter": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "hostnames",
+            "sets",
+            "sha256",
+            "size",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"version\":1,\"sha256\":\"9098e638485f1b72771c8965b1b4ef274d643e177e3a81f1ae4362ca703fc3d0\",\"size\":514860,\"hostnames\":[\"101.226.30.36\",\"124.70.90.16\",\"123.249.33.119\",\"117.184.40.141\",\"140.207.67.231\",\"ossx-link.ztehome.com.cn\",\"yuudnn.lz-qs.com\",\"marki.markiapp.com\",\"misc.eol.cn\",\"app.yuebuy.cn\",\"rfs-"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/content-filter": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"请填写名称并选择规则格式\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "DELETE /api/openbox/content-filter/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "hostnames",
+            "sets",
+            "sha256",
+            "size",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"version\":1,\"sha256\":\"9098e638485f1b72771c8965b1b4ef274d643e177e3a81f1ae4362ca703fc3d0\",\"size\":514860,\"hostnames\":[\"101.226.30.36\",\"124.70.90.16\",\"123.249.33.119\",\"117.184.40.141\",\"140.207.67.231\",\"ossx-link.ztehome.com.cn\",\"yuudnn.lz-qs.com\",\"marki.markiapp.com\",\"misc.eol.cn\",\"app.yuebuy.cn\",\"rfs-"
+        }
+      ],
+      "failures": []
+    },
+    "PATCH /api/openbox/content-filter/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"规则集不存在\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"规则集不存在\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/content-filter/:id/source": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"规则集不存在\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/defaults/groups": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "groups"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"groups\":[{\"id\":\"builtin-direct\",\"kind\":\"direct\",\"name\":\"直连\",\"type\":\"selector\",\"mode\":\"static\",\"icon\":\"misc:dart\",\"keywords\":[],\"members\":[],\"enabled\":true},{\"id\":\"all-auto\",\"name\":\"所有-自动\",\"type\":\"urltest\",\"icon\":\"globe:earth-asia\",\"mode\":\"dynamic\",\"keywords\":[],\"members\":[],\"interval\":\"300s\",\"tole"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/defaults/routing": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "routing"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"routing\":{\"proxyTag\":\"PROXY\",\"regions\":[{\"id\":\"cn\",\"name\":\"中国大陆\",\"rulesets\":[\"geosite-cn\",\"geoip-cn\"],\"target\":\"direct\",\"fallback\":\"proxy\"},{\"id\":\"hkmo\",\"name\":\"香港澳门\",\"rulesets\":[],\"target\":\"direct\",\"fallback\":\"direct\"},{\"id\":\"other\",\"name\":\"其他地区\",\"rulesets\":[\"geosite-cn\",\"geoip-cn\"],\"target\":\"pro"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/deploy": {
+      "skipped": "`{}` is a valid deploy and runs the pipeline"
+    },
+    "GET /api/openbox/deploy/state": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "state"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"state\":{\"stage\":\"idle\",\"message\":\"\",\"at\":0,\"badTags\":[]}}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/diagnostics": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "dnsPort53",
+            "format",
+            "generatedAt",
+            "kernel",
+            "lastDeploy",
+            "logs",
+            "settings",
+            "system",
+            "versions"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"format\":\"open-box-diagnostics\",\"generatedAt\":\"2026-10-29T03:02:57.869Z\",\"versions\":{\"openBox\":null,\"singBox\":null,\"node\":null,\"builtAt\":null},\"system\":{\"board\":\"\",\"arch\":\"x86_64\",\"uptimeSeconds\":3028339.32,\"memTotal\":\"65277 MB\",\"memAvailable\":null,\"disk\":\"Filesystem      1K-blocks       Used  Avai"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/dns-filter/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "applied",
+            "busy",
+            "connected",
+            "lists",
+            "pending",
+            "queryLog",
+            "settings"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"settings\":{\"enabled\":true,\"lists\":[{\"id\":\"anti-ad\",\"name\":\"anti-AD\",\"url\":\"https://anti-ad.net/easylist.txt\",\"enabled\":true}],\"allowDomains\":[],\"autoUpdate\":{\"enabled\":false,\"days\":1,\"hour\":4}},\"lists\":{},\"applied\":null,\"queryLog\":null,\"pending\":true,\"busy\":false,\"connected\":false}"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/openbox/dns-filter/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"dns.filter must be an object\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/dns-filter/apply": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/dns-filter/preview": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"请填写名单网址\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/dns-filter/records": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "page",
+            "pageSize",
+            "rows",
+            "total"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"page\":1,\"pageSize\":20,\"total\":0,\"rows\":[]}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/dns-filter/summary": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "averageMs",
+            "blocked",
+            "connected",
+            "elapsed",
+            "enabled",
+            "hourly",
+            "queries",
+            "timed",
+            "topDomains"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"enabled\":true,\"connected\":false,\"queries\":0,\"blocked\":0,\"elapsed\":0,\"timed\":0,\"averageMs\":null,\"hourly\":[{\"hour\":1793160000000,\"queries\":0,\"blocked\":0,\"elapsed\":0,\"timed\":0},{\"hour\":1793163600000,\"queries\":0,\"blocked\":0,\"elapsed\":0,\"timed\":0},{\"hour\":1793167200000,\"queries\":0,\"blocked\":0,\"elapsed\""
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/dns/flush-cache": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 503,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "dnsmasq",
+            "error",
+            "kernel",
+            "resolved"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"kernel\":false,\"dnsmasq\":false,\"resolved\":false,\"error\":\"内核没在运行,dnsmasq 也没在跑,没有可清的缓存\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 503,
+          "keys": [
+            "dnsmasq",
+            "error",
+            "kernel",
+            "resolved"
+          ],
+          "kind": "other-json"
+        }
+      ]
+    },
+    "GET /api/openbox/dns/region-detect": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "pending",
+            "region"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"pending\":true,\"region\":\"cn\"}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/dns/region-detect": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ip",
+            "region"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"region\":null,\"ip\":\"\"}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/dns/upstream-test": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"side must be direct or proxy\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/dns/wan": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "servers"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"servers\":[]}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/factory-reset": {
+      "skipped": "`{}` wipes the database"
+    },
+    "POST /api/openbox/failover/recheck": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"id required\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"id required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/failover/refresh": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/failover/status": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "groups",
+            "lastError",
+            "paused",
+            "probes",
+            "running",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"version\":null,\"paused\":\"config\",\"lastError\":\"ENOENT: no such file or directory, open 'E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\.tmp\\\\fail-shapes\\\\routes\\\\etc\\\\config.json'\",\"running\":true,\"probes\":{\"limit\":4,\"running\":0,\"critical\":0,\"interactive\":0,\"background\":0,\"throughputPerSec\":null,"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/groups": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "availableGroups",
+            "availableNodes",
+            "groups",
+            "types"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"groups\":[{\"enabled\":true,\"icon\":\"misc:dart\",\"iconScale\":0,\"id\":\"builtin-direct\",\"keywords\":[],\"kind\":\"direct\",\"members\":[],\"mode\":\"static\",\"name\":\"直连\",\"type\":\"selector\"},{\"enabled\":true,\"expectedStatus\":\"\",\"icon\":\"misc:dart\",\"iconScale\":0,\"id\":\"g-1791275119628\",\"idleTimeout\":\"12h\",\"interval\":\"300s"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/openbox/groups": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"groups must be an array\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"groups must be an array\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/kernel/version": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok",
+            "raw",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"version\":\"\",\"raw\":\"spawn E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\.tmp\\\\fail-shapes\\\\routes/bin/sing-box ENOENT\",\"ok\":false}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/latency-history": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "history",
+            "updatedAt"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"history\":{\"GLOBAL\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140,\"node\":\"直连\"}],\"直连\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140},{\"time\":\"2026-10-14T20:49:00.351Z\",\"delay\":0}],\"所有-自动\":[{\"time\":\"2026-10-28T00:45:06.777Z\",\"delay\":99,\"node\":\"良心云 | 香港-02\",\"url\":\"http://www."
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/latency-history/samples": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"samples must be an array\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"samples must be an array\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "POST /api/openbox/latency-history/sync": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "history"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"history\":{\"GLOBAL\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140,\"node\":\"直连\"}],\"直连\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140},{\"time\":\"2026-10-14T20:49:00.351Z\",\"delay\":0}],\"所有-自动\":[{\"time\":\"2026-10-28T00:45:06.777Z\",\"delay\":99,\"node\":\"良心云 | 香港-02\",\"url\":\"http://www."
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "history"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"history\":{\"GLOBAL\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140,\"node\":\"直连\"}],\"直连\":[{\"time\":\"2026-10-06T16:22:08.375380474+08:00\",\"delay\":140},{\"time\":\"2026-10-14T20:49:00.351Z\",\"delay\":0}],\"所有-自动\":[{\"time\":\"2026-10-28T00:45:06.777Z\",\"delay\":99,\"node\":\"良心云 | 香港-02\",\"url\":\"http://www."
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/latency-history/version": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "updatedAt"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"updatedAt\":0}"
+        }
+      ],
+      "failures": []
+    },
+    "DELETE /api/openbox/license": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/license": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/license": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"invalid license format\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/node-info/:tag": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"找不到这个节点(只有订阅节点和链式代理能看)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/node-info/:tag/entry-country": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"找不到这个节点(只有订阅节点和链式代理能看)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/node-info/:tag/exit": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"找不到这个节点(只有订阅节点和链式代理能看)\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"找不到这个节点(只有订阅节点和链式代理能看)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/nodes/latency": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"jobs must be a non-empty array\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/nodes/latency/queue": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "busy",
+            "running",
+            "waiting"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"busy\":false,\"running\":0,\"waiting\":0}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/penetration": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"target is required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/policies/entries": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"name is required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/profile/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "profile"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"profile\":{\"ipv6\":false,\"ipv6Proxy\":\"node\",\"directForNodes\":true,\"rejectQuic\":true,\"directBypass\":true,\"bypassPorts\":\"\",\"bypassPortsWhitelist\":\"\",\"bypassPortsMode\":\"blacklist\",\"tun\":{\"autoRedirect\":true,\"stack\":\"mixed\",\"mtu\":0,\"tcpMss\":0},\"servers\":[{\"id\":\"smuwf92dwcx7e\",\"enabled\":true,\"name\":\"Immo"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/openbox/profile/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 500,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"Open-Box 原生核心无法运行；保留现有配置，请修复或恢复面板组件 (E:\\\\Coder\\\\Go\\\\Open-Box-liandu2024\\\\openbox-panel\\\\native\\\\openbox-core)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 500,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/profile/defaults": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "defaults",
+            "dnsRewriteDefaults"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"defaults\":{\"fallbackDefault\":\"proxy\",\"dns\":{\"split\":true},\"routing\":{\"fallbackDefault\":\"proxy\"}},\"dnsRewriteDefaults\":[{\"id\":\"default-services-googleapis-cn\",\"enabled\":true,\"source\":\"services.googleapis.cn\",\"domain\":\"services.googleapis.com\",\"addresses\":[],\"note\":\"\"},{\"id\":\"default-developers-goog"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "defaults",
+            "dnsRewriteDefaults"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"defaults\":{\"fallbackDefault\":\"proxy\",\"dns\":{\"split\":true},\"routing\":{\"fallbackDefault\":\"proxy\"}},\"dnsRewriteDefaults\":[{\"id\":\"default-services-googleapis-cn\",\"enabled\":true,\"source\":\"services.googleapis.cn\",\"domain\":\"services.googleapis.com\",\"addresses\":[],\"note\":\"\"},{\"id\":\"default-developers-goog"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/rollback": {
+      "skipped": "`{}` rolls back to the last good snapshot"
+    },
+    "POST /api/openbox/route-test": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"target must be a domain or IP\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"target must be a domain or IP\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/rulesets/entries": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"不合法的规则集名:\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"不合法的规则集名:not-a-value\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/rulesets/import": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/rulesets/preview": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "POST /api/openbox/rulesets/refresh": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"规则集链接必须是 http 或 https 网址\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/servers/port-check": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok",
+            "reason"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":false,\"reason\":\"invalid\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok",
+            "reason"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":false,\"reason\":\"invalid\"}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/service/core/:action": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"Invalid action: nonexistent-probe\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/service/status": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "arch",
+            "conflictAutoStopped",
+            "conflicts",
+            "core",
+            "osRelease",
+            "panel",
+            "pendingRestart",
+            "platform"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"core\":{\"running\":false,\"raw\":\"spawn /etc/init.d/openbox ENOENT\",\"autostart\":false,\"uptimeSeconds\":null},\"panel\":{\"running\":false,\"raw\":\"spawn /etc/init.d/openbox-panel ENOENT\"},\"conflicts\":[],\"conflictAutoStopped\":false,\"platform\":\"openwrt\",\"osRelease\":\"\",\"arch\":\"x64\",\"pendingRestart\":{\"pending\":f"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/site-latency/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "history",
+            "sites",
+            "testedAt",
+            "timeoutMs"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"sites\":[{\"id\":\"baidu\",\"url\":\"https://www.baidu.com/favicon.ico\",\"via\":null,\"chain\":[],\"ms\":null,\"openMs\":null,\"error\":\"内核没在运行(回环入站连不上)\"},{\"id\":\"google\",\"url\":\"https://www.google.com/generate_204\",\"via\":null,\"chain\":[],\"ms\":null,\"openMs\":null,\"error\":\"内核没在运行(回环入站连不上)\"},{\"id\":\"openai\",\"url\":\"https:/"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/site-latency/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"站点表不合法(1–8 个,id 为小写字母数字横线)\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/site-latency/history": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "history",
+            "timeoutMs"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"history\":{\"baidu\":[{\"time\":\"2026-10-06T08:41:33.772Z\",\"delay\":18,\"node\":\"国内 → 直连\"},{\"time\":\"2026-10-06T09:13:13.598Z\",\"delay\":23,\"node\":\"国内 → 直连\"},{\"time\":\"2026-10-07T01:16:09.625Z\",\"delay\":18,\"node\":\"国内 → 直连\"},{\"time\":\"2026-10-07T05:27:01.546Z\",\"delay\":19,\"node\":\"国内 → 直连\"},{\"time\":\"2026-10-07T05:"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/subscription-shares/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "shares"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"shares\":[]}"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/subscription-shares/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"name is required\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"name is required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "DELETE /api/openbox/subscription-shares/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription share not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "PATCH /api/openbox/subscription-shares/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription share not found\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription share not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/subscription-shares/:id/regenerate": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription share not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/subscriptions/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "subscriptions"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"subscriptions\":[{\"id\":\"13d15368-a8a1-4312-969f-ca04632587ed\",\"name\":\"JPAC直连\",\"url\":\"http://jp-ac.178963.xyz/sub/TI2fDthB?format=json\",\"urls\":[\"http://jp-ac.178963.xyz/sub/TI2fDthB?format=json\"],\"format\":\"singbox\",\"nodeCount\":5,\"renameOptions\":{\"enabled\":true,\"template\":\"{region}-{feature}-{seq}\",\""
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/subscriptions/": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"url or content is required\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"url or content is required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "DELETE /api/openbox/subscriptions/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "changed",
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true,\"changed\":false}"
+        }
+      ],
+      "failures": []
+    },
+    "PATCH /api/openbox/subscriptions/:id": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription not found\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/subscriptions/:id/refresh": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription not found\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"subscription not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "PUT /api/openbox/subscriptions/order": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"ids must be an array of strings\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"ids must be an array of strings\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "POST /api/openbox/subscriptions/preview": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"url or content is required\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"url or content is required\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/system/timezone": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "countries",
+            "local",
+            "offset",
+            "platform",
+            "zone",
+            "zones"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"zone\":\"UTC\",\"offset\":\"+00:00\",\"local\":\"2026-10-29 03:03:03\",\"platform\":\"openwrt\",\"zones\":[\"Africa/Abidjan\",\"Africa/Accra\",\"Africa/Addis_Ababa\",\"Africa/Algiers\",\"Africa/Asmera\",\"Africa/Bamako\",\"Africa/Bangui\",\"Africa/Banjul\",\"Africa/Bissau\",\"Africa/Blantyre\",\"Africa/Brazzaville\",\"Africa/Bujumbura\","
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/openbox/system/timezone": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"不认识的时区:undefined\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"不认识的时区:12345\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "POST /api/openbox/terminal-test": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"target must be a domain or IP\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"target must be a domain or IP\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /api/openbox/terminal-test/capability": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "lan",
+            "missing",
+            "ok"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":false,\"missing\":[\"netns\",\"veth\",\"lan\",\"conntrack\",\"dhcp\"],\"lan\":null}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/traffic/day": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"day 应为 YYYY-MM-DD\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"day 应为 YYYY-MM-DD\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/traffic/drill": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"day 应为 YYYY-MM-DD\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"day 应为 YYYY-MM-DD\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/traffic/month": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "avg",
+            "avgDays",
+            "days",
+            "direct",
+            "month",
+            "today",
+            "total"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"month\":\"2026-10\",\"today\":\"2026-10-29\",\"days\":[{\"day\":\"2026-10-01\",\"up\":0,\"down\":0,\"conns\":0},{\"day\":\"2026-10-02\",\"up\":0,\"down\":0,\"conns\":0},{\"day\":\"2026-10-03\",\"up\":0,\"down\":0,\"conns\":0},{\"day\":\"2026-10-04\",\"up\":0,\"down\":0,\"conns\":0},{\"day\":\"2026-10-05\",\"up\":0,\"down\":0,\"conns\":0},{\"day\":\"2026-10-0"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"month 应为 YYYY-MM\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /api/openbox/traffic/usage": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "bytes",
+            "collapseAfterDays",
+            "collapseKeepHosts",
+            "dayBytes",
+            "days",
+            "hourBytes",
+            "hourDays",
+            "hourKeepDays",
+            "hourPerDay",
+            "newestDay",
+            "oldBytes",
+            "oldDays",
+            "oldPerDay",
+            "oldestDay",
+            "perDay",
+            "rows"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"rows\":0,\"days\":0,\"oldestDay\":\"\",\"newestDay\":\"\",\"bytes\":0,\"dayBytes\":0,\"hourBytes\":0,\"hourDays\":0,\"oldBytes\":0,\"oldDays\":0,\"perDay\":0,\"oldPerDay\":0,\"hourPerDay\":0,\"hourKeepDays\":7,\"collapseAfterDays\":30,\"collapseKeepHosts\":300}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/tutorial-videos": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "staleAfterMs",
+            "updatedAt",
+            "videos"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"videos\":[{\"id\":\"G_7AmjfSRQ8\",\"title\":\"最新软路由代理 Open-Box 发布！全图形极简配置，超越 OpenClash/Nikki/Passwall + SubStore + Zashboard？\"},{\"id\":\"fczlXs2t5tI\",\"title\":\"集成 ADGuard Home + 故障转移 + 解决 Google Play 无法下载，Open-Box 更新了啥？\"},{\"id\":\"5_Z9d2zyzAw\",\"title\":\"魔改 Sing-Box 1.14 内核，直连提速 200%！等同 Dae 性能，绝无 DNS 泄露 + 链式代理，O"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/tutorial-videos/refresh": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error",
+            "staleAfterMs",
+            "updatedAt",
+            "videos"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"videos\":[{\"id\":\"G_7AmjfSRQ8\",\"title\":\"最新软路由代理 Open-Box 发布！全图形极简配置，超越 OpenClash/Nikki/Passwall + SubStore + Zashboard？\"},{\"id\":\"fczlXs2t5tI\",\"title\":\"集成 ADGuard Home + 故障转移 + 解决 Google Play 无法下载，Open-Box 更新了啥？\"},{\"id\":\"5_Z9d2zyzAw\",\"title\":\"魔改 Sing-Box 1.14 内核，直连提速 200%！等同 Dae 性能，绝无 DNS 泄露 + 链式代理，O"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/update/cancel": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "result"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"result\":\"none\"}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/update/check": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "current",
+            "hasUpdate",
+            "latest",
+            "via"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"current\":\"\",\"latest\":\"v0.1.371\",\"via\":\"direct\",\"hasUpdate\":false}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/openbox/update/notes": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "note",
+            "url",
+            "via"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"url\":\"https://github.com/liandu2024/Open-Box/releases\",\"note\":{\"version\":\"v0.1.371\",\"date\":\"2026-10-28T14:53:05Z\",\"body\":\"优化系统性能。\\n\\n### 客户端下载\\n\\n- [macOS arm64 · 0.1.370](https://github.com/liandu2024/Open-Box/releases/download/v0.1.370/open-box-macos-0.1.370-arm64.dmg)\\n- [Windows x64 · 0.1.370]"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "note",
+            "url",
+            "via"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"url\":\"https://github.com/liandu2024/Open-Box/releases\",\"note\":{\"version\":\"v0.1.371\",\"date\":\"2026-10-28T14:53:05Z\",\"body\":\"优化系统性能。\\n\\n### 客户端下载\\n\\n- [macOS arm64 · 0.1.370](https://github.com/liandu2024/Open-Box/releases/download/v0.1.370/open-box-macos-0.1.370-arm64.dmg)\\n- [Windows x64 · 0.1.370]"
+        }
+      ],
+      "failures": []
+    },
+    "POST /api/openbox/update/run": {
+      "skipped": "`{}` starts a download"
+    },
+    "GET /api/openbox/update/status": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "builtAt",
+            "channel",
+            "geoCounts",
+            "geoDate",
+            "geoVersion",
+            "logTail",
+            "singboxVersion",
+            "status",
+            "version"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"version\":\"\",\"singboxVersion\":\"\",\"builtAt\":\"\",\"geoVersion\":\"\",\"geoDate\":\"\",\"geoCounts\":{\"geosite\":0,\"geoip\":0},\"channel\":{\"mode\":\"direct\",\"prefix\":\"\"},\"status\":{\"stage\":\"\",\"running\":false},\"logTail\":\"\"}"
+        }
+      ],
+      "failures": []
+    },
+    "GET /api/storage": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "entries"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"entries\":{\"config/auto-connection-check\":\"true\",\"config/auto-disconnect-idle-udp\":\"false\",\"config/auto-disconnect-idle-udp-time\":\"300\",\"config/auto-import-settings\":\"false\",\"config/auto-ip-check\":\"true\",\"config/auto-theme\":\"false\",\"config/auto-upgrade\":\"false\",\"config/auto-upgrade-core\":\"false\",\"c"
+        }
+      ],
+      "failures": []
+    },
+    "PATCH /api/storage": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "ok",
+            "removed",
+            "updated"
+          ],
+          "kind": "other-json",
+          "excerpt": "{\"ok\":true,\"updated\":0,\"removed\":0}"
+        }
+      ],
+      "failures": []
+    },
+    "PUT /api/storage": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "an empty object for a route that declares fields",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"entries must be an object with string values\"}"
+        },
+        {
+          "probe": "typed-junk",
+          "intent": "every declared body field carries a number",
+          "status": 400,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only",
+          "excerpt": "{\"message\":\"entries must be an object with string values\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        },
+        {
+          "status": 400,
+          "keys": [
+            "message"
+          ],
+          "kind": "message-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/background": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/config/:token": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"unpaired\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/config/:token/background": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"unpaired\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/config/:token/content-filter": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"unpaired\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/config/:token/content-filter/:hash": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"unpaired\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/config/:token/rule-set/:tag": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"unpaired\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/geodata/:tag": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/:routerId/regions": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"not found\"}"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        },
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /client/v1/home/:routerId": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "application/json; charset=utf-8",
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only",
+          "excerpt": "{\"error\":\"not found\"}"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": [
+            "error"
+          ],
+          "kind": "error-only"
+        }
+      ]
+    },
+    "GET /registerSW.js": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/javascript; charset=utf-8",
+          "keys": null,
+          "kind": "non-json",
+          "excerpt": "if ('serviceWorker' in navigator) {\n\n  navigator.serviceWorker.getRegistrations()\n    .then((registrations) =>\n      Promise.allSettled(registrations.map((registration) => registration.unregister())),\n    )\n    .then(() => ('caches' in window ? caches.keys() : Promise.resolve([])))\n    .then((cacheK"
+        }
+      ],
+      "failures": []
+    },
+    "GET /sub/:token": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 404,
+          "contentType": "text/plain; charset=utf-8",
+          "keys": null,
+          "kind": "non-json",
+          "excerpt": "subscription share not found"
+        },
+        {
+          "probe": "bad-query",
+          "intent": "every declared query field carries an unparseable string",
+          "status": 404,
+          "contentType": "text/plain; charset=utf-8",
+          "keys": null,
+          "kind": "non-json",
+          "excerpt": "subscription share not found"
+        }
+      ],
+      "failures": [
+        {
+          "status": 404,
+          "keys": null,
+          "kind": "non-json"
+        },
+        {
+          "status": 404,
+          "keys": null,
+          "kind": "non-json"
+        }
+      ]
+    },
+    "GET /sw.js": {
+      "observations": [
+        {
+          "probe": "minimal",
+          "intent": "no body",
+          "status": 200,
+          "contentType": "application/javascript; charset=utf-8",
+          "keys": null,
+          "kind": "non-json",
+          "excerpt": "self.addEventListener('install', () => {\n\n  self.skipWaiting()\n\n})\n\nself.addEventListener('activate', (event) => {\n\n  event.waitUntil((async () => {\n\n    const cacheKeys = await caches.keys()\n    await Promise.all(cacheKeys.map((cacheKey) => caches.delete(cacheKey)))\n    await self.registration.unre"
+        }
+      ],
+      "failures": []
+    }
+  }
+}
