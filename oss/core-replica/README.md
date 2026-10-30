@@ -131,9 +131,10 @@ explicitly when running the harness.
    (methods/tags.py). Identification is by group id; renamed or
    disabled builtins are INFERRED (both measured cases use the
    defaults with enabled true).
-3. OPEN: routingFingerprint — see below. Deliberately NOT
-   implemented with a guessed hash: a wrong fingerprint silently
-   breaks change detection, while "not implemented yet" fails loudly.
+3. OPEN (last remaining implementable method): routingFingerprint
+   — see below. Deliberately NOT implemented with a guessed hash:
+   a wrong fingerprint silently breaks change detection, while
+   "not implemented yet" fails loudly.
 4. DONE (2026-10-29): emitGroups — 121/121 golden cases
    (methods/emit.py). Rules: normalize-then-emit in group order;
    builtins short-circuit to direct/block outbounds; disabled user
@@ -166,8 +167,36 @@ explicitly when running the harness.
    function. No case returns changed=true: whatever migration
    trigger exists for a non-empty legacy payload is UNPROBED and
    deliberately not invented (it needs a new capture).
-7. configDetailed (38 cases per the 2026-10-30 golden, 18-field
-   state, 9 sections — last).
+7. DONE (2026-10-30): configDetailed — 38/38 golden cases exact
+   except two isolated, documented gaps (methods/config.py):
+   config (all 6 sections), dnsRuleOwners, failover, and
+   directHosts.domains match byte-for-byte once policy flip tags
+   are normalized; minimal passes fully unnormalized. The gaps:
+   (a) obflip-<hash> rule-set tags are a deterministic 12-hex
+   digest per policy, absent from state and unmatched by ~70
+   candidate constructions — implemented as an md5 placeholder
+   and normalized away by the blind comparator
+   (~/workspace/bin/cmp_config.py, kept out of the repo because
+   the golden corpus must not enter it); (b) directHosts.cidrs
+   carries exactly 50 extra entries (40 IPv4 + 10 IPv6 servers of
+   one subscription) that the golden excludes for no reason
+   visible in state — the clean rule (all node servers in node
+   order + subscription URL hosts) is implemented and the
+   deviation is reported, not fitted. Rules proven along the
+   way: chains filter on non-builtin detours and sort AFTER
+   nodes; dynamic groups expand to nodes only (chains excluded);
+   group selector defaults come from selections but ONLY when
+   the fakeip DNS server is present; static groups get defaults
+   too under that gate; the bypass route logical needs
+   autoRedirect; both hijack-dns route rules need dns.mode not
+   "disabled"; the obnode DNS rule needs a split DNS; tun
+   route_exclude_address_set is obflip-byp tags under
+   autoRedirect but raw nativeBypass sets when it is off;
+   pending ruleUrls become list-<fnv1a32(url)> rule sets (a
+   ruleLists key of that exact tag suppresses the tag);
+   QUIC reject ports are scalar 443 and domain_regex is a
+   list; a catch-all fallback QUIC reject closes route rules
+   whenever policies exist.
 
 ## routingFingerprint: derivation status (OPEN, not guessed)
 

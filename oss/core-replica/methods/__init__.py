@@ -17,6 +17,7 @@ from .emit import emit_groups  # noqa: F401
 from .plans import (bypass_plan, classes_fn, entry_plan,  # noqa: F401
                     forward_plan)
 from .migrate import migrate_stored_routing  # noqa: F401
+from .config import config_detailed  # noqa: F401
 
 IMPLEMENTATIONS = {
     "normalizeRouting": normalize_routing,
@@ -30,4 +31,5 @@ IMPLEMENTATIONS = {
     "bypassPlan": bypass_plan,
     "forwardPlan": forward_plan,
     "migrateStoredRouting": migrate_stored_routing,
+    "configDetailed": config_detailed,
 }
