@@ -229,9 +229,54 @@ bytes, big- and little-endian), FNV-1a-128, Murmur3 x64_128;
 Go %v struct formats; and 16 constant prefixes. None matches
 d8a2998b77cba36e.
 
-Next experiment to crack it (needs a new capture, not more guessing):
-vary ONE field at a time from the empty routing — add one minimal
-policy; rename custom; change fallback icon; change fallback
-default — and record which variations change the hash. That pins
-down exactly which fields enter, after which the serialization can
-be re-attacked with the field set known.
+Field set CLOSED 2026-10-30, serialization still unbroken (stays
+`not implemented yet`, never a guessed value):
+
+50 black-box captures from the original core binary (VPS
+`panel/server/native/openbox-core`, go-native; the `{}` control
+reproduces the golden empty value, so the algorithm is identical
+across the golden's v0.1.337 and the local v0.1.331-era binary).
+All capture inputs are synthetic placeholders; pairs saved at
+`~/workspace/golden/routingFingerprint-captures.json` (outside the
+repo). The single-field variation series closes the field set:
+
+ENTER the hash (all verified by a change/no-change pair):
+- fallback: name, icon (defaults pinned: name "其他",
+  icon "globe:earth-meridians"; "" maps to the default).
+- custom: name, icon, iconScale, enabled, rules (type, value,
+  outbound all matter; rule ORDER matters). Defaults pinned:
+  name "前置自定义分流", icon "misc:pin", iconScale 0,
+  enabled true; absent custom == default custom.
+- policies (in order, duplicates counted, order matters):
+  id (absent normalizes to positional "policy-0"), name, icon,
+  enabled, domain, domainSuffix, domainKeyword, ipCidr, rulesets,
+  ruleUrls. Ruleless policies are DROPPED (a name-only policy
+  hashes exactly like empty).
+- Projection is a whitelist: unknown fields on rules, policies,
+  and the top level are all stripped (hash unchanged).
+
+EXCLUDED (changing them leaves the hash identical): fallbackDefault,
+policy default, policy notes.
+
+Serialization attacks that FAILED against all 50 captures + 8 golden
+pairs (empty case alone: ~125,000 serializations x ~35 hashes):
+JSON sorted/struct-order (custom field order fully permuted, 120
+ways), compact/spaced/indent, UTF-8/ASCII, empty lists kept as [] /
+dropped / rendered null (Go nil-slice idiom), booleans as
+true/false and 1/0, flattened fallback, list shape, activePolicies
+shape, section concatenation, length prefixes, constant
+prefixes/suffixes; Go %v (maps, structs, %+v with field names);
+hashes FNV-1a/1-64, xxhash64, xxh3_64/128, Murmur3 x64_128,
+CRC64-XZ/ISO, SHA-256/1, MD5, SHA-512, SHA3-256, SHA-224/384,
+BLAKE2b-8, BLAKE2s-8 (first/last/middle 8 bytes), HMAC variants,
+double-hash (hex digest re-hashed). Attack scripts:
+`~/workspace/bin/fp_attack.py`, `fp_attack2.py`, `fp_attack3.py`,
+`fp_attack4.py`.
+
+Remaining hypotheses, NOT breakable within bounds: gob encoding
+(the Go type name is baked into gob bytes and cannot be derived
+without reading code, which is out of scope), a salted/keyed hash
+with an unknown constant, or an exotic/seeded hash. A wrong
+fingerprint would silently corrupt change detection, so the method
+stays explicitly unimplemented rather than returning a plausible
+but wrong value.
