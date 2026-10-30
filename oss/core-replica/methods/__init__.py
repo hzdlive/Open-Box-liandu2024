@@ -16,6 +16,7 @@ from .tags import builtin_tags  # noqa: F401
 from .emit import emit_groups  # noqa: F401
 from .plans import (bypass_plan, classes_fn, entry_plan,  # noqa: F401
                     forward_plan)
+from .migrate import migrate_stored_routing  # noqa: F401
 
 IMPLEMENTATIONS = {
     "normalizeRouting": normalize_routing,
@@ -28,4 +29,5 @@ IMPLEMENTATIONS = {
     "entryPlan": entry_plan,
     "bypassPlan": bypass_plan,
     "forwardPlan": forward_plan,
+    "migrateStoredRouting": migrate_stored_routing,
 }

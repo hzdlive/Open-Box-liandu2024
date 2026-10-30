@@ -158,8 +158,16 @@ explicitly when running the harness.
    proxy/block IP conditions (templated reason); forwardPlan
    collects proxy domains + geosite expansions (+ rewriteDomains
    last), mode all vs domains by fallback class.
-6. migrateStoredRouting.
-7. configDetailed (25 cases, 18-field state, 9 sections — last).
+6. DONE (2026-10-30): migrateStoredRouting — 3/3 golden cases
+   (methods/migrate.py). All three measured cases (empty, modern,
+   legacy-empty) return their input routing structurally unchanged
+   with changed=false, including preservation of the legacy shape's
+   old top-level keys — so the implementation is the identity
+   function. No case returns changed=true: whatever migration
+   trigger exists for a non-empty legacy payload is UNPROBED and
+   deliberately not invented (it needs a new capture).
+7. configDetailed (38 cases per the 2026-10-30 golden, 18-field
+   state, 9 sections — last).
 
 ## routingFingerprint: derivation status (OPEN, not guessed)
 
