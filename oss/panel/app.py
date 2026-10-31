@@ -649,14 +649,25 @@ def create_app(db_path: str = ":memory:") -> Flask:
         c.commit()
         return jsonify({"ok": True})
 
-    @app.put("/api/subscriptions/<int:sid>")
-    def sub_update(sid: int):
-        import json as _json
-        d = request.get_json(force=True, silent=True) or {}
-        c = db()
-        row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
+    def _sub_snapshot(c, sid):
+        cur = c.execute("SELECT * FROM subscriptions WHERE id=?", (sid,))
+        row = cur.fetchone()
         if not row:
-            return jsonify({"error": "not found"}), 404
+            return None
+        return dict(zip([d[0] for d in cur.description], row))
+
+    def _update_subscription(c, sid, d):
+        """Shared PUT/PATCH subscription field-update path.
+
+        Returns (changed, enabled_changed): changed lists the request
+        fields whose stored values actually differ after the write;
+        enabled_changed drives the hot-apply both methods share.
+        Validation failures raise ValueError (callers map to 400).
+        The update order and no-commit-on-error behaviour match the
+        original PUT exactly.
+        """
+        import json as _json
+        before = _sub_snapshot(c, sid)
         enabled_changed = False
         if "enabled" in d:
             new_enabled = 1 if d["enabled"] else 0
@@ -673,7 +684,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 au_days = max(1, int(au.get("days", 1)))
                 au_hour = min(23, max(0, int(au.get("hour", 4))))
             except (TypeError, ValueError):
-                return jsonify({"error": "auto_update must be {enabled, days>=1, hour 0-23}"}), 400
+                raise ValueError("auto_update must be {enabled, days>=1, hour 0-23}")
             c.execute("UPDATE subscriptions SET auto_update_enabled=?,"
                       " auto_update_days=?, auto_update_hour=? WHERE id=?",
                       (au_en, au_days, au_hour, sid))
@@ -682,7 +693,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             try:
                 auh = max(0, int(d["auto_update_hours"]))
             except (TypeError, ValueError):
-                return jsonify({"error": "auto_update_hours must be an integer >= 0"}), 400
+                raise ValueError("auto_update_hours must be an integer >= 0")
             c.execute("UPDATE subscriptions SET auto_update_hours=?,"
                       " auto_update_enabled=?, auto_update_days=?,"
                       " auto_update_hour=4 WHERE id=?",
@@ -700,7 +711,6 @@ def create_app(db_path: str = ":memory:") -> Flask:
                       (d["dns_resolve"], sid))
         rn = d.get("rename")
         if isinstance(rn, dict):
-            from core import rename as _rn
             if "enabled" in rn:
                 c.execute("UPDATE subscriptions SET rename_enabled=? WHERE id=?",
                           (1 if rn["enabled"] else 0, sid))
@@ -733,23 +743,95 @@ def create_app(db_path: str = ":memory:") -> Flask:
                               (str(rn[key])[:500], sid))
         c.commit()
         dbmod.bump_rev(c)
-        updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
+        after = _sub_snapshot(c, sid) or {}
+        before = before or {}
+        changed = []
+
+        def _diff(field, cols):
+            if any(before.get(col) != after.get(col)
+                   for col in cols if col in before or col in after):
+                changed.append(field)
+
+        if "enabled" in d:
+            _diff("enabled", ["enabled"])
+        if "auto_update" in d:
+            _diff("auto_update", ["auto_update_enabled", "auto_update_days",
+                                  "auto_update_hour"])
+        if "auto_update_hours" in d:
+            _diff("auto_update_hours", ["auto_update_hours"])
+        if "name" in d:
+            _diff("name", ["name"])
+        if "urls" in d:
+            _diff("urls", ["urls", "url"])
+        if "dns_resolve" in d:
+            _diff("dns_resolve", ["dns_resolve"])
+        if isinstance(d.get("rename"), dict):
+            _diff("rename", ["rename_enabled", "rename_prefix", "rename_order",
+                             "rename_seq_digits", "rename_regions",
+                             "rename_fallback", "rename_features",
+                             "rename_filter"])
+        return changed, enabled_changed
+
+    def _maybe_hot_apply(c, enabled_changed):
         # 订阅启停变化时，自动重新生成配置并重载内核（1:1 对标原版）
-        apply_result = None
-        if enabled_changed:
-            try:
-                from core.hotapply import hot_apply_config
-                cfg = dbmod.load_app_config(c)
-                api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
-                secret = getattr(cfg, "clash_api_secret", "") or ""
-                apply_result = hot_apply_config(c, _manager(), api_base, secret, force="auto")
-            except Exception as e:
-                # 配置应用失败不阻塞 API 返回，但记录错误
-                apply_result = {"error": str(e), "mode": "failed"}
+        if not enabled_changed:
+            return None
+        try:
+            from core.hotapply import hot_apply_config
+            cfg = dbmod.load_app_config(c)
+            api_base = f"http://127.0.0.1:{cfg.clash_api_port}"
+            secret = getattr(cfg, "clash_api_secret", "")
+            return hot_apply_config(c, _manager(), api_base, secret, force="auto")
+        except Exception as e:
+            # 配置应用失败不阻塞 API 返回，但记录错误
+            return {"error": str(e), "mode": "failed"}
+
+    @app.put("/api/subscriptions/<int:sid>")
+    def sub_update(sid: int):
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error": "not found"}), 404
+        try:
+            _changed, enabled_changed = _update_subscription(c, sid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
+        apply_result = _maybe_hot_apply(c, enabled_changed)
         resp = dict(updated)
         if apply_result is not None:
             resp["_apply"] = {"mode": apply_result.get("mode"), "error": apply_result.get("error")}
         return jsonify(resp)
+
+    @app.patch("/api/openbox/subscriptions/<int:sid>")
+    def ob_sub_patch(sid: int):
+        """Partial subscription update, contract shape {changed, id,
+        name, nodeCount, skipped}.
+
+        Same field-update path as PUT (enabled, auto_update, name,
+        urls, dns_resolve, rename); enabled changes hot-apply like
+        PUT. changed lists request fields whose stored values actually
+        differ. nodeCount is the current node count. skipped is 0:
+        PATCH edits fields only and never re-parses the node list,
+        so no node is skipped by it.
+        """
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        row = c.execute("SELECT id FROM subscriptions WHERE id=?", (sid,)).fetchone()
+        if not row:
+            return jsonify({"error": "not found"}), 404
+        try:
+            changed, enabled_changed = _update_subscription(c, sid, d)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        _maybe_hot_apply(c, enabled_changed)
+        updated = next(s for s in dbmod.list_subscriptions(c) if s["id"] == sid)
+        node_count = c.execute("SELECT COUNT(*) FROM nodes WHERE sub_id=?",
+                               (sid,)).fetchone()[0]
+        return jsonify({"changed": changed, "id": sid,
+                        "name": updated.get("name"),
+                        "nodeCount": node_count, "skipped": 0})
 
     @app.post("/api/subscriptions/<int:sid>/preview-rename")
     def sub_preview_rename(sid: int):
@@ -1339,6 +1421,20 @@ def create_app(db_path: str = ":memory:") -> Flask:
         missing = {n for n in names if not _gd.is_available(n)}
         return jsonify(build_config(cfg, missing))
 
+    @app.get("/api/openbox/config/preview")
+    def ob_config_preview():
+        """Generated-config preview, contract shape {config}.
+
+        Same build as GET /api/config (what apply would emit, missing
+        .srs rule-sets dropped); the original wraps it in {config},
+        ours returns it bare, so this endpoint is the wrapper.
+        """
+        from core import geodata as _gd
+        cfg = dbmod.load_app_config(db(), with_blocked_domains=True)
+        names = _gd.referenced_rule_sets(cfg)
+        missing = {n for n in names if not _gd.is_available(n)}
+        return jsonify({"config": build_config(cfg, missing)})
+
     # ---- settings ----
     @app.get("/api/settings")
     def settings_get():
@@ -1356,6 +1452,37 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 dbmod.set_setting(c, k, str(v))
         return jsonify({k: dbmod.get_setting(c, k, v)
                         for k, v in dbmod.DEFAULT_SETTINGS.items()})
+
+    @app.get("/api/openbox/defaults/groups")
+    def ob_defaults_groups():
+        """Factory default groups (the seed rows), not the live list."""
+        return jsonify({"groups": [
+            {"name": "所有-自动", "type": "urltest",
+             "members": ["*nodes*"], "position": 0},
+            {"name": "所有-手动", "type": "selector",
+             "members": ["*all*"], "position": 1},
+        ]})
+
+    @app.get("/api/openbox/defaults/routing")
+    def ob_defaults_routing():
+        """Routing defaults from AppConfig field defaults."""
+        from core.models import AppConfig as _AC
+        d = _AC()
+        return jsonify({"routing": {
+            "final_outbound": d.final_outbound,
+            "routing_fallback": d.routing_fallback,
+            "tun_stack": d.tun_stack,
+            "tun_mtu": d.tun_mtu,
+            "tun_address": d.tun_address,
+            "quic_block": d.quic_block,
+        }})
+
+    @app.get("/api/openbox/profile/defaults")
+    def ob_profile_defaults():
+        """Profile defaults: the panel's DEFAULT_SETTINGS plus the
+        factory DNS-rewrite defaults (no rewrite seed exists, so [])."""
+        return jsonify({"defaults": dict(dbmod.DEFAULT_SETTINGS),
+                        "dnsRewriteDefaults": []})
 
     # ---- status ----
     @app.get("/api/status")
@@ -1422,6 +1549,272 @@ def create_app(db_path: str = ":memory:") -> Flask:
         })
 
     # ---- rule sets ----
+    def _page_params():
+        try:
+            limit = min(max(int(request.args.get("limit", 100)), 1), 1000)
+        except (TypeError, ValueError):
+            limit = 100
+        try:
+            offset = max(int(request.args.get("offset", 0)), 0)
+        except (TypeError, ValueError):
+            offset = 0
+        return limit, offset
+
+    def _paginate(items, q):
+        limit, offset = _page_params()
+        if q:
+            ql = q.lower()
+            matched = [e for e in items
+                       if ql in str(e.get("value", "")).lower()]
+        else:
+            matched = items
+        return {"entries": matched[offset:offset + limit],
+                "limit": limit, "matched": len(matched),
+                "offset": offset, "total": len(items)}
+
+    _ENTRY_TYPE_LABELS = {
+        "domain": "域名", "domain_suffix": "域名后缀",
+        "domain_keyword": "域名关键词", "domain_regex": "域名正则",
+        "ip_cidr": "IP 段", "ip_is_private": "私有 IP",
+    }
+
+    def _srs_rules_to_items(rules):
+        items = []
+        for rule in rules or []:
+            if not isinstance(rule, dict):
+                continue
+            for key, label in _ENTRY_TYPE_LABELS.items():
+                v = rule.get(key)
+                if not v:
+                    continue
+                if isinstance(v, list):
+                    for val in v:
+                        items.append({"type": label, "value": val})
+                elif isinstance(v, str):
+                    items.append({"type": label, "value": v})
+                elif isinstance(v, bool) and v:
+                    items.append({"type": label, "value": "是"})
+        return items
+
+    def _detect_ruleset_dialect(text):
+        """Surge / QuantumultX / hosts heuristic for preview parsing."""
+        for line in text.splitlines():
+            s = line.strip()
+            if not s or s.startswith(("#", "!", ";", "[")):
+                continue
+            if s.startswith("host-"):
+                return "quantumultx"
+            if s.split(",", 1)[0].strip().upper() in (
+                    "DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD",
+                    "DOMAIN-REGEX", "IP-CIDR", "IP-ASN", "USER-AGENT",
+                    "AND", "OR", "NOT"):
+                return "surge"
+            parts = s.split()
+            if len(parts) == 2 and "." in parts[1]:
+                return "hosts"
+            if "." in s and "," not in s and " " not in s:
+                return "hosts"
+        return ""
+
+    def _preview_ruleset(url):
+        """Fetch a ruleset URL and parse entries.
+
+        Returns (items, error): items are {type, value} dicts with the
+        geodata Chinese labels; error is None on success. Formats:
+        sing-box JSON rule-set, .srs binary (via `sing-box rule-set
+        decompile`), and text lists (Surge / QuantumultX / hosts).
+        Fetch is capped at 32 MiB with a 15 s timeout.
+        """
+        import json as _json
+        import subprocess as _sp
+        import tempfile as _tf
+        import urllib.request as _url
+        from core import cf_parser as _cfp
+        try:
+            req = _url.Request(url, headers={
+                "User-Agent": "openbox-oss-preview/1.0"})
+            with _url.urlopen(req, timeout=15) as resp:
+                raw = resp.read(33 * 1024 * 1024)
+        except Exception as e:
+            return None, f"fetch failed: {e}"
+        if len(raw) > 32 * 1024 * 1024:
+            return None, "ruleset too large (>32 MiB)"
+        stripped = raw.strip()
+        if stripped.startswith(b"{"):
+            try:
+                data = _json.loads(raw.decode("utf-8"))
+                if isinstance(data, dict) and isinstance(
+                        data.get("rules"), list):
+                    return _srs_rules_to_items(data["rules"]), None
+            except Exception:
+                pass
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = None
+        if text is not None:
+            dialect = _detect_ruleset_dialect(text)
+            items = []
+            if dialect == "hosts":
+                for line in text.splitlines():
+                    s = line.strip()
+                    if not s or s.startswith(("#", "!")):
+                        continue
+                    parts = s.split()
+                    dom = parts[1] if len(parts) == 2 else parts[0]
+                    if "." in dom:
+                        items.append({"type": "域名", "value": dom})
+            elif dialect in ("surge", "quantumultx"):
+                parsed = _cfp.parse_ruleset(text, dialect)
+                rules = parsed.get("rules") or []
+                items = [{"type": _ENTRY_TYPE_LABELS.get(
+                    r.get("type"), str(r.get("type"))),
+                    "value": r.get("pattern")}
+                    for r in rules if r.get("pattern")]
+            else:
+                # Undetectable text: try both dialects, keep the fuller.
+                for d in ("surge", "quantumultx"):
+                    try:
+                        rules = _cfp.parse_ruleset(text, d).get("rules") or []
+                    except Exception:
+                        rules = []
+                    cand = [{"type": _ENTRY_TYPE_LABELS.get(
+                        r.get("type"), str(r.get("type"))),
+                        "value": r.get("pattern")}
+                        for r in rules if r.get("pattern")]
+                    if len(cand) > len(items):
+                        items = cand
+            if not items:
+                # Headerless rule list (the common .list shape): the
+                # section parsers need [Rule] headers, so parse
+                # TYPE,VALUE,... lines directly.
+                _bare_types = {
+                    "DOMAIN": "域名", "DOMAIN-SUFFIX": "域名后缀",
+                    "DOMAIN-KEYWORD": "域名关键词",
+                    "DOMAIN-REGEX": "域名正则", "IP-CIDR": "IP 段",
+                    "HOST": "域名", "HOST-SUFFIX": "域名后缀",
+                    "HOST-KEYWORD": "域名关键词",
+                    "HOST-REGEX": "域名正则",
+                }
+                for line in text.splitlines():
+                    s = line.strip()
+                    if not s or s.startswith(("#", "!", ";", "[")):
+                        continue
+                    parts = [p.strip() for p in s.split(",")]
+                    if len(parts) < 2:
+                        continue
+                    label = _bare_types.get(parts[0].upper())
+                    if label and parts[1]:
+                        items.append({"type": label, "value": parts[1]})
+            return items, None
+        # Binary: assume .srs, decompile like geodata does.
+        try:
+            with _tf.NamedTemporaryFile(suffix=".srs",
+                                        delete=False) as tf:
+                tf.write(raw)
+                srs_path = tf.name
+            with _tf.NamedTemporaryFile(suffix=".json",
+                                        delete=False) as tf:
+                json_path = tf.name
+            result = _sp.run(["sing-box", "rule-set", "decompile",
+                              srs_path, "-o", json_path],
+                             capture_output=True, timeout=30)
+            if result.returncode != 0:
+                return None, ("srs decompile failed: " +
+                              result.stderr.decode()[:200])
+            with open(json_path) as f:
+                data = _json.load(f)
+            return _srs_rules_to_items(data.get("rules")), None
+        except Exception as e:
+            return None, f"srs decompile failed: {e}"
+        finally:
+            for p in (locals().get("srs_path"), locals().get("json_path")):
+                try:
+                    if p:
+                        os.unlink(p)
+                except Exception:
+                    pass
+
+    @app.get("/api/openbox/rulesets/entries")
+    def ob_rulesets_entries():
+        """Paginated entries of a geodata rule-set, by tag.
+
+        tag is a geodata name (geosite-115, geoip-cn). The contract
+        status list has no 404 here, so unknown tags are 400.
+        """
+        from core import geodata as _gd
+        tag = (request.args.get("tag") or "").strip()
+        if not tag:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": "tag is required", "offset": 0,
+                            "tag": "", "total": 0}), 400
+        detail = _gd.get_rule_set_detail(tag)
+        if detail.get("message"):
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": detail["message"], "offset": 0,
+                            "tag": tag, "total": 0}), 400
+        page = _paginate(detail.get("items") or [],
+                         request.args.get("q") or "")
+        page["message"] = ""
+        page["tag"] = tag
+        return jsonify(page)
+
+    @app.get("/api/openbox/rulesets/preview")
+    def ob_rulesets_preview():
+        """Preview a remote ruleset URL without importing it."""
+        url = (request.args.get("url") or "").strip()
+        if not url:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": "url is required", "offset": 0,
+                            "total": 0, "url": ""}), 400
+        items, err = _preview_ruleset(url)
+        if err:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": err, "offset": 0, "total": 0,
+                            "url": url}), 400
+        page = _paginate(items, request.args.get("q") or "")
+        page["message"] = ""
+        page["url"] = url
+        return jsonify(page)
+
+    @app.post("/api/openbox/rulesets/import")
+    def ob_rulesets_import():
+        """Import a previewed ruleset URL (create + refresh)."""
+        from urllib.parse import urlparse as _up
+        d = request.get_json(force=True, silent=True) or {}
+        url = str(d.get("url") or "").strip()
+        if not url:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": "url is required", "offset": 0,
+                            "total": 0, "url": ""}), 400
+        items, err = _preview_ruleset(url)
+        if err:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": err, "offset": 0, "total": 0,
+                            "url": url}), 400
+        name = str(d.get("name") or "").strip()
+        if not name:
+            name = _up(url).path.rstrip("/").rsplit("/", 1)[-1] or "imported"
+        try:
+            row = dbmod.create_rule_set(
+                db(), {"name": name, "url": url, "format": "auto"})
+        except Exception as e:
+            return jsonify({"entries": [], "limit": 0, "matched": 0,
+                            "message": f"create failed: {e}", "offset": 0,
+                            "total": 0, "url": url}), 400
+        try:
+            dbmod.refresh_rule_set(db(), row["id"])
+        except Exception as e:
+            # Row stays; the user can retry refresh. Report it.
+            page = _paginate(items, "")
+            page["message"] = f"created but refresh failed: {e}"
+            page["url"] = url
+            return jsonify(page), 400
+        page = _paginate(items, "")
+        page["message"] = ""
+        page["url"] = url
+        return jsonify(page)
+
     @app.get("/api/rulesets")
     def ruleset_list():
         return jsonify(dbmod.list_rule_sets(db()))
@@ -1621,6 +2014,126 @@ def create_app(db_path: str = ":memory:") -> Flask:
             return jsonify({"error": "not found"}), 404
         return jsonify(row)
 
+    @app.put("/api/openbox/groups")
+    def ob_groups_bulk():
+        """Bulk replace groups, contract shape {applied, dangling,
+        dropped, groups, ok, renamed}.
+
+        Body: {groups: [...]} or a raw list. Items with id update,
+        without id create; unknown id -> 400. Groups absent from the
+        list are dropped, except the factory built-ins 所有-自动 /
+        所有-手动, which are kept (they back the default outbounds).
+        dangling = literal member entries (no '*' pattern, no sub-*
+        reference) matching no node, chain, group or built-in tag.
+        Positions follow list order. Ids/names/types are validated
+        before any write; per-item semantic validation (e.g. failover
+        lanes) applies during the write, so a late failure can leave
+        partial state (same as sequential single-group calls).
+        """
+        import json as _json
+        d = request.get_json(force=True, silent=True) or {}
+        items = d.get("groups") if isinstance(d, dict) else None
+        if items is None:
+            items = d if isinstance(d, list) else None
+        if not isinstance(items, list):
+            return jsonify({"error": "body must be {groups: [...]} "
+                                     "or a list"}), 400
+        c = db()
+        current = {r[0]: r[1] for r in c.execute(
+            "SELECT id, name FROM groups")}
+        for it in items:
+            if not isinstance(it, dict):
+                return jsonify({"error": "each group must be an object"}), 400
+            gid = it.get("id")
+            if gid is not None:
+                if not isinstance(gid, int) or (gid not in current
+                                                and gid not in (0, -1)):
+                    return jsonify({"error": f"unknown group id: {gid}"}), 400
+            elif not str(it.get("name") or "").strip():
+                return jsonify({"error": "name is required"}), 400
+            # update_group itself only accepts urltest|selector|failover
+            # on update (its message names all five); mirror it here so
+            # a bad type fails before any write, not mid-apply.
+            _allowed = ("urltest", "selector", "failover", "smart",
+                        "loadbalance") if it.get("id") is None else \
+                ("urltest", "selector", "failover")
+            if it.get("type") is not None and it["type"] not in _allowed:
+                return jsonify({"error": "type must be urltest|selector|"
+                                        "failover|smart|loadbalance"}), 400
+        new_ids = {it["id"] for it in items if it.get("id") is not None}
+        builtins = {"所有-自动", "所有-手动"}
+        dropped = sorted(gid for gid, name in current.items()
+                         if gid not in new_ids and name not in builtins)
+        renamed = sorted(
+            it["id"] for it in items
+            if it.get("id") in current
+            and str(it.get("name") or "").strip()
+            and it["name"] != current[it["id"]])
+        created = updated = 0
+        try:
+            for it in items:
+                gid = it.get("id")
+                if gid is None:
+                    dbmod.create_group(c, it)
+                    created += 1
+                else:
+                    row = dbmod.update_group(c, gid, it)
+                    if row is None:
+                        return jsonify({"error": "not found"}), 404
+                    updated += 1
+            for gid in dropped:
+                dbmod.delete_group(c, gid)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "name already exists"}), 400
+        # Positions follow list order (built-ins keep theirs).
+        for pos, it in enumerate(items):
+            gid = it.get("id")
+            if gid is None:
+                row = c.execute("SELECT id FROM groups WHERE name=?",
+                                (it["name"],)).fetchone()
+                gid = row[0] if row else None
+            if gid is not None and gid not in (0, -1):
+                c.execute("UPDATE groups SET position=? WHERE id=?",
+                          (pos, gid))
+        c.commit()
+        dbmod.bump_rev(c)
+        known = {r[0] for r in c.execute(
+            "SELECT n.tag FROM nodes n JOIN subscriptions s"
+            " ON s.id = n.sub_id WHERE s.enabled = 1")}
+        known |= {r[0] for r in c.execute(
+            "SELECT name FROM chains WHERE enabled = 1")}
+        known |= {r[0] for r in c.execute("SELECT name FROM groups")}
+        known |= {"direct", "block"}
+        dangling = set()
+        for r in c.execute("SELECT members, lanes FROM groups"):
+            try:
+                members = _json.loads(r[0]) if r[0] else []
+            except ValueError:
+                members = []
+            try:
+                lanes = _json.loads(r[1]) if r[1] else []
+            except ValueError:
+                lanes = []
+            if isinstance(lanes, list):
+                for lane in lanes:
+                    if isinstance(lane, dict):
+                        members += lane.get("members") or []
+            for m in members:
+                if not isinstance(m, str):
+                    continue
+                if "*" in m or m.startswith("sub-"):
+                    continue
+                if m not in known:
+                    dangling.add(m)
+        return jsonify({"applied": created + updated,
+                        "dangling": sorted(dangling),
+                        "dropped": dropped,
+                        "groups": dbmod.list_groups(c),
+                        "ok": True,
+                        "renamed": renamed})
+
     @app.delete("/api/groups/<int:gid>")
     def group_delete(gid: int):
         if not dbmod.delete_group(db(), gid):
@@ -1736,6 +2249,38 @@ def create_app(db_path: str = ":memory:") -> Flask:
         except Exception:
             pass
         return jsonify(d)
+
+    @app.get("/api/openbox/kernel/version")
+    def ob_kernel_version():
+        """Kernel version, contract shape {ok, raw, version}.
+
+        raw is the full `sing-box version` stdout; version is the
+        parsed version token. ok is False (with 200, per the contract
+        status list) when the binary is missing or fails.
+        """
+        import subprocess as _sp
+        m = _manager()
+        bin_path = getattr(m, "bin_path", "sing-box")
+        raw, version = "", ""
+        try:
+            out = _sp.run([bin_path, "version"], capture_output=True,
+                          text=True, timeout=10)
+            if out.returncode == 0:
+                raw = out.stdout.strip()
+                for line in raw.splitlines():
+                    if "version" in line:
+                        parts = line.strip().split()
+                        try:
+                            version = parts[parts.index("version") + 1]
+                        except (ValueError, IndexError):
+                            version = line.strip()
+                        break
+                if not version and raw:
+                    version = raw.splitlines()[0]
+        except Exception:
+            pass
+        return jsonify({"ok": bool(version), "raw": raw,
+                        "version": version})
 
     @app.post("/api/service/start")
     def service_start():
@@ -2350,6 +2895,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if not r:
             return jsonify({"error": "not found"}), 404
         return jsonify(r)
+
+    @app.get("/api/openbox/content-filter/<rid>/source")
+    def cf_ruleset_source(rid: str):
+        """Raw stored source text of a content-filter ruleset."""
+        r = dbmod.get_cf_ruleset(db(), rid)
+        if not r:
+            return jsonify({"error": "not found"}), 404
+        return jsonify({"text": r.get("text") or ""})
 
     @app.delete("/api/openbox/content-filter/<rid>")
     def cf_ruleset_delete(rid: str):
@@ -3644,6 +4197,42 @@ def create_app(db_path: str = ":memory:") -> Flask:
         days = min(max(int(request.args.get("days", 7)), 1), 90)
         return jsonify({"checks": dbmod.site_latency_history(db(), days),
                         "sites": dbmod.list_site_latency_sites(db())})
+
+    @app.post("/api/openbox/nodes/latency")
+    def ob_nodes_latency():
+        """Bulk node latency test, contract shape {history, results}.
+
+        Same mechanism as the per-subscription speedtest (concurrent
+        health checks, results persisted); history is the stored
+        per-tag latency history.
+        """
+        from core.health import check_nodes as _check
+        try:
+            c = db()
+            cfg = dbmod.load_app_config(c)
+            test_url = dbmod.get_setting(
+                c, "speedtest_url",
+                "http://www.gstatic.com/generate_204")
+            results = _check(cfg.nodes, timeout=5.0, max_workers=20,
+                             test_url=test_url)
+            try:
+                dbmod.save_health(c, results)
+            except Exception:
+                pass
+            return jsonify({
+                "history": dbmod.get_latency_history(c),
+                "results": [{"tag": r.tag, "ok": r.ok,
+                             "latency_ms": r.latency_ms} for r in results],
+            })
+        except Exception as e:
+            return jsonify({"error": f"nodes latency failed: {e}"}), 500
+
+    @app.get("/api/openbox/latency-history/version")
+    def ob_latency_history_version():
+        """Latency-history version marker: newest checked_at, or None."""
+        row = db().execute(
+            "SELECT MAX(checked_at) FROM latency_history").fetchone()
+        return jsonify({"updatedAt": row[0] if row else None})
 
     # ---- domain penetration: full chain site set -> group -> node ----
     @app.post("/api/route/penetrate")
