@@ -274,7 +274,7 @@ import ProxiesSettings from '@/components/settings/proxies/ProxiesSettings.vue'
 import SettingsCustomizationDialog from '@/components/settings/SettingsCustomizationDialog.vue'
 import SettingsSearch from '@/components/settings/SettingsSearch.vue'
 import type { ReachabilityStatus } from '@/composables/backendReachability'
-import { usePaddingForViews } from '@/composables/paddingViews'
+import { ctrlsBottom, usePaddingForViews } from '@/composables/paddingViews'
 import { settingsPaneTransition } from '@/composables/pageTransition'
 import { useSettingsSection, visibleSectionKeys } from '@/composables/settingsSection'
 import { SETTINGS_CATEGORIES, SETTINGS_MENU_LABELS } from '@/config/settingsItems'
@@ -410,7 +410,14 @@ const revealSetting = async (settingKey: string) => {
 
     const containerRect = scrollContainerRef.value.getBoundingClientRect()
     const elementRect = element.getBoundingClientRect()
-    const top = scrollContainerRef.value.scrollTop + elementRect.top - containerRect.top - 20
+    // v0.1.369：旧偏移固定 20px，目标标题会被顶部控制栏（移动端
+    // fixed、窄屏 sticky）盖住。改为顶栏实测高度 + 12px 留白；宽屏
+    // 无顶栏时 ctrlsBottom 为 0，只留 12px。
+    const top =
+      scrollContainerRef.value.scrollTop +
+      elementRect.top -
+      containerRect.top -
+      (ctrlsBottom.value + 12)
     scrollContainerRef.value.scrollTo({ top, behavior: 'smooth' })
     element.classList.remove('highlight-flash')
     element.classList.add('highlight-flash')

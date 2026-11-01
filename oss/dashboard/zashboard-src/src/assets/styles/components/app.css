@@ -103,3 +103,33 @@
 .settings-category--hidden > .settings-category-body {
   @apply pointer-events-none opacity-40;
 }
+
+/* v0.1.369：深色主题可读性。data-theme 名含 dark 的主题（dark /
+  dark-neutral / dark-daisyui5 / dark-monet 及同名自定义主题）下，
+  把四类偏暗的文字提亮；浅色主题不受影响。状态标签本身已用全
+  强度内容色，无需改动；这里提亮的是偏淡的状态/次要文字。
+  本块为无 layer 规则，优先于 Tailwind 工具类生效。 */
+body[data-theme*='dark'] {
+  /* 页签文字：滑块页签未选中态（原 text-base-content/55） */
+  .ios-segment-item:not(.text-primary-content) {
+    color: color-mix(in srgb, var(--color-base-content) 78%, transparent);
+  }
+  /* 状态/次要文字：分隔符与次要标签（原 /30、/55） */
+  .text-base-content\/30 {
+    color: color-mix(in srgb, var(--color-base-content) 55%, transparent);
+  }
+  .text-base-content\/55 {
+    color: color-mix(in srgb, var(--color-base-content) 75%, transparent);
+  }
+  /* 说明文字：设置项摘要（原 /45） */
+  .setting-item-summary {
+    color: color-mix(in srgb, var(--color-base-content) 72%, transparent);
+  }
+  /* 输入提示 */
+  .input::placeholder,
+  .select::placeholder,
+  .textarea::placeholder {
+    color: color-mix(in srgb, var(--color-base-content) 70%, transparent);
+    opacity: 1;
+  }
+}
