@@ -15,6 +15,14 @@ Rules:
 - Downloads are capped at 32 MiB per attempt (our safety bound, not
   an original behavior): an over-cap response fails that attempt
   rather than truncating mid-stream into partial nodes.
+- Pinned UA (v0.1.357: refresh keeps the designated UA): when a
+  subscription has a stored fetch_ua, refresh tries that UA first so
+  a refresh does not silently switch to a different provider node
+  list. Only if the pinned UA is rejected does the rest of the
+  ladder run, and the UA that actually succeeded is recorded back
+  (so a switch is visible in the stored value, never silent). A
+  pinned value of "curl" tries the curl fallback first, then the
+  ladder. Clearing the pin restores the plain ladder order.
 
 Callers parse the returned text; a successful fetch that parses to
 zero nodes is reported by the caller as "订阅是空的", never as an
@@ -127,25 +135,38 @@ def _fetch_curl(url: str, timeout: float) -> tuple[str, dict]:
     return _parse_curl_output(proc.stdout)
 
 
-def fetch_subscription_text(url: str, timeout: float = 30.0) -> tuple[str, dict]:
+def fetch_subscription_text(url: str, timeout: float = 30.0,
+                            pinned_ua: str | None = None
+                            ) -> tuple[str, dict, str | None]:
     """Fetch one subscription URL through the UA ladder.
 
-    Returns (text, userinfo). Raises FetchError when the ladder is
-    stopped by a 429 or when every UA plus the curl fallback fails.
+    Returns (text, userinfo, ua_used): ua_used is the ladder UA that
+    succeeded, or "curl" when the curl fallback succeeded.
+    pinned_ua, when given, is tried first (see module docstring);
+    HTTP 429 stops the whole attempt immediately whatever the order.
+    Raises FetchError when the ladder is stopped by a 429 or when
+    every attempt fails.
     """
+    if pinned_ua == "curl":
+        attempts: list = [("curl", None)] + [("ua", u) for u in UA_LADDER]
+    elif pinned_ua in UA_LADDER:
+        attempts = ([("ua", pinned_ua)]
+                    + [("ua", u) for u in UA_LADDER if u != pinned_ua]
+                    + [("curl", None)])
+    else:
+        attempts = [("ua", u) for u in UA_LADDER] + [("curl", None)]
     last_error: Exception | None = None
-    for ua in UA_LADDER:
+    for kind, ua in attempts:
         try:
-            return _fetch_urllib(url, ua, timeout)
+            if kind == "curl":
+                text, info = _fetch_curl(url, timeout)
+                return text, info, "curl"
+            text, info = _fetch_urllib(url, ua, timeout)
+            return text, info, ua
         except _RateLimited:
             raise FetchError("触发限流（HTTP 429），已停止尝试")
-        except Exception as e:  # noqa: BLE001 - any failure tries next UA
+        except Exception as e:  # noqa: BLE001 - any failure tries next attempt
             last_error = e
-    try:
-        return _fetch_curl(url, timeout)
-    except _RateLimited:
-        raise FetchError("触发限流（HTTP 429），已停止尝试")
-    except Exception as e:  # noqa: BLE001 - report the fallback failure
-        raise FetchError(
-            f"订阅拉取失败（{len(UA_LADDER)} 个 UA 均被拒，"
-            f"curl 回退也失败）：{e}") from e
+    raise FetchError(
+        f"订阅拉取失败（{len(UA_LADDER)} 个 UA 均被拒，"
+        f"curl 回退也失败）：{last_error}")

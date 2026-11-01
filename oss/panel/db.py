@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS subscriptions(
   rename_fallback TEXT NOT NULL DEFAULT '其他',
   rename_features TEXT NOT NULL DEFAULT '',
   rename_filter TEXT NOT NULL DEFAULT '',
+  fetch_ua TEXT,
   dns_resolve TEXT NOT NULL DEFAULT 'auto'
 );
 CREATE TABLE IF NOT EXISTS nodes(
@@ -404,6 +405,7 @@ def init_db(conn: sqlite3.Connection) -> None:
                      ("rename_fallback", "TEXT NOT NULL DEFAULT '其他'"),
                      ("rename_features", "TEXT NOT NULL DEFAULT ''"),
                      ("rename_filter", "TEXT NOT NULL DEFAULT ''"),
+                     ("fetch_ua", "TEXT"),
                      ("dns_resolve", "TEXT NOT NULL DEFAULT 'auto'"),
                      ("auto_update_enabled", "INTEGER NOT NULL DEFAULT 0"),
                      ("auto_update_days", "INTEGER NOT NULL DEFAULT 1"),
@@ -576,14 +578,20 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
     au_cols = ""
     if "auto_update_enabled" in cols:
         au_cols = ", auto_update_enabled, auto_update_days, auto_update_hour"
+    fu_cols = ""
+    if "fetch_ua" in cols:
+        fu_cols = ", fetch_ua"
     for r in conn.execute(
             "SELECT id, name, source, url, created_at, enabled, auto_update_hours,"
             " updated_at, userinfo, urls, rename_enabled, rename_prefix, rename_order,"
             " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
-            f" rename_filter, dns_resolve{au_cols} FROM subscriptions ORDER BY position, id"):
+            f" rename_filter, dns_resolve{au_cols}{fu_cols} FROM subscriptions ORDER BY position, id"):
         (sid, name, source, url, created, enabled, auh, updated, userinfo,
          urls, rn_en, rn_prefix, rn_order, rn_digits, rn_regions,
-         rn_fallback, rn_features, rn_filter, dns_resolve, *au_rest) = r
+         rn_fallback, rn_features, rn_filter, dns_resolve, *rest) = r
+        n_au = 3 if au_cols else 0
+        au_rest = rest[:n_au]
+        fetch_ua = rest[n_au] if fu_cols else None
         if len(au_rest) == 3:
             au_en, au_days, au_hour = au_rest
         else:
@@ -615,6 +623,7 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
                     "urls": url_list,
                     "created_at": created, "node_count": n, "node_total": total,
                     "enabled": bool(enabled),
+                    "fetch_ua": fetch_ua,
                     "auto_update_hours": auh or 0,
                     "auto_update": {"enabled": bool(au_en),
                                     "days": au_days or 1,
@@ -2624,11 +2633,11 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     row = conn.execute(
         "SELECT name, url, urls, rename_enabled, rename_prefix, rename_order,"
         " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
-        " rename_filter FROM subscriptions WHERE id=?", (sid,)).fetchone()
+        " rename_filter, fetch_ua FROM subscriptions WHERE id=?", (sid,)).fetchone()
     if not row:
         raise KeyError("not found")
     (name, url, urls_json, rn_en, rn_prefix, rn_order, rn_digits,
-     rn_regions, rn_fallback, rn_features, rn_filter) = row
+     rn_regions, rn_fallback, rn_features, rn_filter, fetch_ua) = row
     try:
         urls = json.loads(urls_json or "[]")
     except ValueError:
@@ -2647,9 +2656,16 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     from core.subfetch import fetch_subscription_text
     nodes = []
     userinfo: dict = {}
+    ua_used: str | None = None
     for u in urls:
         # UA 阶梯拉取：429 直接停、全被拒才走 curl（见 core/subfetch）。
-        content, info = fetch_subscription_text(u, timeout=timeout)
+        # v0.1.357：刷新先试上次成功的 UA（fetch_ua），避免静默切换
+        # 到提供方按不同 UA 下发的另一份节点列表；钉住的 UA 被拒时才
+        # 走阶梯，成功后把实际 UA 写回，切换可见而非静默。
+        content, info, used = fetch_subscription_text(
+            u, timeout=timeout, pinned_ua=fetch_ua)
+        if ua_used is None:
+            ua_used = used
         if not userinfo:
             userinfo = info
         nodes.extend(parse_clash_yaml(content) if looks_like_clash(content)
@@ -2657,15 +2673,21 @@ def refresh_subscription(conn: sqlite3.Connection, sid: int,
     # 拉取成功但解析出 0 节点：报"订阅是空的"，绝不以空结果清空现有节点。
     if not nodes:
         raise ValueError("订阅是空的")
-    return _replace_nodes(conn, sid, name, nodes, userinfo,
-                          _rename_cfg_from_row(row))
+    stats = _replace_nodes(conn, sid, name, nodes, userinfo,
+                           _rename_cfg_from_row(row))
+    if ua_used is not None:
+        conn.execute("UPDATE subscriptions SET fetch_ua=? WHERE id=?",
+                     (ua_used, sid))
+        conn.commit()
+    stats["fetch_ua"] = ua_used
+    return stats
 
 
 def _rename_cfg_from_row(row) -> dict:
     """Build rename cfg from the SELECT row in refresh_subscription."""
     from core import rename as _rn
     (name, url, urls_json, rn_en, rn_prefix, rn_order, rn_digits,
-     rn_regions, rn_fallback, rn_features, rn_filter) = row
+     rn_regions, rn_fallback, rn_features, rn_filter, _fetch_ua) = row
     return {
         "enabled": bool(rn_en), "prefix": bool(rn_prefix), "sub_name": name,
         "order": json.loads(rn_order or "[]") or ["region", "feature", "seq"],
@@ -2791,7 +2813,7 @@ def reimport_subscription(conn: sqlite3.Connection, sid: int, content: str,
     row = conn.execute(
         "SELECT name, url, urls, rename_enabled, rename_prefix, rename_order,"
         " rename_seq_digits, rename_regions, rename_fallback, rename_features,"
-        " rename_filter FROM subscriptions WHERE id=?", (sid,)).fetchone()
+        " rename_filter, fetch_ua FROM subscriptions WHERE id=?", (sid,)).fetchone()
     if not row:
         raise KeyError("not found")
     name = row[0]

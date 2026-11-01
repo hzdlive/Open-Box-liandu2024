@@ -158,6 +158,11 @@
               :class="{ 'tab-active': dlg.addMode === 'node' }"
               @click="dlg.addMode = 'node'"
             >{{ $t('obx.node') }}</a>
+            <a
+              class="tab"
+              :class="{ 'tab-active': dlg.addMode === 'login' }"
+              @click="dlg.addMode = 'login'"
+            >登录</a>
           </div>
           <div
             v-else
@@ -233,6 +238,35 @@
               ></textarea>
             </label>
             <p class="mb-3 text-xs opacity-60">一行一个节点链接（ss:// / trojan:// / vless:// / socks5:// 等），也支持整段 Clash / sing-box 配置。</p>
+          </div>
+
+          <!-- 新建：站点账号登录模式 -->
+          <div v-if="!dlg.id && dlg.addMode === 'login'">
+            <label class="form-control mb-3">
+              <span class="label-text mb-1">站点地址</span>
+              <input
+                v-model="dlg.loginSite"
+                class="input input-bordered w-full"
+                placeholder="https://"
+              />
+            </label>
+            <label class="form-control mb-3">
+              <span class="label-text mb-1">邮箱</span>
+              <input
+                v-model="dlg.loginEmail"
+                class="input input-bordered w-full"
+                placeholder="注册邮箱"
+              />
+            </label>
+            <label class="form-control mb-3">
+              <span class="label-text mb-1">密码</span>
+              <input
+                v-model="dlg.loginPassword"
+                type="password"
+                class="input input-bordered w-full"
+              />
+            </label>
+            <p class="mb-3 text-xs opacity-60">通过 Xboard / V2Board 站点账号获取节点、套餐与流量信息；密码仅用于本次登录，不会保存。登录成功后按订阅链接刷新，不再需要密码。</p>
           </div>
 
           <!-- 编辑：订阅链接 -->
@@ -710,6 +744,7 @@ function openAdd() {
   dlgErr.value = ''
   dlg.value = {
     id: null, tab: 'sub', addMode: 'sub', name: '', urls: [''], nodeContent: '',
+    loginSite: '', loginEmail: '', loginPassword: '',
     auEnabled: false, auDays: 1, auHour: 4, dnsResolve: 'auto', manualContent: '',
     rename: DEFAULT_RENAME(),
   }
@@ -793,6 +828,15 @@ async function save() {
       await obxPost('/api/subscriptions', {
         name: dlg.value.name.trim(), urls, auto_update: au,
         dns_resolve: dlg.value.dnsResolve, rename,
+      })
+    } else if (dlg.value.addMode === 'login') {
+      if (!dlg.value.loginSite.trim() || !dlg.value.loginEmail.trim()
+          || !dlg.value.loginPassword) {
+        dlgErr.value = '站点、邮箱、密码不能为空'; return
+      }
+      await obxPost('/api/openbox/subscriptions/login', {
+        name: dlg.value.name.trim(), site: dlg.value.loginSite.trim(),
+        email: dlg.value.loginEmail.trim(), password: dlg.value.loginPassword,
       })
     } else {
       if (!dlg.value.nodeContent.trim()) { dlgErr.value = '节点内容不能为空'; return }

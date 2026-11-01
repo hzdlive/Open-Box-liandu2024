@@ -57,7 +57,7 @@ def test_ladder_order_and_second_ua_success():
         return FakeResp(b"ss://x", {"subscription-userinfo": "upload=1; download=2"})
 
     with mock.patch("urllib.request.urlopen", side_effect=fake):
-        text, info = subfetch.fetch_subscription_text("http://x/sub")
+        text, info, _ua = subfetch.fetch_subscription_text("http://x/sub")
     assert text == "ss://x"
     assert info == {"upload": 1, "download": 2}
     assert _uas(calls) == subfetch.UA_LADDER[:2]
@@ -97,9 +97,10 @@ def test_all_rejected_falls_back_to_curl():
     with mock.patch("urllib.request.urlopen", side_effect=fake), \
             mock.patch.object(subfetch.subprocess, "run",
                               return_value=proc) as run:
-        text, info = subfetch.fetch_subscription_text("http://x/sub")
+        text, info, ua_used = subfetch.fetch_subscription_text("http://x/sub")
     assert text == "line1\n\nline3"
     assert info == {"upload": 10, "total": 20}
+    assert ua_used == "curl"
     assert len(calls) == len(subfetch.UA_LADDER)
     run.assert_called_once()
     argv = run.call_args[0][0]
@@ -134,7 +135,7 @@ def test_over_cap_fails_that_attempt_only():
 
     with mock.patch("urllib.request.urlopen", side_effect=fake), \
             mock.patch.object(subfetch, "MAX_DOWNLOAD_BYTES", 10):
-        text, _ = subfetch.fetch_subscription_text("http://x/sub")
+        text, _, _ = subfetch.fetch_subscription_text("http://x/sub")
     assert text == "ok"
     assert len(calls) == 2
 
@@ -218,7 +219,7 @@ def test_refresh_empty_result_keeps_nodes():
     # the module attribute is what the refresh path resolves.
     import panel.db as dbmod2
     with mock.patch("core.subfetch.fetch_subscription_text",
-                    return_value=("", {})):
+                    return_value=("", {}, None)):
         try:
             dbmod2.refresh_subscription(conn, sid)
             raise AssertionError("expected ValueError")
@@ -236,7 +237,7 @@ def test_refresh_success_replaces_nodes():
                                     url="http://x/sub")
     sample = (ROOT / "sample-sub.txt").read_text()
     with mock.patch("core.subfetch.fetch_subscription_text",
-                    return_value=(sample, {"total": 999})):
+                    return_value=(sample, {"total": 999}, "clash-verge")):
         import panel.db as dbmod2
         stats = dbmod2.refresh_subscription(conn, sid)
     assert stats["node_count"] > 0
@@ -247,7 +248,7 @@ def test_preview_empty_result_reports_empty():
     app = create_app(":memory:")
     c = app.test_client()
     with mock.patch("core.subfetch.fetch_subscription_text",
-                    return_value=("", {})):
+                    return_value=("", {}, None)):
         r = c.post("/api/openbox/subscriptions/preview",
                    json={"urls": ["http://x/sub"]})
     data = r.get_json()

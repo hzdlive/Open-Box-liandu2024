@@ -733,6 +733,20 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if "dns_resolve" in d and d["dns_resolve"] in ("auto", "direct", "proxy"):
             c.execute("UPDATE subscriptions SET dns_resolve=? WHERE id=?",
                       (d["dns_resolve"], sid))
+        if "fetch_ua" in d:
+            # v0.1.357: designate the UA a refresh pins to. A ladder UA
+            # or "curl" pins it; null/"" clears the pin (plain ladder).
+            from core.subfetch import UA_LADDER as _LADDER
+            fu = d["fetch_ua"]
+            if fu is None or fu == "":
+                c.execute("UPDATE subscriptions SET fetch_ua=NULL WHERE id=?",
+                          (sid,))
+            elif fu in _LADDER or fu == "curl":
+                c.execute("UPDATE subscriptions SET fetch_ua=? WHERE id=?",
+                          (fu, sid))
+            else:
+                raise ValueError("fetch_ua must be a ladder UA, 'curl',"
+                                 " or empty to clear")
         rn = d.get("rename")
         if isinstance(rn, dict):
             if "enabled" in rn:
@@ -789,6 +803,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
             _diff("urls", ["urls", "url"])
         if "dns_resolve" in d:
             _diff("dns_resolve", ["dns_resolve"])
+        if "fetch_ua" in d:
+            _diff("fetch_ua", ["fetch_ua"])
         if isinstance(d.get("rename"), dict):
             _diff("rename", ["rename_enabled", "rename_prefix", "rename_order",
                              "rename_seq_digits", "rename_regions",
@@ -827,6 +843,56 @@ def create_app(db_path: str = ":memory:") -> Flask:
         if apply_result is not None:
             resp["_apply"] = {"mode": apply_result.get("mode"), "error": apply_result.get("error")}
         return jsonify(resp)
+
+    @app.post("/api/openbox/subscriptions/login")
+    def ob_sub_login():
+        """Login to an Xboard/V2Board panel account and import its nodes.
+
+        v0.1.357: the account password is used for one login POST only
+        and is never stored, logged, or returned. The created row keeps
+        the token-bearing subscribe URL (source 'login'), so later
+        refreshes work without the password and reuse the pinned-UA
+        refresh path. A refresh failure deletes the just-created row
+        instead of leaving an empty login subscription behind.
+        """
+        import json as _json
+        from core.sublogin import LoginError, login as panel_login
+        from urllib.parse import urlparse as _urlparse
+        d = request.get_json(force=True, silent=True) or {}
+        site = str(d.get("site") or "").strip()
+        email = str(d.get("email") or "").strip()
+        password = str(d.get("password") or "")
+        name = str(d.get("name") or "").strip()
+        if not site or not email or not password:
+            return jsonify({"error": "site, email and password are required"}), 400
+        if not site.startswith(("http://", "https://")):
+            return jsonify({"error": "site must start with http:// or https://"}), 400
+        try:
+            res = panel_login(site, email, password)
+        except LoginError as e:
+            return jsonify({"error": str(e)}), 400 if e.auth_failed else 502
+        except Exception as e:
+            return jsonify({"error": f"login failed: {e}"}), 502
+        if not name:
+            name = _urlparse(site).netloc or site
+        c = db()
+        cur = c.execute(
+            "INSERT INTO subscriptions(name, source, urls, url, created_at)"
+            " VALUES (?, 'login', ?, ?, ?)",
+            (name, _json.dumps([res["subscribe_url"]], ensure_ascii=False),
+             res["subscribe_url"], time.strftime("%Y-%m-%dT%H:%M:%S")))
+        sid = cur.lastrowid
+        c.commit()
+        try:
+            r = dbmod.refresh_subscription(c, sid)
+        except Exception as e:
+            dbmod.delete_subscription(c, sid)
+            return jsonify({"error": f"fetch failed: {e}"}), 400
+        return jsonify({"id": sid, "name": name, "node_count": r["node_count"],
+                        "filtered_count": r.get("filtered_count", 0),
+                        "userinfo": r.get("userinfo", {}),
+                        "plan": res.get("plan"),
+                        "fetch_ua": r.get("fetch_ua")}), 201
 
     @app.patch("/api/openbox/subscriptions/<int:sid>")
     def ob_sub_patch(sid: int):
@@ -956,7 +1022,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             if not u:
                 continue
             try:
-                text, _info = fetch_subscription_text(u, timeout=30)
+                text, _info, _ua = fetch_subscription_text(u, timeout=30)
                 fetched.append({"url": u, "length": len(text)})
                 if looks_like_clash(text):
                     nodes = parse_clash_yaml(text)
