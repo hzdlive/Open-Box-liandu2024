@@ -5,15 +5,33 @@
       <div class="settings-grid">
         <SettingItem :setting-key="k.connectionStyle">
           <div class="setting-item-label">{{ $t('connectionStyle') }}</div>
-          <SelectInput
-            v-model="connectionDisplayStyle"
-            class="select select-sm min-w-24"
-            :options="[
-              { value: CONNECTION_DISPLAY_STYLE.AUTO, label: $t('auto') },
-              { value: CONNECTION_DISPLAY_STYLE.CARD, label: $t('card') },
-              { value: CONNECTION_DISPLAY_STYLE.TABLE, label: $t('table') },
-            ]"
-          />
+          <!-- v0.1.366：PC、移动端两槽合并为一行，小屏自动换行 -->
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label class="flex items-center gap-1">
+              <span class="text-xs opacity-70">PC</span>
+              <SelectInput
+                v-model="connectionDisplayStylePc"
+                class="select select-sm min-w-24"
+                :options="[
+                  { value: CONNECTION_DISPLAY_STYLE.AUTO, label: $t('auto') },
+                  { value: CONNECTION_DISPLAY_STYLE.CARD, label: $t('card') },
+                  { value: CONNECTION_DISPLAY_STYLE.TABLE, label: $t('table') },
+                ]"
+              />
+            </label>
+            <label class="flex items-center gap-1">
+              <span class="text-xs opacity-70">移动端</span>
+              <SelectInput
+                v-model="connectionDisplayStyleMobile"
+                class="select select-sm min-w-24"
+                :options="[
+                  { value: CONNECTION_DISPLAY_STYLE.AUTO, label: $t('auto') },
+                  { value: CONNECTION_DISPLAY_STYLE.CARD, label: $t('card') },
+                  { value: CONNECTION_DISPLAY_STYLE.TABLE, label: $t('table') },
+                ]"
+              />
+            </label>
+          </div>
         </SettingItem>
         <SettingItem :setting-key="k.proxyChainDirection">
           <div class="setting-item-label">{{ $t('proxyChainDirection') }}</div>
@@ -87,7 +105,8 @@ import {
   TABLE_WIDTH_MODE,
 } from '@/constant'
 import {
-  connectionDisplayStyle,
+  connectionDisplayStyleMobile,
+  connectionDisplayStylePc,
   isConnectionCard,
   proxyChainDirection,
   resolveClientHostname,

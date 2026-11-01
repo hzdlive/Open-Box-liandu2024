@@ -385,11 +385,12 @@ export const groupTestUrls = useStorage<
 // v0.1.361：连接样式 PC 端与移动端分别保存，默认均为卡片。
 // 旧版只有一个共享键（默认 AUTO：PC 表格、移动端卡片）；迁移时按
 // 旧值的实际显示效果拆成两槽，存量用户所见形态不变；新用户两槽
-// 默认都是卡片。设置页的下拉绑定下面这个计算属性：读/写都按当前
-// 屏幕宽度落在对应的一槽，移动端改动只改移动端一槽，真正生效。
+// 默认都是卡片。v0.1.366：设置页把两槽并排放在一行，两端可视可改，
+// 不再只改当前设备一槽；下面这个计算属性仍保留（连接页按当前
+// 屏幕宽度读对应一槽生效）。
 const _legacyConnectionStyle =
   (() => { try { return localStorage.getItem('config/connection-display-style') } catch { return null } })()
-const connectionDisplayStylePc = useStorage<CONNECTION_DISPLAY_STYLE>(
+export const connectionDisplayStylePc = useStorage<CONNECTION_DISPLAY_STYLE>(
   'config/connection-display-style-pc',
   _legacyConnectionStyle === 'table'
     ? CONNECTION_DISPLAY_STYLE.TABLE
@@ -399,7 +400,7 @@ const connectionDisplayStylePc = useStorage<CONNECTION_DISPLAY_STYLE>(
         ? CONNECTION_DISPLAY_STYLE.TABLE
         : CONNECTION_DISPLAY_STYLE.CARD,
 )
-const connectionDisplayStyleMobile = useStorage<CONNECTION_DISPLAY_STYLE>(
+export const connectionDisplayStyleMobile = useStorage<CONNECTION_DISPLAY_STYLE>(
   'config/connection-display-style-mobile',
   _legacyConnectionStyle === 'table'
     ? CONNECTION_DISPLAY_STYLE.TABLE

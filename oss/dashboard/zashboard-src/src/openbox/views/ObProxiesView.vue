@@ -1,7 +1,10 @@
 <template>
   <div class="flex flex-col gap-3 p-3">
     <div class="flex items-center gap-2 flex-wrap">
-      <SegmentedControl v-model="activeTab" :options="tabOptions" />
+      <!-- v0.1.366：PC 端页签补图标（移动端不占空间，只留文字+数量）；
+           数量与选中滑块动效保留（SegmentedControl 原样复用）。 -->
+      <SegmentedControl v-model="activeTab" :options="tabOptionsWithIcons" class="hidden md:inline-flex" />
+      <SegmentedControl v-model="activeTab" :options="tabOptions" class="md:hidden" />
       <div class="ml-auto flex items-center gap-2">
         <div class="relative">
           <input v-model="searchText" class="input input-bordered input-sm rounded-full w-70 pr-8" placeholder="搜索 | 多个关键词用空格分隔" />
@@ -41,6 +44,7 @@ import FailoverGroupExt from '../components/FailoverGroupExt.vue'
 import ObPolicyTab from '../components/ObPolicyTab.vue'
 import ObSubTab from '../components/ObSubTab.vue'
 import ProxySettingsModal from '../components/ProxySettingsModal.vue'
+import { GlobeAltIcon, RssIcon, Squares2X2Icon } from '@heroicons/vue/24/outline'
 
 const activeTab = ref('node')
 const searchText = ref('')
@@ -67,6 +71,11 @@ const tabOptions = computed(() => [
   { value: 'policy', label: policyCount.value === null ? '策略' : `策略 (${policyCount.value})` },
   { value: 'node', label: `节点 (${filteredGroups.value.length})` },
   { value: 'sub', label: subCount.value === null ? '订阅' : `订阅 (${subCount.value})` },
+])
+const tabOptionsWithIcons = computed(() => [
+  { ...tabOptions.value[0], icon: Squares2X2Icon },
+  { ...tabOptions.value[1], icon: GlobeAltIcon },
+  { ...tabOptions.value[2], icon: RssIcon },
 ])
 
 const failoverNames = ref<Set<string>>(new Set())
