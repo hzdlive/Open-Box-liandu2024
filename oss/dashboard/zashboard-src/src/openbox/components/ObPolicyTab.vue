@@ -31,32 +31,22 @@
           :title="`${opt.name}: ${opt.delay > 0 ? opt.delay + 'ms' : '未连通'}`"
         />
       </div>
-      <div v-if="expanded === site.id" class="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        <div
-          v-for="opt in site.options"
-          :key="opt.name"
-          class="rounded-box border p-3 cursor-pointer transition-colors hover:border-success"
-          :class="opt.name === site.selected
-            ? 'bg-success text-success-content border-success'
-            : 'border-base-300/50 bg-base-100'"
-          @click="selectOutbound(site, opt)"
-        >
-          <div class="text-sm font-medium">{{ opt.name }}</div>
-          <div class="text-xs opacity-60 mt-1">
-            {{ opt.type }} / udp
-            <span class="badge badge-sm ml-1" :class="opt.name === site.selected ? 'badge-ghost' : latencyClass(opt.latency)">{{ opt.latency }}</span>
-          </div>
-        </div>
-      </div>
+      <ObPolicyMembers
+        v-if="expanded === site.id"
+        :options="site.options"
+        :selected="site.selected"
+        @select="(opt) => selectOutbound(site, opt)"
+      />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { obxGet, obxPost } from '../api'
 import { siteIcon } from '../composables/useSiteIcon'
 import { displayOrder } from '../composables/useProxySettings'
+import ObPolicyMembers from './ObPolicyMembers.vue'
 
 const props = defineProps<{ searchText?: string }>()
 
@@ -104,6 +94,17 @@ const orderedSites = computed(() => {
   })
 })
 const expanded = ref<string | null>(null)
+
+// v0.1.360：保留展开状态。策略 Tab 用 v-if 挂载，切换 Tab 会销毁
+// 组件、展开态随之丢失；把展开的卡片 id 存 localStorage，回到本
+// Tab（乃至刷新页面）后恢复；收起时清除。
+const EXPANDED_KEY = 'obx-policy-expanded'
+watch(expanded, (v) => {
+  try {
+    if (v == null) localStorage.removeItem(EXPANDED_KEY)
+    else localStorage.setItem(EXPANDED_KEY, String(v))
+  } catch {}
+})
 
 async function load() {
   try {
@@ -164,6 +165,14 @@ async function load() {
         options,
       })
     }
+    // 恢复上次展开的卡片（id 不存在时不恢复）
+    try {
+      const saved = localStorage.getItem(EXPANDED_KEY)
+      if (saved) {
+        const hit = sites.value.find((s: any) => String(s.id) === saved)
+        if (hit) expanded.value = hit.id
+      }
+    } catch {}
   } catch (e) {
     console.error('load policies failed', e)
   }
