@@ -6,11 +6,14 @@
       class="rounded-box border border-base-300/30 bg-base-100 p-4"
     >
       <div class="flex items-center gap-3 cursor-pointer" @click="expanded = expanded === sub.id ? null : sub.id">
-        <div class="flex-1 flex items-center gap-2">
-          <span class="text-base font-semibold">{{ sub.name }} ({{ sub.alive }}/{{ sub.total }})</span>
+        <!-- v0.1.363：窄屏下名称容器缺 min-w-0 时 flex 子项按内容最小宽
+             拒绝收缩，长订阅名会把右侧按钮推出屏外；名称截断 + 按钮
+             区不收缩，保证按钮始终与订阅名同排靠右。 -->
+        <div class="flex-1 flex items-center gap-2 min-w-0">
+          <span class="text-base font-semibold truncate">{{ sub.name }} ({{ sub.alive }}/{{ sub.total }})</span>
           <span class="badge badge-ghost badge-sm shrink-0">{{ sub.mode === 'login' ? '登录' : sub.mode === 'subscription' ? '订阅' : '节点' }}</span>
         </div>
-        <div class="flex gap-1">
+        <div class="flex gap-1 shrink-0">
           <button class="btn btn-ghost btn-sm text-lg" @click.stop="speedtest(sub)" title="测速">⚡</button>
           <button class="btn btn-ghost btn-sm text-lg" @click.stop="refresh(sub)" title="刷新">🔄</button>
         </div>
