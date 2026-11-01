@@ -17,8 +17,12 @@ def _tls_from_clash(p: dict, default_sni: str = "", force: bool = False) -> dict
     # Clash entries often omit the tls: key and carry fingerprint/sni/
     # alpn/skip-cert-verify at top level. Without force those fields
     # were dropped (the caller fell back to a bare {enabled,
-    # server_name} dict). For vmess/vless/trojan force stays False:
-    # an absent/false tls: there means no TLS and must be honored.
+    # server_name} dict). For vmess/vless force stays False: an
+    # absent/false tls: there means no TLS and must be honored.
+    # v0.1.367 (#743): trojan joins the forced set — Clash trojan
+    # entries never carry a tls: key (sni/alpn/skip-cert-verify live
+    # at top level) and trojan is TLS by definition, so requiring the
+    # key dropped the original SNI on import (and again on share).
     if not p.get("tls") and not force:
         return None
     tls: dict = {"enabled": True, "server_name": p.get("servername") or p.get("sni") or default_sni}
@@ -115,7 +119,7 @@ def _clash_proxy_to_node(p: dict, seen: set) -> Node | None:
         return None
 
     if ptype in ("vmess", "vless", "trojan"):
-        tls = _tls_from_clash(p, server)
+        tls = _tls_from_clash(p, server, force=(ptype == "trojan"))
         if tls:
             if ptype == "vless" and isinstance(p.get("reality-opts"), dict):
                 ro = p["reality-opts"]
