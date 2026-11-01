@@ -28,20 +28,29 @@
         </div>
 
         <template v-if="isMiddleScreen">
+          <!-- v0.1.364：底部导航改悬浮胶囊（与客户端一致）。原 dock 是
+               贴底通栏 + 近乎透明底（bg-base-100/20），暗色下对比度差；
+               现改为居中悬浮胶囊：实底 + 毛玻璃 + 边框 + 阴影，选中态
+               由滑动背景块（pill）表示，替代 dock-active 自带的底部
+               横条；底部偏移仍含 safe-area，滑动动画遵循减少动态
+               效果设置。 -->
           <div
-            class="bg-base-100/20 dock dock-xs z-10 h-14 w-auto"
+            class="dock dock-xs z-10 h-14 w-auto rounded-full border border-base-300 bg-base-100/90 p-1 shadow-xl backdrop-blur-md left-1/2 right-auto -translate-x-1/2"
             :style="{
-              padding: '0',
               bottom: 'calc(var(--spacing) * 2 + env(safe-area-inset-bottom))',
             }"
             ref="dockRef"
           >
+            <div
+              class="absolute top-1 bottom-1 rounded-full bg-primary/15 transition-all duration-300 motion-reduce:transition-none"
+              :style="indicatorStyle"
+            />
             <button
               v-for="r in renderRoutes"
               :key="r"
               @click="router.push({ name: r, replace: true })"
-              class="h-14 flex-col items-center justify-center pt-2"
-              :class="r === route.name && 'dock-active'"
+              class="relative h-14 flex-col items-center justify-center pt-2"
+              :class="r === route.name && 'text-primary'"
             >
               <component
                 :is="ROUTE_ICON_MAP[r]"
@@ -87,15 +96,49 @@ import { fetchProxies } from '@/assembly/proxies'
 import { isSidebarCollapsed } from '@/store/settings'
 import { activeBackend, activeUuid } from '@/store/setup'
 import { useDocumentVisibility, useElementBounding } from '@vueuse/core'
-import { ref, watch } from 'vue'
-import { RouterView, useRouter } from 'vue-router'
+import { ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { RouterView, useRouter, useRoute } from 'vue-router'
 
 const router = useRouter()
+const currentRoute = useRoute()
 const { swiperRef } = useSwipeRouter()
 const sidebarLayoutCollapsed = ref(isSidebarCollapsed.value)
 
 const dockRef = ref<HTMLDivElement>()
 const { top: dockRefTop } = useElementBounding(dockRef)
+
+// v0.1.364 滑动选中背景：量当前激活按钮相对 dock 的位置，pill 用
+// left/width 过渡跟随；路由切换、窗口尺寸变化时重算；无激活项时隐藏。
+const indicatorStyle = ref<Record<string, string>>({ opacity: '0' })
+function updateIndicator() {
+  const el = dockRef.value
+  if (!el) return
+  const idx = (renderRoutes.value as unknown as string[]).indexOf(
+    currentRoute.name as string,
+  )
+  const btns = el.querySelectorAll('button')
+  const btn = idx >= 0 ? (btns[idx] as HTMLElement | undefined) : undefined
+  if (!btn) {
+    indicatorStyle.value = { opacity: '0' }
+    return
+  }
+  indicatorStyle.value = {
+    left: `${btn.offsetLeft}px`,
+    width: `${btn.offsetWidth}px`,
+    opacity: '1',
+  }
+}
+onMounted(() => {
+  nextTick(updateIndicator)
+  window.addEventListener('resize', updateIndicator)
+})
+onUnmounted(() => {
+  window.removeEventListener('resize', updateIndicator)
+})
+watch(
+  () => currentRoute.name,
+  () => nextTick(updateIndicator),
+)
 
 const syncSidebarLayoutState = () => {
   sidebarLayoutCollapsed.value = isSidebarCollapsed.value
