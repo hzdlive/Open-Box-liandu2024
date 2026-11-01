@@ -548,7 +548,14 @@
                       class="input input-bordered input-xs w-full min-w-44"
                       @change="saveNodeTag(n)"
                     /></td>
-                    <td class="text-xs opacity-60">{{ nodeLatency(n.tag) }}</td>
+                    <td class="text-xs opacity-60">
+                      {{ nodeLatency(n.tag) }}
+                      <span
+                        v-if="nodeKind(n.tag)"
+                        class="badge badge-ghost badge-xs ml-1"
+                        :title="nodeError(n.tag)"
+                      >{{ nodeKindLabel(n.tag) }}</span>
+                    </td>
                     <td class="whitespace-nowrap text-right">
                       <button
                         class="btn btn-ghost btn-xs"
@@ -1015,6 +1022,27 @@ function nodeLatency(tag: string) {
   const h = health.value.find((x: any) => x.tag === tag)
   const v = h?.latency_ms ?? h?.latency
   return v != null ? `${v}ms` : '—'
+}
+// v0.1.370：测速错误分类角标（原文见 title）
+function nodeHealth(tag: string) {
+  return health.value.find((x: any) => x.tag === tag)
+}
+function nodeKind(tag: string) {
+  return nodeHealth(tag)?.error_kind || ''
+}
+function nodeError(tag: string) {
+  return nodeHealth(tag)?.error || ''
+}
+const KIND_LABELS: Record<string, string> = {
+  dns: 'DNS解析失败',
+  resource: '系统资源不足',
+  timeout: '连接超时',
+  connect: '连接失败',
+  kernel: '内核不可达',
+}
+function nodeKindLabel(tag: string) {
+  const k = nodeKind(tag)
+  return KIND_LABELS[k] || k
 }
 async function saveNodeTag(n: any) {
   try {

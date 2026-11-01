@@ -1114,7 +1114,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 "subscription_id": sid,
                 "tested": len(results),
                 "healthy": ok_count,
-                "results": [{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms} for r in results],
+                "results": [{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
+                             "error_kind": getattr(r, "error_kind", "")} for r in results],
             })
         except Exception as e:
             return jsonify({"error": f"speedtest failed: {e}"}), 502
@@ -2543,7 +2544,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
                               test_url=test_url)
         dbmod.save_health(db(), results)
         return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
-                         "error": r.error, "checked_at": r.checked_at}
+                         "error": r.error, "error_kind": getattr(r, "error_kind", ""),
+                         "checked_at": r.checked_at}
                         for r in results])
 
     # ---- kernel service ----

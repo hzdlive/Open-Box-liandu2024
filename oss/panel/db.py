@@ -172,6 +172,7 @@ CREATE TABLE IF NOT EXISTS node_health(
   ok INTEGER,
   latency_ms REAL,
   error TEXT NOT NULL DEFAULT '',
+  error_kind TEXT NOT NULL DEFAULT '',
   checked_at TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS pair_codes(
@@ -382,6 +383,10 @@ def init_db(conn: sqlite3.Connection) -> None:
     rwcols = {r[1] for r in conn.execute("PRAGMA table_info(dns_rewrite)")}
     if "enabled" not in rwcols:
         conn.execute("ALTER TABLE dns_rewrite ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
+    # v0.1.370：测速错误分类
+    nhcols = {r[1] for r in conn.execute("PRAGMA table_info(node_health)")}
+    if "error_kind" not in nhcols:
+        conn.execute("ALTER TABLE node_health ADD COLUMN error_kind TEXT NOT NULL DEFAULT ''")
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     if "idle_timeout" not in gcols:
         conn.execute("ALTER TABLE groups ADD COLUMN idle_timeout TEXT NOT NULL DEFAULT '12h'")
@@ -1700,19 +1705,20 @@ def reorder_groups(conn: sqlite3.Connection, ordered_ids: list[int]) -> None:
 def save_health(conn: sqlite3.Connection, results: list) -> None:
     for r in results:
         conn.execute(
-            "INSERT INTO node_health(tag, ok, latency_ms, error, checked_at)"
-            " VALUES (?, ?, ?, ?, ?)"
+            "INSERT INTO node_health(tag, ok, latency_ms, error, error_kind, checked_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
             " ON CONFLICT(tag) DO UPDATE SET ok=excluded.ok, latency_ms=excluded.latency_ms,"
-            " error=excluded.error, checked_at=excluded.checked_at",
-            (r.tag, None if r.ok is None else int(r.ok), r.latency_ms, r.error, r.checked_at))
+            " error=excluded.error, error_kind=excluded.error_kind, checked_at=excluded.checked_at",
+            (r.tag, None if r.ok is None else int(r.ok), r.latency_ms, r.error,
+             getattr(r, "error_kind", ""), r.checked_at))
     conn.commit()
 
 
 def list_health(conn: sqlite3.Connection) -> list[dict]:
     return [{"tag": r[0], "ok": (None if r[1] is None else bool(r[1])),
-             "latency_ms": r[2], "error": r[3], "checked_at": r[4]}
+             "latency_ms": r[2], "error": r[3], "error_kind": r[4], "checked_at": r[5]}
             for r in conn.execute(
-                "SELECT tag, ok, latency_ms, error, checked_at FROM node_health ORDER BY tag")]
+                "SELECT tag, ok, latency_ms, error, error_kind, checked_at FROM node_health ORDER BY tag")]
 
 
 def set_site_set_flip(conn: sqlite3.Connection, sid: int, flip: str) -> bool:

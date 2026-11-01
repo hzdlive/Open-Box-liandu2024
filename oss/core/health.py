@@ -11,6 +11,7 @@ rather than failed.
 
 from __future__ import annotations
 
+import errno
 import socket
 import ssl
 import time
@@ -27,6 +28,42 @@ KERNEL_TESTABLE = {"tuic", "hysteria2"}
 
 DEFAULT_TEST_URL = "http://www.gstatic.com/generate_204"
 
+# v0.1.370：测速错误分类。dns / resource 是本地/系统侧原因，不应
+# 判为节点故障（直连探针下记为 skipped，沿用内核不可达的先例）；
+# timeout / connect 才是节点侧信号，记为 failed。原始错误原文保留
+# 在 error 里，分类只进 error_kind。
+ERROR_KIND_DNS = "dns"
+ERROR_KIND_RESOURCE = "resource"
+ERROR_KIND_TIMEOUT = "timeout"
+ERROR_KIND_CONNECT = "connect"
+ERROR_KIND_KERNEL = "kernel"
+
+_DNS_HINTS = ("name or service not known", "temporary failure in name resolution",
+              "nodename nor servname", "name resolution", "no such host")
+_RESOURCE_ERRNOS = {errno.EMFILE, errno.ENFILE, errno.ENOMEM}
+_RESOURCE_HINTS = ("too many open files", "cannot assign requested address",
+                   "no buffer space", "out of memory", "resource temporarily unavailable")
+_TIMEOUT_HINTS = ("timed out", "timeout")
+
+
+def classify_error(exc: BaseException | None = None, message: str = "") -> str:
+    """Classify a probe failure. Exception shape wins; else substring match."""
+    msg = message or (str(exc) if exc else "")
+    low = msg.lower()
+    if isinstance(exc, socket.gaierror):
+        return ERROR_KIND_DNS
+    if isinstance(exc, OSError) and exc.errno in _RESOURCE_ERRNOS:
+        return ERROR_KIND_RESOURCE
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return ERROR_KIND_TIMEOUT
+    if any(h in low for h in _DNS_HINTS):
+        return ERROR_KIND_DNS
+    if any(h in low for h in _RESOURCE_HINTS):
+        return ERROR_KIND_RESOURCE
+    if any(h in low for h in _TIMEOUT_HINTS):
+        return ERROR_KIND_TIMEOUT
+    return ERROR_KIND_CONNECT
+
 
 @dataclass
 class HealthResult:
@@ -35,6 +72,7 @@ class HealthResult:
     latency_ms: float | None
     error: str
     checked_at: str
+    error_kind: str = ""
 
 
 def kernel_delay(tag: str, timeout_s: float, test_url: str):
@@ -68,7 +106,11 @@ def check_node(node, timeout: float = 5.0,
     if node.protocol in KERNEL_TESTABLE:
         fn = kernel_delay_fn or kernel_delay
         ok, latency, error = fn(node.tag, timeout, test_url)
-        return HealthResult(node.tag, ok, latency, error, now)
+        # 内核路径 verdict 不变（内核延迟结果本身就是节点 verdict，
+        # 仅补分类）；此前已有的内核不可达 skipped 记为 kernel。
+        kind = ERROR_KIND_KERNEL if "skipped" in error else (
+            classify_error(message=error) if error else "")
+        return HealthResult(node.tag, ok, latency, error, now, kind)
     if node.protocol not in TCP_PROTOCOLS:
         return HealthResult(node.tag, None, None,
                             f"udp-only protocol ({node.protocol}), skipped", now)
@@ -76,7 +118,10 @@ def check_node(node, timeout: float = 5.0,
     try:
         sock = socket.create_connection((node.server, node.server_port), timeout=timeout)
     except Exception as e:
-        return HealthResult(node.tag, False, None, f"tcp: {e.__class__.__name__}: {e}", now)
+        kind = classify_error(e)
+        # 本地/系统侧原因不判节点故障，记 skipped；原始错误保留。
+        ok = None if kind in (ERROR_KIND_DNS, ERROR_KIND_RESOURCE) else False
+        return HealthResult(node.tag, ok, None, f"tcp: {e.__class__.__name__}: {e}", now, kind)
     try:
         tls = node.params.get("tls") or {}
         if tls.get("enabled"):
@@ -88,7 +133,9 @@ def check_node(node, timeout: float = 5.0,
         latency = round((time.monotonic() - start) * 1000, 1)
         return HealthResult(node.tag, True, latency, "", now)
     except Exception as e:
-        return HealthResult(node.tag, False, None, f"tls: {e.__class__.__name__}: {e}", now)
+        kind = classify_error(e)
+        ok = None if kind in (ERROR_KIND_DNS, ERROR_KIND_RESOURCE) else False
+        return HealthResult(node.tag, ok, None, f"tls: {e.__class__.__name__}: {e}", now, kind)
     finally:
         try:
             sock.close()
