@@ -7,6 +7,8 @@ Clean-room reimplementation of the publicly observable behavior:
 - entry-country derived from the node's own server address.
 
 Requires the sing-box binary; without it the API reports honestly.
+Wireguard nodes probe through endpoints, not outbounds (v0.1.362);
+other unbuildable exits still raise OutboundError.
 """
 
 from __future__ import annotations
@@ -90,6 +92,44 @@ def probe_chain(chain: dict, cfg, timeout: float = 25.0) -> dict:
             "proxy_type": chain.get("exit_protocol")}
 
 
+def _probe_config(node: dict, port: int) -> dict:
+    """Scratch sing-box config for a node probe.
+
+    Wireguard nodes are endpoints, not outbounds (sing-box 1.13+):
+    the probe config carries them under "endpoints" and routes final
+    at the endpoint tag (endpoint tags are referenceable from route
+    rules -- probed against the live binary). v0.1.362: probe_exit
+    used to build node_to_outbound unconditionally, so every WG node
+    preview failed with OutboundError before the probe even started.
+    Raises OutboundError when a non-WG outbound cannot be built.
+    """
+    from core.models import Node
+    from core.singbox import node_to_endpoint, node_to_outbound
+    params = (node.get("params") if isinstance(node.get("params"), dict)
+              else json.loads(node.get("params") or "{}"))
+    nd = Node(tag=node["tag"], protocol=node["protocol"],
+              server=node["server"], server_port=node["port"], params=params)
+    cfg: dict = {
+        "log": {"level": "error"},
+        "inbounds": [{"type": "mixed", "tag": "probe-in",
+                      "listen": "127.0.0.1", "listen_port": port}],
+        "outbounds": [{"type": "direct", "tag": "direct"}],
+        "route": {"final": "probe-out"},
+    }
+    if node["protocol"] == "wireguard":
+        ep = node_to_endpoint(nd)
+        ep["tag"] = "probe-out"
+        cfg["endpoints"] = [ep]
+        return cfg
+    try:
+        outbound = node_to_outbound(nd)
+    except Exception as e:
+        raise OutboundError(str(e)) from e
+    outbound["tag"] = "probe-out"
+    cfg["outbounds"] = [outbound, {"type": "direct", "tag": "direct"}]
+    return cfg
+
+
 def _free_port() -> int:
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -120,23 +160,8 @@ def probe_exit(node: dict, bin_path: str, timeout: float = 25.0) -> dict:
     from core.models import Node
     if not (os.path.isfile(bin_path) and os.access(bin_path, os.X_OK)):
         raise RuntimeError("sing-box binary not installed")
-    try:
-        outbound = node_to_outbound(Node(
-            tag=node["tag"], protocol=node["protocol"], server=node["server"],
-            server_port=node["port"],
-            params=node.get("params") if isinstance(node.get("params"), dict)
-            else json.loads(node.get("params") or "{}")))
-    except Exception as e:
-        raise OutboundError(str(e)) from e
-    outbound["tag"] = "probe-out"
     port = _free_port()
-    cfg = {
-        "log": {"level": "error"},
-        "inbounds": [{"type": "mixed", "tag": "probe-in",
-                      "listen": "127.0.0.1", "listen_port": port}],
-        "outbounds": [outbound, {"type": "direct", "tag": "direct"}],
-        "route": {"final": "probe-out"},
-    }
+    cfg = _probe_config(node, port)
     proxy_url = f"http://127.0.0.1:{port}"
     result: dict = {"ok": False, "via": "node"}
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
