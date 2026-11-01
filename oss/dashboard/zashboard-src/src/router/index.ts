@@ -8,10 +8,8 @@ import { activeBackend } from '@/store/setup'
 import ConnectionsPage from '@/views/ConnectionsPage.vue'
 import HomePage from '@/views/HomePage.vue'
 import ManageView from '@/views/manage/ManageView.vue'
-import LogsPage from '@/views/LogsPage.vue'
 import OverviewPage from '@/views/OverviewPage.vue'
 import ProxiesPage from '@/openbox/views/ObProxiesView.vue'
-import RulesPage from '@/views/RulesPage.vue'
 import SettingsPage from '@/views/SettingsPage.vue'
 import SetupPage from '@/views/SetupPage.vue'
 import { useTitle } from '@vueuse/core'
@@ -34,15 +32,17 @@ const childrenRouter = [
     name: ROUTE_NAME.connections,
     component: ConnectionsPage,
   },
+  // v0.1.365：日志、运行规则合并进“连接”页；旧链接 /#/logs、/#/rules
+  // 重定向到连接页对应页签（页签记忆见 ConnectionsPage）。
   {
     path: 'logs',
     name: ROUTE_NAME.logs,
-    component: LogsPage,
+    redirect: { name: ROUTE_NAME.connections, query: { tab: 'logs' } },
   },
   {
     path: 'rules',
     name: ROUTE_NAME.rules,
-    component: RulesPage,
+    redirect: { name: ROUTE_NAME.connections, query: { tab: 'rules' } },
   },
   {
     path: 'tools',

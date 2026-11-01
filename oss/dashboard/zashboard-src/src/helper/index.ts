@@ -121,6 +121,8 @@ export const renderRoutes = computed(() => {
   return Object.values(ROUTE_NAME).filter((r) => {
     if (r === ROUTE_NAME.setup) return false
     if (!splitOverviewPage.value && r === ROUTE_NAME.overview) return false
+    // v0.1.365：日志、运行规则合并进连接页，导航只留“连接”一项
+    if (r === ROUTE_NAME.logs || r === ROUTE_NAME.rules) return false
     if (r in routeCapable && routeCapable[r] === false) return false
     return true
   })
