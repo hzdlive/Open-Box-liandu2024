@@ -1,7 +1,8 @@
 """Parse subscription content into Node objects.
 
 Supports base64-encoded subscription bodies as well as plain link lists.
-Protocols: vmess, vless, trojan, shadowsocks, tuic, hysteria2/hy2.
+Protocols: vmess, vless, trojan, shadowsocks, tuic, hysteria2/hy2,
+wireguard, anytls, socks.
 Link formats follow the widely documented open conventions (SIP002 etc.).
 """
 
@@ -246,10 +247,83 @@ def _parse_tuic_hysteria2(link: str, seen: set) -> Node | None:
     }
     if q.get("alpn"):
         tls["alpn"] = q["alpn"].split(",")
+    # v0.1.361: tuic/hy2 links used to drop both the uTLS fingerprint
+    # (fp) and the certificate pin (pinSHA256). The fingerprint flows to
+    # the kernel as utls.fingerprint; the pin has no sing-box equivalent
+    # (probed on 1.14.1-openbox-tcp28: pinSHA256/pin_sha256 rejected as
+    # unknown fields in tls and at outbound level), so it is preserved
+    # in node data (and round-trips through share encoding) but the
+    # generator does not emit it. TLS verification itself stays on:
+    # insecure is set only when the link says so.
+    if q.get("fp") or q.get("fingerprint"):
+        tls["fingerprint"] = q.get("fp") or q.get("fingerprint")
+    if q.get("pinSHA256"):
+        tls["pin_sha256"] = q["pinSHA256"]
     params["tls"] = tls
     return Node(
         tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
         protocol=proto, server=u.hostname or "", server_port=port, params=params,
+    )
+
+
+def _parse_wireguard(link: str, seen: set) -> Node | None:
+    # v0.1.361: wireguard:// links were dropped entirely, so WG
+    # subscriptions lost everything (361 names pre-shared key + MTU).
+    # Format: wireguard://<private_key>@<host>:<port>?publickey=...
+    #   &presharedkey=...&address=...&mtu=...#<name>
+    # Parsed manually (not urlparse): a base64 private key may contain
+    # "/" which urlparse would mistake for a path separator.
+    # Aliases accepted: public-key, pre-shared-key/preshared_key,
+    # local_address. Allowed IPs are not stored: the panel emits
+    # full-tunnel allowed_ips for proxy nodes (see node_to_endpoint).
+    rest = link[len("wireguard://"):]
+    frag = ""
+    if "#" in rest:
+        rest, frag = rest.split("#", 1)
+    query = ""
+    if "?" in rest:
+        rest, query = rest.split("?", 1)
+    if "@" not in rest:
+        return None
+    userinfo, hostport = rest.rsplit("@", 1)
+    private_key = unquote(userinfo)
+    if not private_key:
+        return None
+    if hostport.startswith("["):
+        # IPv6 [addr]:port
+        end = hostport.find("]")
+        if end < 0 or not hostport[end + 1:].startswith(":"):
+            return None
+        host, port_s = hostport[1:end], hostport[end + 2:]
+    elif ":" in hostport:
+        host, port_s = hostport.rsplit(":", 1)
+    else:
+        return None
+    try:
+        port = int(port_s)
+    except ValueError:
+        return None
+    q = dict(parse_qsl(query))
+    params: dict = {
+        "private_key": private_key,
+        "peer_public_key": q.get("publickey") or q.get("public-key") or "",
+    }
+    psk = q.get("presharedkey") or q.get("pre-shared-key") or q.get("preshared_key")
+    if psk:
+        params["pre_shared_key"] = psk
+    addr = q.get("address") or q.get("local_address")
+    if addr:
+        local = [a.strip() for a in addr.split(",") if a.strip()]
+        if local:
+            params["local_address"] = local
+    if q.get("mtu"):
+        try:
+            params["mtu"] = int(q["mtu"])
+        except ValueError:
+            pass
+    return Node(
+        tag=_unique_tag(unquote(frag) or _hostport(host, port), seen),
+        protocol="wireguard", server=host, server_port=port, params=params,
     )
 
 
@@ -428,6 +502,8 @@ def parse_subscription(text: str) -> list[Node]:
                 node = _parse_ss(line, seen)
             elif line.startswith(("tuic://", "hysteria2://", "hy2://")):
                 node = _parse_tuic_hysteria2(line, seen)
+            elif line.startswith("wireguard://"):
+                node = _parse_wireguard(line, seen)
             elif line.startswith("anytls://"):
                 node = _parse_anytls(line, seen)
             elif line.startswith(("socks5://", "socks4a://", "socks4://", "socks://")):

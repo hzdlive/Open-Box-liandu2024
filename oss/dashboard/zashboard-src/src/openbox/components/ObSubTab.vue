@@ -8,6 +8,7 @@
       <div class="flex items-center gap-3 cursor-pointer" @click="expanded = expanded === sub.id ? null : sub.id">
         <div class="flex-1 flex items-center gap-2">
           <span class="text-base font-semibold">{{ sub.name }} ({{ sub.alive }}/{{ sub.total }})</span>
+          <span class="badge badge-ghost badge-sm shrink-0">{{ sub.mode === 'login' ? '登录' : sub.mode === 'subscription' ? '订阅' : '节点' }}</span>
         </div>
         <div class="flex gap-1">
           <button class="btn btn-ghost btn-sm text-lg" @click.stop="speedtest(sub)" title="测速">⚡</button>
@@ -66,6 +67,7 @@ async function load() {
           return {
             id: s.id,
             name: s.name,
+            mode: s.mode,
             alive: s.node_count || 0,
             total: s.node_total || s.node_count || 0,
             updated: s.updated_at ? new Date(s.updated_at).toLocaleString('zh-CN') : '',

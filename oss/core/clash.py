@@ -12,8 +12,14 @@ import yaml
 from .models import Node
 
 
-def _tls_from_clash(p: dict, default_sni: str = "") -> dict | None:
-    if not p.get("tls"):
+def _tls_from_clash(p: dict, default_sni: str = "", force: bool = False) -> dict | None:
+    # v0.1.361: TUIC/Hysteria2/AnyTLS always run over TLS, but their
+    # Clash entries often omit the tls: key and carry fingerprint/sni/
+    # alpn/skip-cert-verify at top level. Without force those fields
+    # were dropped (the caller fell back to a bare {enabled,
+    # server_name} dict). For vmess/vless/trojan force stays False:
+    # an absent/false tls: there means no TLS and must be honored.
+    if not p.get("tls") and not force:
         return None
     tls: dict = {"enabled": True, "server_name": p.get("servername") or p.get("sni") or default_sni}
     if p.get("skip-cert-verify"):
@@ -121,7 +127,7 @@ def _clash_proxy_to_node(p: dict, seen: set) -> Node | None:
         if transport:
             params["transport"] = transport
     elif ptype in ("tuic", "hysteria2", "anytls"):
-        tls = _tls_from_clash(p, server) or {"enabled": True, "server_name": p.get("sni") or server}
+        tls = _tls_from_clash(p, server, force=True)
         if p.get("sni"):
             tls["server_name"] = p["sni"]
         params["tls"] = tls

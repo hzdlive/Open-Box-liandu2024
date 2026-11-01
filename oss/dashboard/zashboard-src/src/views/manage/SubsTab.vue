@@ -60,6 +60,7 @@
             <span class="text-sm opacity-60">{{ expandedSubs.has(s.id) ? '▾' : '▸' }}</span>
             <span class="truncate font-bold">{{ s.name }}</span>
             <span class="shrink-0 text-sm opacity-60">({{ s.node_count }}/{{ s.node_total }})</span>
+            <span class="badge badge-ghost badge-sm shrink-0">{{ modeText(s.mode) }}</span>
           </button>
           <span v-if="!s.enabled" class="badge badge-ghost badge-sm">{{ $t('obx.disabled') }}</span>
           <div class="flex-1" />
@@ -657,6 +658,11 @@ const busyId = ref<number | null>(null)
 const dlg = ref<any>(null)
 const dlgErr = ref('')
 const dlgBusy = ref(false)
+
+// v0.1.361 模式标签：登录/订阅/节点（后端 list_subscriptions 派生）
+function modeText(mode: string | undefined): string {
+  return mode === 'login' ? '登录' : mode === 'subscription' ? '订阅' : '节点'
+}
 
 function fmtTime(t: string) {
   if (!t) return '—'

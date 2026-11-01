@@ -621,6 +621,11 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
             order = ["region", "feature", "seq"]
         out.append({"id": sid, "name": name, "source": source, "url": url,
                     "urls": url_list,
+                    # v0.1.361 模式标签：登录=357 登录页建行；订阅=带可刷新
+                    # URL；节点=仅粘贴内容/手动节点。派生而非另存列：行
+                    # 的维护方式变了（如补了 URL）标签自动跟上。
+                    "mode": ("login" if source == "login" else
+                             "subscription" if url_list else "node"),
                     "created_at": created, "node_count": n, "node_total": total,
                     "enabled": bool(enabled),
                     "fetch_ua": fetch_ua,
