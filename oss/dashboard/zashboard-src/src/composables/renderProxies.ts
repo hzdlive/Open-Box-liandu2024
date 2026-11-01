@@ -70,6 +70,27 @@ const getRenderProxies = (proxies: string[], groupName: string | undefined) => {
   return sortProxies(filtered, groupName, latencyMap)
 }
 
+// v0.1.377 (#666)：组是否“可用”= 递归下去至少有一个叶子节点
+// 可达。原来组名一律豁免隐藏过滤，全员失效的组也照常显示。
+// resolveLatency：叶子节点的延迟取值（成员级用本组延迟桶，顶层
+// 组列表用默认桶）；组名本身不取延迟（选中成员可达不代表组可
+// 用，全员失效但选中成员恰好可达时组也不应藏——反之亦然）。
+const hasAvailableLeaf = (
+  name: string,
+  resolveLatency: (n: string) => number,
+  seen: Set<string>,
+): boolean => {
+  if (seen.has(name)) return false
+  seen.add(name)
+  const members = proxyMap.value[name]?.all
+  if (!members?.length) return resolveLatency(name) > NOT_CONNECTED
+  return members.some((m) => hasAvailableLeaf(m, resolveLatency, seen))
+}
+
+// 顶层组列表用：无 groupName 桶，取默认延迟。
+export const isGroupAvailable = (name: string): boolean =>
+  hasAvailableLeaf(name, (n) => getLatencyByName(n), new Set())
+
 const filterProxies = (
   proxies: string[],
   groupName: string | undefined,
@@ -78,7 +99,12 @@ const filterProxies = (
   let result = proxies
 
   if (hideUnavailableProxies.value) {
-    result = result.filter((name) => isProxyGroup(name) || latencyMap.get(name)! > NOT_CONNECTED)
+    const resolve = (n: string) => latencyMap.get(n) ?? getLatencyByName(n, groupName)
+    result = result.filter((name) =>
+      isProxyGroup(name)
+        ? hasAvailableLeaf(name, resolve, new Set())
+        : latencyMap.get(name)! > NOT_CONNECTED,
+    )
   }
 
   if (isProxyNodeSearchMode.value && proxySearchKeyword.value) {

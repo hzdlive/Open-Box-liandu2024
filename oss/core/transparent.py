@@ -452,6 +452,11 @@ table inet openbox-oss {{
 
     chain prerouting {{
         type filter hook prerouting priority mangle; policy accept;
+        # v0.1.377 (#694)：已建立连接先放行，不再参与旁路重分类。
+        # 旁路集合更新（整表重刷或 dnsmasq ipset 增量）只影响新建连接；
+        # 已有连接靠 conntrack/已建 socket 保持原路径，不会半路改道
+        # 丢源地址转换。只对 LAN 入向生效，非 LAN 流量仍走原有规则。
+        iifname "{cfg.lan_iface}" ct state established,related accept
         iifname != "{cfg.lan_iface}" accept{tproxy_rule}
         ip daddr @bypass4 accept{tbypass_rule}{whitelist_rule}{direct_rule}{direct_ip_rule}{da_rule}{entry_rule}
         tcp dport 53 accept

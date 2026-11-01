@@ -5,6 +5,9 @@
 // sub-*: 订阅 urltest 组（订阅 Tab 已展示）
 import { computed } from 'vue'
 import { renderProxyGroups } from '@/composables/proxies'
+import { isGroupAvailable } from '@/composables/renderProxies'
+import { proxyMap } from '@/assembly/proxies'
+import { hideUnavailableProxies } from '@/store/settings'
 
 const HIDDEN_PREFIXES = ['flip-', 'obflip-', '__fo:', 'sub-']
 
@@ -22,6 +25,10 @@ export function isHiddenGroup(name: string): boolean {
   return HIDDEN_PREFIXES.some((p) => name.startsWith(p))
 }
 
-export const visibleProxyGroups = computed(() =>
-  renderProxyGroups.value.filter((name) => !isHiddenGroup(name)),
-)
+export const visibleProxyGroups = computed(() => {
+  const shown = renderProxyGroups.value.filter((name) => !isHiddenGroup(name))
+  // v0.1.377 (#666)：开隐藏不可用节点时，全员失效的组也不应列出。
+  // proxyMap 里还没有该组时不误藏（首屏加载未完成前保持原样）。
+  if (!hideUnavailableProxies.value) return shown
+  return shown.filter((name) => !proxyMap.value[name] || isGroupAvailable(name))
+})

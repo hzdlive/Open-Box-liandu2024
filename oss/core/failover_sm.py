@@ -585,7 +585,8 @@ def failover_decide(state: FailoverState) -> dict:
     }
 
 
-def failover_finish(state: FailoverState, decision: dict) -> dict:
+def failover_finish(state: FailoverState, decision: dict,
+                    round_started: float | None = None) -> dict:
     """Commit decision (REA: failoverFinish).
 
     Returns: {"switched": bool, "currentLaneId": ..., "logs": [...]}
@@ -619,12 +620,18 @@ def failover_finish(state: FailoverState, decision: dict) -> dict:
         state.last_switch_error = ""
 
     # Schedule next round
+    # v0.1.377 (#715)：周期锚在本轮开始时刻，而非结束时刻。原来
+    # 用结束时刻 + 间隔，探测耗时（多通道 × 超时）就叠加进了周期，
+    # 实际周期 = 探测耗时 + 间隔，且随探测耗时漂移。锚在开始时刻后，
+    # 周期恒为间隔；若探测耗时超过间隔，下轮到期时间已过，调度器
+    # 下一 tick 立即补跑，不再额外拖延。
     interval_s = state.settings.get("probe_interval_s", DEFAULT_PROBE_INTERVAL_S)
     # If recheck needed (all failed), use shorter interval (60s per REA)
     if decision.get("recheckRound"):
         interval_s = 60
+    base = round_started if round_started is not None else time.time()
     state.next_round_at = time.strftime(
-        "%Y-%m-%dT%H:%M:%S", time.localtime(time.time() + interval_s))
+        "%Y-%m-%dT%H:%M:%S", time.localtime(base + interval_s))
 
     return {
         "switched": switched,
@@ -646,6 +653,9 @@ def run_round(state: FailoverState, api_base: str, secret: str) -> dict:
 
     Returns the finish result with switch info.
     """
+    # v0.1.377 (#715): anchor the next round to this round's start,
+    # not its end (see failover_finish).
+    round_started = time.time()
     # Stage 1: Plan
     plan = failover_plan(state)
 
@@ -681,7 +691,7 @@ def run_round(state: FailoverState, api_base: str, secret: str) -> dict:
     decision = failover_decide(state)
 
     # Stage 5: Finish
-    result = failover_finish(state, decision)
+    result = failover_finish(state, decision, round_started=round_started)
     result["decision"] = decision
     result["probe_results"] = results
     return result
