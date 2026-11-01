@@ -650,6 +650,9 @@ def list_subscriptions(conn: sqlite3.Connection) -> list[dict]:
 
 def delete_subscription(conn: sqlite3.Connection, sid: int) -> bool:
     conn.execute("DELETE FROM nodes WHERE sub_id=?", (sid,))
+    # v0.1.379：订阅删除后其测速行若残留，会被之后重用同 tag 的
+    # 节点继承（显示旧延迟），故一并清掉无主测速行。
+    _prune_orphan_health(conn)
     cur = conn.execute("DELETE FROM subscriptions WHERE id=?", (sid,))
     conn.commit()
     bump_rev(conn)
@@ -1702,6 +1705,16 @@ def reorder_groups(conn: sqlite3.Connection, ordered_ids: list[int]) -> None:
 
 
 # ---- node health ----
+def _prune_orphan_health(conn: sqlite3.Connection) -> None:
+    """Drop health rows whose tag no longer belongs to any live node.
+
+    Health is keyed by bare tag, so without this a removed node's row
+    survives refresh/delete and is inherited by any later node that
+    reuses the tag (v0.1.379: stale speedtest results after sync).
+    """
+    conn.execute("DELETE FROM node_health WHERE tag NOT IN (SELECT tag FROM nodes)")
+
+
 def save_health(conn: sqlite3.Connection, results: list) -> None:
     for r in results:
         conn.execute(
@@ -2771,14 +2784,16 @@ def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
     from core import rename as _rn
     rename_cfg = rename_cfg or {"enabled": False}
     # remember per-node customizations before wiping
-    kept = {r[0]: (r[1], r[2]) for r in conn.execute(
-        "SELECT orig_tag, custom_tag, disabled FROM nodes WHERE sub_id=?", (sid,))}
+    kept = {r[0]: (r[1], r[2], r[3], r[4], r[5]) for r in conn.execute(
+        "SELECT orig_tag, custom_tag, disabled, protocol, server, port"
+        " FROM nodes WHERE sub_id=?", (sid,))}
     renamed = _rn.rename_nodes([n.tag for n in nodes], rename_cfg) \
         if rename_cfg["enabled"] else \
         [{"orig": n.tag, "new": n.tag, "filtered": False} for n in nodes]
     conn.execute("DELETE FROM nodes WHERE sub_id=?", (sid,))
     existing = {r[0] for r in conn.execute("SELECT tag FROM nodes")}
     count, filtered_count = 0, 0
+    new_by_orig = {}
     for n, rn in zip(nodes, renamed):
         if rn["filtered"]:
             filtered_count += 1
@@ -2789,10 +2804,11 @@ def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
             tag = f"{tag} #{i}"
             i += 1
         existing.add(tag)
-        custom_tag, disabled = kept.get(rn["orig"], ("", 0))
+        custom_tag, disabled = kept.get(rn["orig"], ("", 0, None, None, None))[:2]
         if custom_tag:
             tag = custom_tag  # user-edited name wins
             existing.add(tag)
+        new_by_orig[rn["orig"]] = (tag, n.protocol, n.server, n.server_port)
         conn.execute(
             "INSERT INTO nodes(sub_id, tag, protocol, server, port, params,"
             " orig_tag, custom_tag, disabled)"
@@ -2801,6 +2817,16 @@ def _replace_nodes(conn: sqlite3.Connection, sid: int, name: str,
              json.dumps(n.params, ensure_ascii=False),
              rn["orig"], custom_tag or "", disabled or 0))
         count += 1
+    # v0.1.379：同步后清掉无主与换服务器节点的旧测速行，否则旧延迟
+    # 会被重用同 tag 的新节点继承，或被已删节点继续显示。
+    _prune_orphan_health(conn)
+    for orig, (tag, proto, server, port) in new_by_orig.items():
+        old = kept.get(orig)
+        if not old:
+            continue
+        old_current = old[0] or orig
+        if tag == old_current and (proto, server, port) != (old[2], old[3], old[4]):
+            conn.execute("DELETE FROM node_health WHERE tag=?", (tag,))
     synced = sync_subscription_groups(conn, sid, name)
     conn.execute("UPDATE subscriptions SET updated_at=?, userinfo=? WHERE id=?",
                  (time.strftime("%Y-%m-%dT%H:%M:%S"),

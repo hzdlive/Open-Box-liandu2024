@@ -916,7 +916,7 @@ async function toggleExpand(s: Sub) {
   try {
     const health = await obxGet<any[]>('/api/health')
     for (const h of health || []) {
-      if (h.tag) subHealthCache.value[h.tag] = h.latency_ms
+      if (h.tag) subHealthCache.value[h.tag] = h.ok ? h.latency_ms : null
     }
   } catch {}
 }
@@ -931,7 +931,7 @@ async function speedTest(s: Sub) {
       try {
         const health = await obxGet<any[]>('/api/health')
         for (const h of health || []) {
-          if (h.tag) subHealthCache.value[h.tag] = h.latency_ms
+          if (h.tag) subHealthCache.value[h.tag] = h.ok ? h.latency_ms : null
         }
       } catch {}
     }
@@ -1020,6 +1020,9 @@ async function openNodeTab() {
 }
 function nodeLatency(tag: string) {
   const h = health.value.find((x: any) => x.tag === tag)
+  // v0.1.379：只认 ok 的延迟；异常节点纵使行里残留旧延迟也不显示，
+  // 否则节点已死还挂着绿色延迟数，与连接状态不一致。
+  if (!h?.ok) return '—'
   const v = h?.latency_ms ?? h?.latency
   return v != null ? `${v}ms` : '—'
 }
