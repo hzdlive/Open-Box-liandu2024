@@ -18,16 +18,23 @@ original's semantics (a held lock rejects and express forwards it as
 500 {error}), not 409 and not queued. There is no cancel endpoint:
 nothing is queued, so there is nothing to cancel.
 
-Status mapping (Ny table, original): ok -> 200, conflict/validate/
-cancelled -> 409, rulesets -> 503, start/verify/error -> 500, unknown
-stage -> 500. The body is never wrapped: the pipeline's own result
-dict is the response body.
+Status mapping (Ny table, original, plus the contract's added 503):
+ok -> 200, conflict/validate/cancelled -> 409, rulesets -> 503,
+start/verify (kernel unreachable) -> 503, start (config write) /
+verify (FATAL) / error -> 500, unknown stage -> 500. The body is
+never wrapped: the pipeline's own result dict is the response body.
 
 Deliberate differences from /api/config/apply and /api/service/start:
 - Full path only. Hot/auto modes stay on /api/config/apply; the
   pipeline is the "ship it" operation, not the incremental one.
-- Verify failure -> 500 (Ny), NOT 409. /api/service/start keeps its
-  409 because deploy scripts and the frontend rely on it.
+- Verify failure -> 503 when the kernel never came up and logged no
+  FATAL (unreachable), 500 when it logged a FATAL (it spoke and
+  failed: config/runtime problem), never 409. /api/service/start
+  keeps its 409 because deploy scripts and the frontend rely on it.
+  The 503 trigger is INFERRED from the contract's added 503 status
+  (no body example in the contract); it was NOT black-box confirmed
+  against the original panel, because confirming it would require
+  running a failing deploy against the original's live state.
 - Rulesets: DELIBERATE deviation from the original's 503-on-missing.
   Our geodata layer's contract (v6 #14, and build_and_validate's
   "a missing geodata file can never break validation") is
@@ -69,9 +76,12 @@ class DeployBusy(RuntimeError):
 
 
 def deploy_status(result: dict) -> int:
-    """Map a pipeline result to its HTTP status (Ny table)."""
+    """Map a pipeline result to its HTTP status (Ny table + 503)."""
     if result.get("ok") or result.get("stage") == "ok":
         return 200
+    if result.get("stage") in ("start", "verify") and result.get(
+            "unreachable"):
+        return 503
     return {
         "conflict": 409,
         "validate": 409,
@@ -351,13 +361,21 @@ def _run(conn, manager, hooks: dict) -> dict:
     except ConflictError as e:
         return _fail("conflict", str(e), conflicts=e.conflicts, **ctx)
     except Exception as e:
-        return _fail("start", str(e), **ctx)
+        # The (re)start call itself failed after validation passed:
+        # the kernel could not be started, i.e. the service is
+        # unavailable (503). Config-write failures above stay 500.
+        return _fail("start", str(e), unreachable=True, **ctx)
 
     verify = hooks.get("verify_start") or _sv.verify_start
     ver = verify(manager, before)
     if ver.get("state") == "failed":
+        # Unreachable iff verify explicitly reports no FATAL: the
+        # kernel never came up and said nothing (503). A FATAL line
+        # means it spoke and failed (500). A verify result without a
+        # "fatal" key reports nothing, so it stays 500 by default.
+        unreachable = "fatal" in ver and ver.get("fatal") is None
         return _fail("verify", ver.get("message", "内核未能跑起来"),
-                     verify=ver, **ctx)
+                     verify=ver, unreachable=unreachable, **ctx)
 
     return {
         "ok": True, "stage": "ok",

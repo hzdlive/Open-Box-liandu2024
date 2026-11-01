@@ -211,3 +211,58 @@ def test_endpoint_deploy_status_matches_body():
                              "rulesets", "start", "verify", "error")
     r = client.get("/api/openbox/deploy/state")
     assert r.get_json()["stage"] == body["stage"]
+
+
+def test_status_unreachable_maps_to_503():
+    # Start/verify failures marked unreachable are 503; unmarked ones
+    # keep their table status (500). Unknown stages stay 500.
+    assert deploy_mod.deploy_status(
+        {"ok": False, "stage": "verify", "unreachable": True}) == 503
+    assert deploy_mod.deploy_status(
+        {"ok": False, "stage": "start", "unreachable": True}) == 503
+    assert deploy_mod.deploy_status(
+        {"ok": False, "stage": "verify", "unreachable": False}) == 500
+    assert deploy_mod.deploy_status(
+        {"ok": False, "stage": "verify"}) == 500
+
+
+def test_pipeline_verify_failed_without_fatal_is_503():
+    dbfile = _fresh_db()
+    conn = _conn(dbfile)
+    m = FakeManager()
+    result = deploy_mod.run_deploy(conn, m, hooks={
+        "verify_start": lambda manager, before: {
+            "state": "failed", "fatal": None,
+            "message": "内核启动失败，日志中未见 FATAL 行"}})
+    assert result["stage"] == "verify"
+    assert result["unreachable"] is True
+    assert deploy_mod.deploy_status(result) == 503
+
+
+def test_pipeline_verify_failed_with_fatal_stays_500():
+    dbfile = _fresh_db()
+    conn = _conn(dbfile)
+    m = FakeManager()
+    result = deploy_mod.run_deploy(conn, m, hooks={
+        "verify_start": lambda manager, before: {
+            "state": "failed", "fatal": "FATAL: bad outbound",
+            "message": "内核启动失败：FATAL: bad outbound"}})
+    assert result["stage"] == "verify"
+    assert result["unreachable"] is False
+    assert deploy_mod.deploy_status(result) == 500
+
+
+def test_pipeline_start_exception_is_503():
+    dbfile = _fresh_db()
+    conn = _conn(dbfile)
+    m = FakeManager()
+
+    def _boom():
+        raise RuntimeError("sing-box binary vanished")
+
+    m.start = _boom
+    result = deploy_mod.run_deploy(conn, m, hooks={
+        "verify_start": lambda manager, before: {"state": "running"}})
+    assert result["stage"] == "start"
+    assert result["unreachable"] is True
+    assert deploy_mod.deploy_status(result) == 503

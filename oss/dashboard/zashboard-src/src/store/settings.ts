@@ -265,6 +265,10 @@ const defaultOverviewCardOrder: { card: OVERVIEW_CARD; visible: boolean }[] = [
     card: OVERVIEW_CARD.RuleHitCountCard,
     visible: true,
   },
+  {
+    card: OVERVIEW_CARD.DnsFilterOverviewCard,
+    visible: true,
+  },
 ]
 
 export const overviewCardOrder = useStorage<{ card: OVERVIEW_CARD; visible: boolean }[]>(

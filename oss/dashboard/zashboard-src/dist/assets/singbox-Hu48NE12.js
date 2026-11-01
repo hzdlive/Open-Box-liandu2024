@@ -1,0 +1,1 @@
+import{a as e,i as t}from"./rules-yi2-VrG9.js";var n=async()=>{e.value=[],t.value=[]};export{n as fetchRules};

@@ -48,6 +48,7 @@ const cardKeyToLabelMap: Record<string, string> = {
   EarthGlobeCard: 'earthGlobeCard',
   ConnectionHistory: 'connectionHistory',
   RuleHitCountCard: 'ruleHitCountCard',
+  DnsFilterOverviewCard: 'dnsFilterOverviewCard',
 }
 
 const orderedCards = computed({

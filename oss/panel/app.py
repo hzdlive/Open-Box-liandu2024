@@ -7,10 +7,34 @@ import html
 import json
 import os
 import sqlite3
+import threading
 import time
 import uuid
 
 from flask import Flask, g, jsonify, request, send_from_directory
+
+
+# Bulk node-latency runs in flight (for /api/openbox/nodes/latency/queue).
+_LATENCY_LOCK = threading.Lock()
+_LATENCY_RUNNING = 0
+
+
+def _latency_begin() -> None:
+    global _LATENCY_RUNNING
+    with _LATENCY_LOCK:
+        _LATENCY_RUNNING += 1
+
+
+def _latency_end() -> None:
+    global _LATENCY_RUNNING
+    with _LATENCY_LOCK:
+        _LATENCY_RUNNING = max(0, _LATENCY_RUNNING - 1)
+
+
+def _latency_queue_state() -> dict:
+    with _LATENCY_LOCK:
+        n = _LATENCY_RUNNING
+    return {"busy": n > 0, "running": n, "waiting": 0}
 
 from core.routing import preview_route
 from core.singbox import build_config
@@ -1484,6 +1508,259 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify({"defaults": dict(dbmod.DEFAULT_SETTINGS),
                         "dnsRewriteDefaults": []})
 
+    def _profile_assemble(conn) -> dict:
+        """Assemble the profile document from the panel's stores.
+
+        Field mapping (original's profile, UI-consumed fields only):
+        testUrl/testExpectedStatus/directTestUrl come from the
+        speedtest settings; routing.policies/displayOrder come from
+        the groups table (position order); routing.fallback* are
+        display properties stored as settings (defaults match the
+        core's fallback: 其他 / globe:earth-meridians / 0);
+        routing.custom is stored as settings JSON -- the panel has
+        no custom-policy store, so it round-trips but nothing
+        consumes it yet.
+        """
+        from panel.db import get_setting as _get
+        groups = dbmod.list_groups(conn)
+        policies = [{
+            "name": g["name"],
+            "enabled": bool(g.get("enabled", 1)),
+            "icon": g.get("icon") or "",
+            "iconScale": g.get("icon_scale") or 0,
+        } for g in groups]
+        try:
+            custom = json.loads(_get(conn, "routing_custom", "") or "")
+        except ValueError:
+            custom = None
+        if not isinstance(custom, dict):
+            custom = {"name": "前置自定义分流", "icon": "misc:pin",
+                      "iconScale": 0, "enabled": True, "rules": []}
+        try:
+            fb_scale = int(_get(conn, "routing_fallback_icon_scale", "0"))
+        except ValueError:
+            fb_scale = 0
+        return {
+            "testUrl": _get(conn, "speedtest_url",
+                            "http://www.gstatic.com/generate_204"),
+            "testExpectedStatus": _get(conn, "test_expected", "*"),
+            "directTestUrl": _get(
+                conn, "direct_speedtest_url",
+                "http://connectivitycheck.platform.hicloud.com/generate_204"),
+            "routing": {
+                "policies": policies,
+                "fallbackName": _get(conn, "routing_fallback_name", "其他"),
+                "fallbackIcon": _get(conn, "routing_fallback_icon",
+                                     "globe:earth-meridians"),
+                "fallbackIconScale": fb_scale,
+                "displayOrder": [g["name"] for g in groups],
+                "custom": custom,
+            },
+        }
+
+    def _profile_validate(body: dict) -> str | None:
+        """Structural validation for a profile PUT body (400 or None)."""
+        for key in ("testUrl", "testExpectedStatus", "directTestUrl"):
+            if key in body and not isinstance(body[key], str):
+                return f"{key} must be a string"
+        routing = body.get("routing")
+        if routing is not None and not isinstance(routing, dict):
+            return "routing must be an object"
+        if isinstance(routing, dict):
+            for key in ("fallbackName", "fallbackIcon"):
+                if key in routing and not isinstance(routing[key], str):
+                    return f"routing.{key} must be a string"
+            if ("fallbackIconScale" in routing and not isinstance(
+                    routing["fallbackIconScale"], (int, float))):
+                return "routing.fallbackIconScale must be a number"
+            if "displayOrder" in routing and (
+                    not isinstance(routing["displayOrder"], list) or
+                    not all(isinstance(x, str)
+                            for x in routing["displayOrder"])):
+                return "routing.displayOrder must be a list of strings"
+            if "policies" in routing:
+                if not isinstance(routing["policies"], list):
+                    return "routing.policies must be a list"
+                for p in routing["policies"]:
+                    if not isinstance(p, dict) or not isinstance(
+                            p.get("name"), str):
+                        return "each routing policy needs a string name"
+            custom = routing.get("custom")
+            if custom is not None:
+                if not isinstance(custom, dict):
+                    return "routing.custom must be an object"
+                if ("iconScale" in custom and not isinstance(
+                        custom["iconScale"], (int, float))):
+                    return "routing.custom.iconScale must be a number"
+                if "rules" in custom and not isinstance(
+                        custom["rules"], list):
+                    return "routing.custom.rules must be a list"
+                if "enabled" in custom and not isinstance(
+                        custom["enabled"], bool):
+                    return "routing.custom.enabled must be a boolean"
+                for key in ("name", "icon"):
+                    if key in custom and not isinstance(custom[key], str):
+                        return f"routing.custom.{key} must be a string"
+        return None
+
+    def _profile_apply(conn, body: dict) -> tuple[int, list]:
+        """Deep-merge a partial profile into the stores.
+
+        Returns (applied, renamed): applied counts changed leaf
+        values; renamed is always [] -- a name-keyed PUT cannot
+        express a policy rename (no ids), so renames are not
+        attempted here; groups are renamed via the groups endpoints.
+        Unknown policy names and unknown displayOrder names are
+        ignored (groups are created via the groups endpoints).
+        """
+        from panel.db import get_setting as _get
+        from panel.db import set_setting as _set
+        changed = 0
+
+        def _put_setting(key, value, default):
+            nonlocal changed
+            if _get(conn, key, default) != value:
+                _set(conn, key, value)
+                changed += 1
+
+        if isinstance(body.get("testUrl"), str):
+            _put_setting("speedtest_url", body["testUrl"],
+                         "http://www.gstatic.com/generate_204")
+        if isinstance(body.get("testExpectedStatus"), str):
+            _put_setting("test_expected", body["testExpectedStatus"], "*")
+        if isinstance(body.get("directTestUrl"), str):
+            _put_setting(
+                "direct_speedtest_url", body["directTestUrl"],
+                "http://connectivitycheck.platform.hicloud.com/generate_204")
+        routing = body.get("routing")
+        if isinstance(routing, dict):
+            if isinstance(routing.get("fallbackName"), str):
+                _put_setting("routing_fallback_name",
+                             routing["fallbackName"], "其他")
+            if isinstance(routing.get("fallbackIcon"), str):
+                _put_setting("routing_fallback_icon",
+                             routing["fallbackIcon"],
+                             "globe:earth-meridians")
+            if isinstance(routing.get("fallbackIconScale"), (int, float)):
+                _put_setting("routing_fallback_icon_scale",
+                             str(routing["fallbackIconScale"]), "0")
+            if isinstance(routing.get("displayOrder"), list):
+                groups = dbmod.list_groups(conn)
+                by_name = {g["name"] for g in groups}
+                order = [n for n in routing["displayOrder"]
+                         if n in by_name]
+                rest = [g["name"] for g in groups
+                        if g["name"] not in set(order)]
+                new_order = order + rest
+                if new_order != [g["name"] for g in groups]:
+                    for pos, name in enumerate(new_order):
+                        conn.execute(
+                            "UPDATE groups SET position=? WHERE name=?",
+                            (pos, name))
+                    changed += 1
+            if isinstance(routing.get("policies"), list):
+                for p in routing["policies"]:
+                    if not isinstance(p, dict) or not isinstance(
+                            p.get("name"), str):
+                        continue
+                    row = conn.execute(
+                        "SELECT id, enabled, icon, icon_scale FROM groups"
+                        " WHERE name=?", (p["name"],)).fetchone()
+                    if not row:
+                        continue
+                    updates = {}
+                    if (isinstance(p.get("enabled"), bool) and
+                            bool(row[1]) != p["enabled"]):
+                        updates["enabled"] = 1 if p["enabled"] else 0
+                    if (isinstance(p.get("icon"), str) and
+                            (row[2] or "") != p["icon"]):
+                        updates["icon"] = p["icon"]
+                    if (isinstance(p.get("iconScale"), (int, float)) and
+                            (row[3] or 0) != p["iconScale"]):
+                        updates["icon_scale"] = p["iconScale"]
+                    if updates:
+                        conn.execute(
+                            f"UPDATE groups SET {', '.join(f'{k}=?' for k in updates)}"
+                            " WHERE id=?",
+                            (*updates.values(), row[0]))
+                        changed += len(updates)
+            if isinstance(routing.get("custom"), dict):
+                try:
+                    cur = json.loads(
+                        _get(conn, "routing_custom", "") or "")
+                except ValueError:
+                    cur = None
+                if not isinstance(cur, dict):
+                    cur = {"name": "前置自定义分流", "icon": "misc:pin",
+                           "iconScale": 0, "enabled": True, "rules": []}
+                merged = {**cur, **{k: v for k, v in
+                                    routing["custom"].items() if k in (
+                                        "name", "icon", "iconScale",
+                                        "enabled", "rules")}}
+                if merged != cur:
+                    _set(conn, "routing_custom",
+                         json.dumps(merged, ensure_ascii=False))
+                    changed += 1
+        conn.commit()
+        return changed, []
+
+    @app.get("/api/openbox/profile", strict_slashes=False)
+    def ob_profile_get():
+        return jsonify({"profile": _profile_assemble(db())})
+
+    @app.put("/api/openbox/profile", strict_slashes=False)
+    def ob_profile_put():
+        body = request.get_json(force=True, silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"error": "profile object required"}), 400
+        err = _profile_validate(body)
+        if err:
+            return jsonify({"error": err}), 400
+        conn = db()
+        applied, renamed = _profile_apply(conn, body)
+        return jsonify({"applied": applied,
+                        "profile": _profile_assemble(conn),
+                        "renamed": renamed})
+
+    @app.get("/api/openbox/policies/entries")
+    def ob_policies_entries():
+        """Policy entries (shape inferred; see below).
+
+        The contract records no response keys for this endpoint, and
+        the original's UI only shows that it is queried with caller
+        filters. This returns a flat list: one entry per policy
+        (group) with its members, in display order. ?policy= / ?name=
+        select one policy exactly (unknown name -> 400, matching the
+        contract's 400 status); ?q= filters by name substring.
+        """
+        rows = db().execute(
+            "SELECT name, type, enabled, icon, icon_scale, members,"
+            " position FROM groups ORDER BY position, id").fetchall()
+        entries = []
+        for name, typ, enabled, icon, icon_scale, members, pos in rows:
+            try:
+                mem = json.loads(members or "[]")
+            except ValueError:
+                mem = []
+            entries.append({
+                "name": name,
+                "type": typ,
+                "enabled": bool(enabled),
+                "icon": icon or "",
+                "iconScale": icon_scale or 0,
+                "members": mem,
+                "position": pos,
+            })
+        want = request.args.get("policy") or request.args.get("name")
+        if want:
+            entries = [e for e in entries if e["name"] == want]
+            if not entries:
+                return jsonify({"error": "unknown policy"}), 400
+        q = request.args.get("q")
+        if q:
+            entries = [e for e in entries if q in e["name"]]
+        return jsonify(entries)
+
     # ---- status ----
     @app.get("/api/status")
     def status():
@@ -2915,10 +3192,36 @@ def create_app(db_path: str = ":memory:") -> Flask:
 
     @app.delete("/api/openbox/content-filter/<rid>")
     def cf_ruleset_delete(rid: str):
+        """Delete a ruleset, returning the deleted object's metadata.
+
+        Contract keys for a successful delete: hostnames, sets, sha256,
+        size, version. Our row carries no separate version field, so
+        version is updated_at (the row's change marker); sets is the
+        ruleset's own set name (one set per ruleset in our model);
+        sha256/size are computed from the stored text. Deleting a
+        missing id stays 200 (the contract status list for this DELETE
+        has no 404; current behavior, unchanged).
+        """
+        import hashlib
         conn = db()
+        row = dbmod.get_cf_ruleset(conn, rid)
+        if row is None:
+            return jsonify({"deleted": True})
+        text = row.get("text") or ""
+        try:
+            hostnames = json.loads(row.get("hostnames") or "[]")
+        except ValueError:
+            hostnames = []
+        projection = {
+            "hostnames": hostnames,
+            "sets": [row.get("name") or ""],
+            "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "size": len(text.encode("utf-8")),
+            "version": row.get("updated_at") or "",
+        }
         conn.execute("DELETE FROM cf_rulesets WHERE id = ?", (rid,))
         conn.commit()
-        return jsonify({"deleted": True})
+        return jsonify(projection)
 
     @app.patch("/api/openbox/content-filter/<rid>")
     def cf_ruleset_patch(rid: str):
@@ -3512,6 +3815,50 @@ def create_app(db_path: str = ":memory:") -> Flask:
         blocked = [q for q in _dl.enrich(
             queries, _df.load_compiled(_df_workdir())) if q["blocked"]]
         return jsonify({"records": blocked[:n], "note": note})
+
+    @app.get("/api/dns/filter/overview")
+    def dns_filter_overview():
+        """Overview DNS section (original's 域名过滤 card).
+
+        enabled/compiled_domains/applied_at come from the filter state;
+        queries/top_blocked aggregate the dnsmasq query log over the
+        last 24h when timestamps parse, else over all parsed queries
+        (window reports which). Average resolution time is NOT
+        included: dnsmasq logs carry no durations, and the kernel DNS
+        event stream the original's average comes from does not exist
+        here -- the card omits the metric rather than faking it.
+        """
+        from core import dnsfilter as _df
+        from core import dnslog as _dl
+        from panel.db import get_setting
+        c = db()
+        log_path = os.environ.get("OBX_DNSMASQ_LOG", "/var/log/dnsmasq.log")
+        queries, note = _dl.parse_dnsmasq_log(log_path, 2000)
+        enriched = _dl.enrich(queries, _df.load_compiled(_df_workdir()))
+        now = time.time()
+        with_ts = [q for q in enriched if q.get("ts")]
+        if with_ts:
+            window = "24h"
+            scoped = [q for q in with_ts if now - q["ts"] <= 86400]
+        else:
+            window = "all"
+            scoped = enriched
+        blocked = [q for q in scoped if q.get("blocked")]
+        counts: dict[str, int] = {}
+        for q in blocked:
+            counts[q["domain"]] = counts.get(q["domain"], 0) + 1
+        top = sorted(counts.items(), key=lambda kv: -kv[1])[:5]
+        return jsonify({
+            "enabled": get_setting(c, "dns_filter_enabled", "0") == "1",
+            "compiled_domains": len(_df.load_compiled(_df_workdir())),
+            "applied_at": get_setting(c, "dns_filter_applied_at", ""),
+            "queries": len(scoped),
+            "blocked": len(blocked),
+            "window": window,
+            "top_blocked": [{"domain": d, "count": n} for d, n in top],
+            "collected": os.path.isfile(log_path),
+            "note": note,
+        })
 
     # ---- DNS query log ----
     @app.get("/api/dns/query-log")
@@ -4216,6 +4563,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         per-tag latency history.
         """
         from core.health import check_nodes as _check
+        _latency_begin()
         try:
             c = db()
             cfg = dbmod.load_app_config(c)
@@ -4235,6 +4583,18 @@ def create_app(db_path: str = ":memory:") -> Flask:
             })
         except Exception as e:
             return jsonify({"error": f"nodes latency failed: {e}"}), 500
+        finally:
+            _latency_end()
+
+    @app.get("/api/openbox/nodes/latency/queue")
+    def ob_nodes_latency_queue():
+        """Latency queue state (contract keys busy/running/waiting).
+
+        Tests run synchronously inside the POST request, so there is
+        never a waiting queue (waiting is always 0); running counts
+        bulk runs currently in flight, busy is running > 0.
+        """
+        return jsonify(_latency_queue_state())
 
     @app.get("/api/openbox/latency-history/version")
     def ob_latency_history_version():

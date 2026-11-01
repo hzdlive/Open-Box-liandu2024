@@ -28,7 +28,8 @@
 
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import ChainsTab from './ChainsTab.vue'
 import BackupTab from './BackupTab.vue'
 import ContentFilterTab from './ContentFilterTab.vue'
@@ -41,7 +42,18 @@ import SubsTab from './SubsTab.vue'
 import TerminalsTab from './TerminalsTab.vue'
 
 const { t } = useI18n()
-const active = ref('subs')
+const route = useRoute()
+// Overview DNS card (and future deep links) can open a tab directly:
+// /manage?tab=dns. Unknown values fall back to 'subs'.
+const TAB_KEYS = ['subs', 'groups', 'sites', 'dns', 'terminals', 'chains', 'share', 'contentfilter', 'backup', 'settings']
+const queryTab = route.query.tab
+const active = ref(typeof queryTab === 'string' && TAB_KEYS.includes(queryTab) ? queryTab : 'subs')
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (typeof tab === 'string' && TAB_KEYS.includes(tab)) active.value = tab
+  },
+)
 
 const tabs = computed(() => [
   { key: 'subs', label: t('obx.subscriptions') },

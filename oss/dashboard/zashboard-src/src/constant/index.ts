@@ -329,6 +329,7 @@ export enum OVERVIEW_CARD {
   EarthGlobeCard = 'EarthGlobeCard',
   ConnectionHistory = 'ConnectionHistory',
   RuleHitCountCard = 'RuleHitCountCard',
+  DnsFilterOverviewCard = 'DnsFilterOverviewCard',
 }
 
 export enum MIHOMO {

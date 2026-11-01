@@ -24,12 +24,48 @@ _QUERY_RE = re.compile(
 _CACHED_RE = re.compile(r"cached\s+(\S+)\s+is\s+(\S+)")
 _REPLY_RE = re.compile(r"reply\s+(\S+)\s+is\s+(\S+)")
 _FORWARDED_RE = re.compile(r"forwarded\s+(\S+)\s+to\s+(\S+)")
+# Syslog timestamp at the line start ("Oct 14 15:30:01", day may be
+# space-padded). Year is not logged; assume the current year, and roll
+# back a year when the result lands more than a day in the future
+# (Dec/Jan boundary). Unparseable lines get ts=None.
+_SYSLOG_TS_RE = re.compile(
+    r"^([A-Z][a-z]{2})\s+(\d{1,2}) (\d{2}):(\d{2}):(\d{2})")
+_MONTHS = {m: i + 1 for i, m in enumerate(
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
+     "Oct", "Nov", "Dec"])}
+
+
+def _parse_syslog_ts(line: str, now: float | None = None) -> float | None:
+    import datetime as _dt
+    import time as _time
+    m = _SYSLOG_TS_RE.search(line)
+    if not m:
+        return None
+    mon = _MONTHS.get(m.group(1))
+    if not mon:
+        return None
+    now = now if now is not None else _time.time()
+    year = _dt.datetime.fromtimestamp(now).year
+    try:
+        ts = _dt.datetime(year, mon, int(m.group(2)), int(m.group(3)),
+                          int(m.group(4)), int(m.group(5))).timestamp()
+    except ValueError:
+        return None
+    if ts > now + 86400:
+        try:
+            ts = _dt.datetime(year - 1, mon, int(m.group(2)),
+                              int(m.group(3)), int(m.group(4)),
+                              int(m.group(5))).timestamp()
+        except ValueError:
+            return None
+    return ts
 
 
 def parse_dnsmasq_log(path: str, n: int = 200) -> tuple[list[dict], str]:
     """Returns (queries, note). queries newest-first.
 
-    Each query dict has: qtype, domain, client, cached (bool), answer (str).
+    Each query dict has: qtype, domain, client, cached (bool), answer (str),
+    ts (epoch float, or None when the line's timestamp won't parse).
     Cached hits are explicitly marked.
     """
     if not path or not os.path.isfile(path):
@@ -44,14 +80,15 @@ def parse_dnsmasq_log(path: str, n: int = 200) -> tuple[list[dict], str]:
     # dnsmasq logs: query -> [cached|reply|forwarded]
     lines = [raw.decode("utf-8", "replace") for raw in data]
     # Pass 1: find all queries with their line indices
-    query_events = []  # (line_idx, qtype, domain, client)
+    query_events = []  # (line_idx, qtype, domain, client, ts)
     for idx, line in enumerate(lines):
         m = _QUERY_RE.search(line)
         if m:
-            query_events.append((idx, m.group(1), m.group(2), m.group(3)))
+            query_events.append((idx, m.group(1), m.group(2), m.group(3),
+                                 _parse_syslog_ts(line)))
     # Pass 2: for each query, look ahead for cached/reply
     queries = []
-    for q_idx, qtype, domain, client in query_events:
+    for q_idx, qtype, domain, client, ts in query_events:
         cached = False
         answer = ""
         # Look at next few lines for the answer
@@ -76,6 +113,7 @@ def parse_dnsmasq_log(path: str, n: int = 200) -> tuple[list[dict], str]:
             "client": client,
             "cached": cached,
             "answer": answer,
+            "ts": ts,
         })
     # Return newest-first, limited to n
     queries.reverse()
