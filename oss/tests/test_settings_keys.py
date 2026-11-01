@@ -17,15 +17,13 @@ sys.path.insert(0, str(ROOT / "oss"))
 from panel import db as dbmod  # noqa: E402
 
 ALLOWED = set(dbmod.DEFAULT_SETTINGS)
-KNOWN_DEAD = {
-    # dashboard toggle; backend enable_ipv6 comes from the nft endpoint
-    # query param (?ipv6=), never from settings.
-    "ipv6",
-    # dashboard input; no backend reader anywhere.
-    "test_expected",
-    # legacy toggle; no backend reader anywhere.
-    "tun_only",
-}
+# 2026-11-01: ipv6 / test_expected / tun_only were wired and removed
+# from this set: ipv6 is read by the transparent config (query param
+# wins, else the stored setting, else off), test_expected judges the
+# direct test, and tun_only at least persists (no behavior consumer
+# yet -- its original semantics are still unpinned). The set stays
+# as the regression guard for future placebo controls.
+KNOWN_DEAD = set()
 
 
 def dashboard_keys():

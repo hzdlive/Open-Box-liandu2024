@@ -102,3 +102,84 @@ def check_nodes(nodes, timeout: float = 5.0, max_workers: int = 20,
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         return list(ex.map(
             lambda n: check_node(n, timeout, url, kernel_delay_fn), nodes))
+
+
+def parse_status_pattern(pattern):
+    """Parse a test_expected pattern into a status predicate.
+
+    "" or "*" -> any status. Otherwise comma-separated codes ("200,204")
+    and ranges ("200-299"). Raises ValueError on an invalid token.
+    """
+    p = (pattern or "").strip()
+    if p in ("", "*"):
+        return lambda status: True
+    allowed = set()
+    ranges = []
+    for tok in p.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        if "-" in tok:
+            a, b = tok.split("-", 1)
+            try:
+                lo, hi = int(a), int(b)
+            except ValueError:
+                raise ValueError(f"invalid status pattern token: {tok!r}")
+            if not (100 <= lo <= hi <= 599):
+                raise ValueError(f"invalid status range: {tok!r}")
+            ranges.append((lo, hi))
+        else:
+            try:
+                code = int(tok)
+            except ValueError:
+                raise ValueError(f"invalid status pattern token: {tok!r}")
+            if not (100 <= code <= 599):
+                raise ValueError(f"invalid status code: {tok!r}")
+            allowed.add(code)
+    if not allowed and not ranges:
+        raise ValueError(f"empty status pattern: {pattern!r}")
+
+    def _match(status):
+        if status is None:
+            return False
+        if status in allowed:
+            return True
+        return any(lo <= status <= hi for lo, hi in ranges)
+
+    return _match
+
+
+def direct_test(url, expected_pattern, timeout: float = 8.0) -> dict:
+    """Panel-side direct fetch (no proxy) judged by a status pattern.
+
+    Returns {ok, status, latency_ms, via: "direct", error?}. An invalid
+    pattern falls back to unlimited with a warning (the stored pattern
+    must never break the test; body-provided patterns are validated
+    by the caller instead).
+    """
+    import time as _time
+    import urllib.request as _url
+    try:
+        match = parse_status_pattern(expected_pattern)
+        warning = None
+    except ValueError:
+        match = lambda status: True  # noqa: E731
+        warning = (f"invalid status pattern {expected_pattern!r}, "
+                   "treated as unlimited")
+    opener = _url.build_opener(_url.ProxyHandler({}))
+    started = _time.monotonic()
+    try:
+        req = _url.Request(url, headers={
+            "User-Agent": "openbox-oss-direct-test/1.0"})
+        with opener.open(req, timeout=timeout) as resp:
+            resp.read(65536)
+            status = resp.status
+        ms = round((_time.monotonic() - started) * 1000, 1)
+        out = {"ok": bool(match(status)), "status": status,
+               "latency_ms": ms, "via": "direct"}
+    except Exception as e:
+        out = {"ok": False, "status": None, "latency_ms": None,
+               "via": "direct", "error": str(e)[:200]}
+    if warning:
+        out["warning"] = warning
+    return out

@@ -2662,6 +2662,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 else _sets["direct"]
         else:
             _entry_cidrs = []
+        # IPv6 resolution: explicit ?ipv6= query param wins, else the
+        # stored setting, else off (matches the UI hint "默认关闭").
+        # Previously the setting was never consulted (PUT dropped it),
+        # so the toggle was a placebo and the default was always on.
+        _ipv6_param = d.get("ipv6")
+        if _ipv6_param is not None:
+            _enable_ipv6 = _ipv6_param == "1"
+        else:
+            _enable_ipv6 = get_setting(c, "ipv6", "0") == "1"
         return TransparentConfig(
             entry_mode=_ep.mode,
             entry_cidrs=_entry_cidrs,
@@ -2669,7 +2678,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
             tproxy_port=int(d.get("tproxy_port", 7893)),
             dns_port=int(d.get("dns_port", 1053)),
             lan_iface=d.get("lan_iface", "br-lan"),
-            enable_ipv6=d.get("ipv6", "1") == "1",
+            enable_ipv6=_enable_ipv6,
             quic_block=cfg.quic_block,
             terminal_bypass=bypass_terms,
             terminal_whitelist=whitelist_terms,
@@ -4233,6 +4242,36 @@ def create_app(db_path: str = ":memory:") -> Flask:
         row = db().execute(
             "SELECT MAX(checked_at) FROM latency_history").fetchone()
         return jsonify({"updatedAt": row[0] if row else None})
+
+    @app.post("/api/direct-test")
+    def ob_direct_test():
+        """Direct connectivity test (no proxy), judged by test_expected.
+
+        Body optional {url?, expected?}; defaults come from the stored
+        direct_speedtest_url / test_expected settings. expected is a
+        status pattern ("200-299", "200,204", "*" or "" = unlimited);
+        an invalid body pattern is 400, an invalid stored pattern
+        falls back to unlimited with a warning in the response.
+        """
+        from core.health import direct_test as _dt
+        from core.health import parse_status_pattern as _parse
+        d = request.get_json(force=True, silent=True) or {}
+        c = db()
+        url = str(d.get("url") or "").strip() or dbmod.get_setting(
+            c, "direct_speedtest_url",
+            "http://connectivitycheck.platform.hicloud.com/generate_204")
+        if "expected" in d:
+            pattern = str(d["expected"])
+            try:
+                _parse(pattern)
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+        else:
+            pattern = dbmod.get_setting(c, "test_expected", "*")
+        res = _dt(url, pattern)
+        res["url"] = url
+        res["expected"] = pattern
+        return jsonify(res)
 
     # ---- domain penetration: full chain site set -> group -> node ----
     @app.post("/api/route/penetrate")

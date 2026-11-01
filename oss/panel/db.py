@@ -316,6 +316,9 @@ DEFAULT_SETTINGS = {
     "dns_upstream_latency": "{}",      # JSON {upstream: ms} for primary/backup ordering
     "sub_node_direct": "0",           # subscription & node server domains go direct
     "direct_bypass_kernel": "1",      # direct traffic bypasses kernel at ingress (ipset); default ON
+    "ipv6": "0",                   # transparent config: resolve/access IPv6; default OFF (UI hint)
+    "test_expected": "*",          # direct-test acceptable status pattern (* = unlimited)
+    "tun_only": "0",              # legacy toggle; persisted, no behavior consumer yet
     "bypass_ports": "",               # e.g. "21114-21119, 2233"
     "bypass_ports_mode": "black",     # black = these ports bypass; white = only these enter
     "bypass_ports_white": "",        # 白名单端口串（与黑名单分开存，不合并）
