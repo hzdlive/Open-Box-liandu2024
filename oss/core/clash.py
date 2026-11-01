@@ -135,6 +135,21 @@ def _clash_proxy_to_node(p: dict, seen: set) -> Node | None:
         if p.get("sni"):
             tls["server_name"] = p["sni"]
         params["tls"] = tls
+        if ptype == "anytls":
+            # v0.1.376 (#663)：Clash 侧同名字段（kebab-case）一并保留
+            for clash_key, param_key in (
+                    ("idle-session-check-interval", "idle_session_check_interval"),
+                    ("idle-session-timeout", "idle_session_timeout"),
+                    ("min-idle-session", "min_idle_session"),
+                    ("client-metadata", "client_metadata")):
+                if p.get(clash_key) is not None:
+                    if param_key == "min_idle_session":
+                        try:
+                            params[param_key] = int(p[clash_key])
+                        except (TypeError, ValueError):
+                            pass
+                    else:
+                        params[param_key] = str(p[clash_key])
 
     return Node(tag=tag, protocol=proto, server=server, server_port=port, params=params)
 

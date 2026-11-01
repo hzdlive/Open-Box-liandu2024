@@ -160,6 +160,11 @@ def encode_hysteria2(node: dict) -> str:
 def encode_anytls(node: dict) -> str:
     p, tls = node["params"], _tls_of(node["params"])
     q = _tls_query(tls)
+    # v0.1.376 (#663)：会话参数与客户端元数据分享往返，否则重导入即丢
+    for key in ("idle_session_check_interval", "idle_session_timeout",
+                "min_idle_session", "client_metadata"):
+        if p.get(key) is not None:
+            q[key] = str(p[key])
     qs = f"?{urlencode(q)}" if q else ""
     return (f"anytls://{quote(p.get('password', ''), safe='')}"
             f"@{node['server']}:{node['port']}{qs}#{quote(node['tag'], safe='')}")

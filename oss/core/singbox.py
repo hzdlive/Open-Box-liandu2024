@@ -187,6 +187,12 @@ def node_to_outbound(node: Node) -> dict:
             ob["obfs"] = p["obfs"]
     elif node.protocol == "anytls":
         ob["password"] = p.get("password", "")
+        # v0.1.376 (#663)：会话参数与客户端元数据（字段名与类型经
+        # sing-box 1.14.1 二进制实测：时长串 / 整数 / 字符串）
+        for key in ("idle_session_check_interval", "idle_session_timeout",
+                    "min_idle_session", "client_metadata"):
+            if p.get(key) is not None:
+                ob[key] = p[key]
     elif proto == "socks":
         # The panel omits version when it is "5" (golden socks-* ignore).
         if p.get("username") is not None:

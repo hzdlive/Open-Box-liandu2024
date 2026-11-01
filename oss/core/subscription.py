@@ -329,6 +329,10 @@ def _parse_wireguard(link: str, seen: set) -> Node | None:
 
 def _parse_anytls(link: str, seen: set) -> Node | None:
     # anytls://password@host:port/?sni=..&alpn=..&insecure=..&fp=..
+    # v0.1.376 (#663)：会话参数与客户端元数据此前在导入时丢弃；
+    # sing-box 1.14.1 实测字段：idle_session_check_interval /
+    # idle_session_timeout（时长串）、min_idle_session（整数）、
+    # client_metadata（字符串）。
     u = urlparse(link)
     q = dict(parse_qsl(u.query))
     try:
@@ -342,10 +346,22 @@ def _parse_anytls(link: str, seen: set) -> Node | None:
         tls["insecure"] = True
     if q.get("fp"):
         tls["fingerprint"] = q["fp"]
+    params: dict = {"password": unquote(u.username or ""), "tls": tls}
+    if q.get("idle_session_check_interval"):
+        params["idle_session_check_interval"] = q["idle_session_check_interval"]
+    if q.get("idle_session_timeout"):
+        params["idle_session_timeout"] = q["idle_session_timeout"]
+    if q.get("min_idle_session"):
+        try:
+            params["min_idle_session"] = int(q["min_idle_session"])
+        except ValueError:
+            pass
+    if q.get("client_metadata"):
+        params["client_metadata"] = q["client_metadata"]
     return Node(
         tag=_unique_tag(unquote(u.fragment) or _hostport(u.hostname, port), seen),
         protocol="anytls", server=u.hostname or "", server_port=port,
-        params={"password": unquote(u.username or ""), "tls": tls},
+        params=params,
     )
 
 

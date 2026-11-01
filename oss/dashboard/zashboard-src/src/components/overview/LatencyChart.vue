@@ -40,8 +40,11 @@ const bars = computed(() => {
     }
     const value = props.data[i]
     if (!value) {
-      // 该次测速失败
-      return { class: 'bg-high-latency opacity-40', height: '100%', tip: t('testFailed') }
+      // v0.1.376 (#760)：该次测速失败。原来画满高，失败柱一多就
+      // 在视觉上压扁正常柱；改为与未测占位同高的短 stub，仍以失
+      // 败色 + 提示区分。定标本就只用成功值（ceil 过滤 v>0），不
+      // 受失败记录影响。
+      return { class: 'bg-high-latency opacity-40', height: '18%', tip: t('testFailed') }
     }
     const pct = Math.max(18, Math.round((value / ceil) * 100))
     return { class: colorClass(value), height: `${pct}%`, tip: `${value}ms` }
