@@ -510,19 +510,49 @@ def _eval_rule(rule: dict, ctx: Ctx, depth=0, seen=None, dns_mode=False):
 # ---------------------------------------------------------------- DNS walk
 
 def _rewrite_of(cfg, domain: str):
+    """The rewrite applying to a queried domain, if any.
+
+    Exact rules match exactly. v0.1.359: a "*.suffix" pattern matches
+    any subdomain of suffix (any depth, but not the suffix itself),
+    and when the target also starts with "*." the queried subdomain
+    prefix is preserved ("maps.googleapis.cn" with
+    "*.googleapis.cn -> *.googleapis.com" rewrites to
+    "maps.googleapis.com"); a non-wildcard target is used literally
+    (prefix dropped). First matching rule in stored order wins.
+    The result carries "rewritten" (the expanded target); for exact
+    rules it equals the target.
+    """
+    domain = (domain or "").strip().rstrip(".").lower()
     for r in getattr(cfg, "dns_rewrites", None) or []:
         if isinstance(r, dict):
             d, tgt, en = r.get("domain"), r.get("target"), r.get("enabled", True)
         else:
             d, tgt, en = getattr(r, "domain", None), getattr(r, "target", None), \
                 getattr(r, "enabled", True)
-        if en and d and d.strip().rstrip(".") == domain:
+        if not (en and d and tgt):
+            continue
+        pat = d.strip().rstrip(".").lower()
+        tgt_s = (tgt or "").strip()
+        rewritten = None
+        if pat == domain:
+            rewritten = tgt_s
+        elif pat.startswith("*."):
+            suffix = pat[2:]
+            if suffix and domain.endswith("." + suffix):
+                prefix = domain[:-(len(suffix) + 1)]
+                if prefix:
+                    if tgt_s.startswith("*."):
+                        rewritten = prefix + "." + tgt_s[2:]
+                    else:
+                        rewritten = tgt_s
+        if rewritten is not None:
             try:
-                ipaddress.ip_address((tgt or "").strip())
+                ipaddress.ip_address(tgt_s)
                 kind = "address"
             except ValueError:
                 kind = "cname"
-            return {"domain": d, "target": tgt, "kind": kind}
+            return {"domain": d, "target": tgt, "rewritten": rewritten,
+                    "kind": kind}
     return None
 
 

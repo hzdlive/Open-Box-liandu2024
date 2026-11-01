@@ -55,6 +55,7 @@
           <div class="mb-1">
             <span class="opacity-60">查询：</span>
             <span class="font-mono">{{ penResult.query }}</span>
+            <span v-if="penResult.dns?.rewrite?.rewritten" class="font-mono"> → {{ penResult.dns.rewrite.rewritten }}</span>
             <span v-if="penResult.is_ip" class="badge badge-ghost badge-xs ml-1">IP</span>
             <span v-else class="badge badge-ghost badge-xs ml-1">域名</span>
           </div>

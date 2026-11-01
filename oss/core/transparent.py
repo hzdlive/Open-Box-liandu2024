@@ -488,7 +488,12 @@ _DOMAIN_LABEL_RE = _re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$")
 
 
 def is_rewrite_target_valid(target: str) -> bool:
-    """A rewrite target must be an IP address or a domain name."""
+    """A rewrite target must be an IP address or a domain name.
+
+    v0.1.359: a leading "*." wildcard target is accepted
+    ("*.googleapis.com"); the remainder must still be a valid domain
+    with at least one dot. A bare "*" is not a valid target.
+    """
     t = (target or "").strip()
     if not t:
         return False
@@ -502,9 +507,18 @@ def is_rewrite_target_valid(target: str) -> bool:
     if _re.fullmatch(r"[0-9.]+", t):
         return False
     t = t.rstrip(".")
+    if t.startswith("*."):
+        t = t[2:]
     if "." not in t or len(t) > 253:
         return False
     return all(_DOMAIN_LABEL_RE.match(lbl) for lbl in t.split("."))
+
+
+def is_wildcard_rewrite(domain: str, target: str) -> bool:
+    """True when either side of a rewrite rule uses a "*." prefix."""
+    d = (domain or "").strip().lower()
+    t = (target or "").strip()
+    return d.startswith("*.") or t.startswith("*.")
 
 
 def rewrite_dnsmasq_line(domain: str, target: str) -> str | None:
@@ -513,10 +527,20 @@ def rewrite_dnsmasq_line(domain: str, target: str) -> str | None:
     dnsmasq `address=` only accepts IP addresses: a domain target must
     use `cname=` (alias) instead. Emitting `address=/domain/other-domain`
     makes dnsmasq reject the whole config (Bad address).
+
+    Wildcard rewrites return None on purpose (v0.1.359): verified
+    against dnsmasq 2.91 that a `cname=*.example.cn,*.example.com`
+    line is syntactically accepted but never expands -- subdomain
+    queries get no answer from it. Emitting it would pretend the
+    rule is enforced; callers comment it out instead, while the
+    panel-side resolution (route oracle) applies the
+    prefix-preserving semantics and the UI shows them.
     """
     d = (domain or "").strip().lower()
     t = (target or "").strip()
     if not d or not is_rewrite_target_valid(t):
+        return None
+    if is_wildcard_rewrite(d, t):
         return None
     try:
         _ipaddress.ip_address(t)
@@ -546,7 +570,13 @@ def dnsmasq_snippet(cfg: TransparentConfig) -> str:
     for domain, target in cfg.dns_rewrites:
         line = rewrite_dnsmasq_line(domain, target)
         if line is None:
-            lines.append(f"# skipped invalid rewrite: {domain} -> {target}")
+            if is_wildcard_rewrite(domain, target):
+                lines.append(f"# skipped wildcard rewrite (dnsmasq does not"
+                             f" expand wildcard cname; panel oracle applies"
+                             f" prefix-preserving semantics):"
+                             f" {domain} -> {target}")
+            else:
+                lines.append(f"# skipped invalid rewrite: {domain} -> {target}")
         else:
             lines.append(line)
     # Direct-bypass at ingress: resolved IPs of direct domains land in the

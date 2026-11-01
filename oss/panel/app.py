@@ -67,8 +67,15 @@ def dnsmasq_panel_conf_content(c) -> str:
         if not r.get("enabled"):
             continue
         line = _tp.rewrite_dnsmasq_line(r["domain"], r["target"])
-        lines.append(line if line is not None else
-                     f"# skipped invalid rewrite: {r['domain']} -> {r['target']}")
+        if line is not None:
+            lines.append(line)
+        elif _tp.is_wildcard_rewrite(r["domain"], r["target"]):
+            lines.append(f"# skipped wildcard rewrite (dnsmasq does not"
+                         f" expand wildcard cname; panel oracle applies"
+                         f" prefix-preserving semantics):"
+                         f" {r['domain']} -> {r['target']}")
+        else:
+            lines.append(f"# skipped invalid rewrite: {r['domain']} -> {r['target']}")
     if get_setting(c, "dns_filter_enabled", "0") == "1":
         bp = _df.blocklist_path(manager_from_env().workdir)
         if os.path.exists(bp):

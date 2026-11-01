@@ -229,7 +229,8 @@ def test_dns_walk_and_rewrite(monkeypatch):
     assert r["dns"]["server"] == "dns-proxy"
     r = run(c, "example.com", monkeypatch)
     assert r["dns"]["rewrite"] == {"domain": "example.com",
-                                   "target": "1.2.3.4", "kind": "address"}
+                                   "target": "1.2.3.4",
+                                   "rewritten": "1.2.3.4", "kind": "address"}
 
 
 # ---------------------------------------------------------------- endpoint
