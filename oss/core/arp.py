@@ -148,3 +148,84 @@ def expand_terminal_idents(idents: list[str],
             seen.add(x)
             uniq.append(x)
     return uniq
+
+
+def ipv6_neigh_table() -> dict[str, str]:
+    """Return {ipv6: mac} from IPv6 neighbor evidence, usable states only.
+
+    v0.1.343 terminal IPv6 supplementary rules: /proc/net/arp is IPv4-only,
+    so IPv6 neighbors must come from `ip -6 neigh show`. Two filters apply
+    at collection, before any rule is built:
+
+    - Entries in FAILED or INCOMPLETE state carry no usable binding and are
+      excluded, as are entries without a link-layer address.
+    - An address claimed by more than one distinct MAC in the same snapshot
+      is ambiguous evidence and is dropped for every claimant: the fix
+      generates a supplement only when evidence uniquely confirms the MAC.
+
+    Returns {} when the command is unavailable or fails (callers then emit
+    no supplement, never a guess).
+    """
+    pairs: list[tuple[str, str]] = []
+    try:
+        r = subprocess.run(["ip", "-6", "neigh", "show"], capture_output=True,
+                           text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    for ln in r.stdout.splitlines():
+        m = re.search(r"^(\S+)\s+.*lladdr\s+(([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2})",
+                      ln)
+        if m and "FAILED" not in ln and "INCOMPLETE" not in ln:
+            ip = m.group(1)
+            if ":" in ip:  # strict: only IPv6 entries belong here
+                pairs.append((ip, normalize_mac(m.group(2))))
+    claimed: dict[str, set] = {}
+    for ip, mac in pairs:
+        claimed.setdefault(ip, set()).add(mac)
+    out: dict[str, str] = {}
+    for ip, mac in pairs:
+        if len(claimed[ip]) == 1:
+            out[ip] = mac
+    return out
+
+
+def expand_terminal_supplement_v6(mac_idents: list[str],
+                                  table: dict[str, str] | None = None
+                                  ) -> list[str]:
+    """IPv6 supplementary addresses for MAC terminal idents (v0.1.343).
+
+    Original behavior fixed in v0.1.343: a MAC terminal's IPv6 connections
+    fell through to the target policy because only its IPv4 rule existed.
+    The fix generates IPv6 supplementary rules only when neighbor evidence
+    uniquely confirms the MAC, and the supplement is exactly the
+    intersection of IPv6 sources with that MAC:
+
+    - Only MAC-derived IPv6 addresses. Literal idents (IP/CIDR, either
+      family) are NOT included: literals already enter the main rule
+      verbatim, and the supplement must not expand a MAC's addresses into
+      other families (no IPv4 of the same MAC in the supplement).
+    - No subnet inference: exact neighbor addresses only, never a /64 (or
+      any prefix) derived from a single address.
+    - Unique confirmation is enforced where evidence is collected (see
+      ipv6_neigh_table): usable state only, and an address claimed by
+      multiple MACs in one snapshot is dropped. This function additionally
+      keeps only IPv6 entries, so even an injected table cannot leak an
+      IPv4 address into the supplement.
+    - Evidence source is the neighbor table. DHCP leases are not read: no
+      DHCP server runs where this panel deploys (VPS), and neighbor
+      evidence is the available confirmation.
+
+    Duplicates removed, order kept. Returns [] when nothing confirms.
+    """
+    if table is None:
+        table = ipv6_neigh_table()
+    out: list[str] = []
+    for ident in mac_idents or []:
+        ident = (ident or "").strip()
+        if not is_mac(ident):
+            continue
+        mac = normalize_mac(ident)
+        for ip, m in table.items():
+            if m == mac and ":" in ip and ip not in out:
+                out.append(ip)
+    return out

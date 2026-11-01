@@ -568,6 +568,19 @@ def build_route_rules(cfg: AppConfig,
     if direct_terms:
         route_rules.append({"source_ip_cidr": direct_terms, "outbound": "direct"})
         _prov({"kind": "terminal", "name": "终端直连策略"})
+    # v0.1.343 IPv6 supplementary rule: a MAC terminal's IPv6 connections
+    # previously fell through to the target policy because only its IPv4
+    # rule existed. The supplement carries only MAC-derived, uniquely
+    # confirmed IPv6 (see arp.expand_terminal_supplement_v6), minus
+    # addresses the main rule already covers; it is emitted even when the
+    # main rule is empty (a v6-only terminal still gets its rule).
+    _direct_mac_idents = [t.ident for t in cfg.terminals
+                          if t.policy == "direct" and _arp.is_mac(t.ident)]
+    _direct_v6 = [ip for ip in _arp.expand_terminal_supplement_v6(
+        _direct_mac_idents) if ip not in direct_terms]
+    if _direct_v6:
+        route_rules.append({"source_ip_cidr": _direct_v6, "outbound": "direct"})
+        _prov({"kind": "terminal", "name": "终端直连 IPv6 补充策略"})
     # Terminal rules (1:1): proxy policy -> source_ip_cidr to specified outbound.
     # Evaluated before site sets. MAC targets resolve to current ARP IPs.
     # direct/whitelist policies are handled at nftables level (see transparent.py).
@@ -587,6 +600,17 @@ def build_route_rules(cfg: AppConfig,
             route_rules.append({"source_ip_cidr": cidrs, "outbound": tr.outbound})
             _prov({"kind": "terminal",
                    "name": f"终端策略（{tr.outbound}）"})
+        # v0.1.343 IPv6 supplementary rule, same semantics as the direct
+        # terminal supplement above; only for MAC-matched rules.
+        if tr.match_by == "mac":
+            _tr_v6 = [ip for ip in _arp.expand_terminal_supplement_v6(
+                [t for t in tr.targets if _arp.is_mac(t)])
+                if ip not in cidrs]
+            if _tr_v6:
+                route_rules.append({"source_ip_cidr": _tr_v6,
+                                    "outbound": tr.outbound})
+                _prov({"kind": "terminal",
+                       "name": f"终端 IPv6 补充策略（{tr.outbound}）"})
     # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名。位置在分流规则
     # （前置自定义分流、站点集）之前、基础设施规则（入口旁路、终端
     # 策略）之后：拦截是安全决策，应胜过一切基于内容的分流选择，
