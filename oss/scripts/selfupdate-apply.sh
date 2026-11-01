@@ -9,9 +9,24 @@ set -u
 REPO="${1:?repo dir}"; PY="${2:?python}"; PORT="${3:-8080}"; REF="${4:-refs/heads/oss-zashboard}"
 LOG="/tmp/openbox-oss-selfupdate.log"
 STATUS="/tmp/openbox-oss-update.status"
-# 退出时写最终状态（对标原版：进度靠状态文件读回，面板不直接等 applier）。
+PREP_STATE="/tmp/openbox-oss-update-prep.json"
+# Drop any stale preparation state FIRST: the EXIT trap below restores the
+# kernel from this file, and a stale was_running=true from an old run must
+# never start a kernel this run did not suspend.
+rm -f "$PREP_STATE"
+# v0.1.344: kernel restore shared by success/failure/cancel paths.
+# The EXIT trap runs restore first (panel API may be the restarted panel:
+# --wait-panel), then writes the final stage. The TERM trap (cancel from
+# the panel) restores and marks cancelled; SIGKILL cannot be trapped, so
+# a KILLed applier leaves the kernel down -- the panel-side cancel path
+# (selfupdate.cancel_update with the kernel manager) covers that case.
 # trap 在面板重启之后才触发，写文件不受重启影响。
-trap 'code=$?; if [ "$code" -eq 0 ]; then st=done; else st=failed; fi; printf "stage=%s\nat=%s\nref=%s\nmessage=see %s\n" "$st" "$(date +%s%3N)" "$REF" "$LOG" > "$STATUS"' EXIT
+CANCELLED=0
+restore_kernel() {
+  PYTHONPATH="$REPO/oss" "$PY" -m core.upgradeprep restore --port "$PORT" --state-file "$PREP_STATE" --wait-panel || true
+}
+trap 'code=$?; restore_kernel; if [ "$CANCELLED" = 1 ]; then st=cancelled; elif [ "$code" -eq 0 ]; then st=done; else st=failed; fi; printf "stage=%s\nat=%s\nref=%s\nmessage=see %s\n" "$st" "$(date +%s%3N)" "$REF" "$LOG" > "$STATUS"' EXIT
+trap 'CANCELLED=1; echo "[selfupdate] cancelled, restoring kernel"; exit 143' TERM INT
 exec >>"$LOG" 2>&1
 echo "[selfupdate] start $(date '+%F %T') repo=$REPO ref=$REF"
 
@@ -21,6 +36,15 @@ cd "$REPO" || { echo "[selfupdate] cannot cd to repo"; exit 1; }
 
 if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
   echo "[selfupdate] working tree dirty, abort (panel untouched)"
+  exit 1
+fi
+
+# v0.1.344 preparation BEFORE the first network request: suspend a running
+# kernel, wait for real exit, clean possibly-poisoned FakeIP answers from
+# the local DNS cache. On failure nothing has been downloaded or changed
+# (the helper restores the kernel first when it already stopped it).
+if ! PYTHONPATH="$REPO/oss" "$PY" -m core.upgradeprep prepare --port "$PORT" --state-file "$PREP_STATE"; then
+  echo "[selfupdate] preparation failed, abort before download"
   exit 1
 fi
 

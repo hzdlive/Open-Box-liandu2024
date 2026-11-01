@@ -5080,7 +5080,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.post("/api/panel/update/cancel")
     def panel_update_cancel():
         from core import selfupdate as _su
-        return jsonify(_su.cancel_update())
+        # v0.1.344: pass the kernel manager so cancel can restore a kernel
+        # the upgrade preparation had suspended (including the KILL case,
+        # where the applier's own trap never runs).
+        return jsonify(_su.cancel_update(_manager()))
 
     @app.get("/api/panel/update/notes")
     def panel_update_notes():

@@ -18,6 +18,14 @@ so it works on git-based deployments (the VPS updates with git pull).
 Applying = fast-forward only `git pull` + panel restart, run detached so the
 HTTP response that triggered it is not blocked. update_auto defaults to "0",
 so nothing happens unless the user explicitly enables it.
+
+v0.1.344 preparation lives in core/upgradeprep.py and is wired into
+oss/scripts/selfupdate-apply.sh: before the first network request the
+applier suspends a running kernel, waits for real exit, and cleans the
+local DNS cache; success, failure, and cancel paths all restore a kernel
+the preparation had suspended, and a previously stopped kernel stays
+stopped. The lightweight check path deliberately does NOT suspend the
+kernel (read-only, non-destructive; see upgradeprep's scope notes).
 """
 
 from __future__ import annotations
@@ -103,27 +111,79 @@ def read_status() -> dict:
     return out
 
 
-def cancel_update() -> dict:
-    """取消进行中的更新：杀 applier（先 TERM，3 秒后仍活着则 KILL），写 cancelled。"""
+def cancel_update(manager=None) -> dict:
+    """取消进行中的更新：杀 applier（先 TERM，3 秒后仍活着则 KILL），写 cancelled。
+
+    v0.1.344 cancel-restore: after killing the applier, restore the kernel
+    the upgrade preparation had suspended (see core/upgradeprep). This also
+    covers the KILL escalation, where the applier's own trap never runs:
+    the panel process itself restarts the kernel. kernel_restored is True
+    only when this call actually started a stopped kernel and it is
+    running again; False means nothing was started (already running, was
+    stopped before the upgrade, or the start failed); None when no manager
+    was passed and no restore could be attempted.
+    """
     import signal
     st = read_status()
-    if not st["running"] or st["pid"] is None:
-        return {"cancelled": False, "reason": "no update in progress"}
-    pid = st["pid"]
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except OSError:
-        pass
-    deadline = time.time() + 3
-    while time.time() < deadline and _pid_alive(pid):
-        time.sleep(0.2)
-    if _pid_alive(pid):
+    cancelled = False
+    result = {"cancelled": False, "reason": "no update in progress"}
+    if st["running"] and st["pid"] is not None:
+        pid = st["pid"]
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, signal.SIGTERM)
         except OSError:
             pass
-    write_status("cancelled", pid=pid, ref=st.get("ref", ""))
-    return {"cancelled": True, "pid": pid}
+        deadline = time.time() + 3
+        while time.time() < deadline and _pid_alive(pid):
+            time.sleep(0.2)
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
+        write_status("cancelled", pid=pid, ref=st.get("ref", ""))
+        result = {"cancelled": True, "pid": pid}
+        cancelled = True
+    result["kernel_restored"] = _maybe_restore_kernel(manager, st, cancelled)
+    return result
+
+
+def _maybe_restore_kernel(manager, status: dict, just_cancelled: bool):
+    """Best-effort kernel restore for cancel. Returns True/False, or None
+    when no manager was passed.
+
+    Only starts a kernel that the upgrade preparation had suspended
+    (prep state says was_running) and that is currently down. When no
+    update was just cancelled, this is a safety net for an applier that
+    died without completing: it applies only when the recorded stage is
+    still running/cancelled/failed and the record is recent (1h), so a
+    much later cancel never restarts a kernel the user stopped on purpose.
+    """
+    if manager is None:
+        return None
+    try:
+        from core import upgradeprep as _up
+        was = _up.read_prep_state(_up.DEFAULT_STATE_FILE)
+    except Exception:
+        return False
+    if not was:
+        return False
+    try:
+        if manager.status().running:
+            return False
+    except Exception:
+        return False
+    if not just_cancelled:
+        if status.get("stage") not in ("running", "cancelled", "failed"):
+            return False
+        at = status.get("at") or 0
+        if at and (time.time() * 1000 - at) > 3600_000:
+            return False
+    try:
+        manager.start()
+        return bool(manager.status().running)
+    except Exception:
+        return False
 
 
 def recent_commits(n: int = 20) -> list[dict]:
