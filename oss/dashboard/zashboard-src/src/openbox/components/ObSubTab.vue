@@ -1,5 +1,6 @@
 <template>
-  <div class="flex flex-col gap-3">
+  <!-- v0.1.368：组卡片按设备分列（与策略、节点页签统一） -->
+  <div :class="['grid gap-3', proxyGroupColumnsClass]">
     <div
       v-for="sub in subs"
       :key="sub.id"
@@ -39,6 +40,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { obxGet, obxPost } from '../api'
+import { proxyGroupColumnsClass } from '@/store/settings'
 
 const props = defineProps<{ searchText?: string }>()
 

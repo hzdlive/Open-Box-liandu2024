@@ -124,6 +124,37 @@
             v-model="twoColumnProxyGroup"
           />
         </SettingItem>
+        <SettingItem :setting-key="k.proxyGroupColumns">
+          <div class="setting-item-label">
+            {{ $t('proxyGroupColumns') }}
+          </div>
+          <!-- v0.1.368：PC、移动端分列数合并为一行，小屏自动换行 -->
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <label class="flex items-center gap-1">
+              <span class="text-xs opacity-70">PC</span>
+              <SelectInput
+                v-model="proxyGroupColumnsPc"
+                class="select select-sm min-w-24"
+                :options="[
+                  { value: 1, label: '1' },
+                  { value: 2, label: '2' },
+                  { value: 3, label: '3' },
+                ]"
+              />
+            </label>
+            <label class="flex items-center gap-1">
+              <span class="text-xs opacity-70">移动端</span>
+              <SelectInput
+                v-model="proxyGroupColumnsMobile"
+                class="select select-sm min-w-24"
+                :options="[
+                  { value: 1, label: '1' },
+                  { value: 2, label: '2' },
+                ]"
+              />
+            </label>
+          </div>
+        </SettingItem>
         <SettingItem :setting-key="k.truncateProxyName">
           <div class="setting-item-label">
             {{ $t('truncateProxyName') }}
@@ -245,6 +276,8 @@ import {
   truncateProxyName,
   proxyFolderMode,
   twoColumnProxyGroup,
+  proxyGroupColumnsPc,
+  proxyGroupColumnsMobile,
 } from '@/store/settings'
 import { QuestionMarkCircleIcon } from '@heroicons/vue/24/outline'
 import { computed } from 'vue'
@@ -263,6 +296,7 @@ const isVisibleIpv6Test = useIsSettingVisible(k.ipv6Test)
 const isVisibleIndependentLatencyTest = useIsSettingVisible(k.independentLatencyTest)
 const isVisibleGroupTestUrls = useIsSettingVisible(k.groupTestUrls)
 const isVisibleTwoColumnProxyGroup = useIsSettingVisible(k.twoColumnProxyGroup)
+const isVisibleProxyGroupColumns = useIsSettingVisible(k.proxyGroupColumns)
 const isVisibleProxyFolderMode = useIsSettingVisible(k.proxyFolderMode)
 const isVisibleTruncateProxyName = useIsSettingVisible(k.truncateProxyName)
 const isVisibleDisplayGlobalByMode = useIsSettingVisible(k.displayGlobalByMode)
@@ -302,6 +336,7 @@ const hasVisibleLatencyItems = computed(() => {
 const hasVisibleProxyStyleItems = computed(() => {
   return (
     isVisibleTwoColumnProxyGroup.value ||
+    isVisibleProxyGroupColumns.value ||
     isVisibleProxyFolderMode.value ||
     isVisibleTruncateProxyName.value ||
     isVisibleDisplayGlobalByMode.value ||

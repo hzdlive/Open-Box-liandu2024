@@ -19,12 +19,12 @@
     </div>
     <ProxySettingsModal v-model:show="settingsShow" />
     <ObPolicyTab v-if="activeTab === 'policy'" :search-text="searchText" />
-    <div v-if="activeTab === 'node'" class="flex flex-col gap-3">
+    <div v-if="activeTab === 'node'" :class="['grid gap-3', proxyGroupColumnsClass]">
       <div v-for="name in filteredGroups" :key="name">
         <FailoverGroupExt v-if="isFailoverGroup(name)" :name="name" />
         <ProxyGroup v-else :name="name" />
       </div>
-      <div v-if="!filteredGroups.length" class="text-center opacity-50 py-8">无节点组</div>
+      <div v-if="!filteredGroups.length" class="col-span-full text-center opacity-50 py-8">无节点组</div>
     </div>
     <ObSubTab v-if="activeTab === 'sub'" :search-text="searchText" />
   </div>
@@ -36,6 +36,7 @@ import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import ProxyGroup from '@/components/proxies/ProxyGroup.vue'
 import { fetchProxies } from '@/assembly/proxies'
 import { isProxiesPageMounted } from '@/composables/proxies'
+import { proxyGroupColumnsClass } from '@/store/settings'
 import { visibleProxyGroups } from '../composables/useProxyGroupFilter'
 import { loadProxySettings } from '../composables/useProxySettings'
 import { refreshAlive } from '../composables/useAliveCount'

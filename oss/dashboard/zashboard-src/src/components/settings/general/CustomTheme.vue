@@ -125,7 +125,7 @@ import { ALL_THEME, DEFAULT_THEME, type THEME } from '@/constant'
 import { applyCustomThemes } from '@/helper'
 import { customThemes, darkTheme, defaultTheme } from '@/store/settings'
 import { v4 as uuid } from 'uuid'
-import { computed, nextTick, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import DialogWrapper from '../../common/DialogWrapper.vue'
 import SelectInput from '../../common/SelectInput.vue'
 import TextInput from '../../common/TextInput.vue'
@@ -136,6 +136,20 @@ const model = defineModel<boolean>('value', {
 
 const applyFrom = ref(ALL_THEME[0])
 const customTheme = reactive<THEME>({ ...(customThemes.value[0] || DEFAULT_THEME) })
+// v0.1.368 (#611)：编辑即保存。此前圆角等改动只活在对话框本地
+// 副本里，点“保存”才进 localStorage；手机浏览器后台丢弃页面、或
+// 对话框未点保存就关闭时，改动全丢。现在每次改动都直写回
+// customThemes（useStorage → localStorage）并立即重注样式，正在用
+// 的自定义主题可实时预览；“保存”按钮仍负责把该主题激活为当前主题。
+watch(
+  customTheme,
+  () => {
+    const prev = customThemes.value[0]
+    customThemes.value = [{ ...customTheme, id: prev?.id || uuid() } as THEME]
+    applyCustomThemes()
+  },
+  { deep: true },
+)
 const colors = computed(() => {
   return Object.keys(customTheme).filter((key) => key.startsWith('--color-'))
 })

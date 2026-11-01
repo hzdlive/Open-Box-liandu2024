@@ -646,6 +646,7 @@ const en = {
 
   // Connections, proxies, and rules pages
   twoColumnProxyGroup: 'Two-column proxy groups',
+  proxyGroupColumns: 'Proxy group columns',
   type: 'Type',
   process: 'Process',
   connectTime: 'Connect time',

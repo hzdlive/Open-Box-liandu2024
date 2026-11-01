@@ -647,6 +647,7 @@ const zh: LANG_MESSAGE = {
 
   // Connections, proxies, and rules pages
   twoColumnProxyGroup: '双列显示代理组',
+  proxyGroupColumns: '代理组分列',
   type: '类型',
   process: '进程',
   connectTime: '连接时间',

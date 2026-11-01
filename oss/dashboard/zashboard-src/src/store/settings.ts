@@ -314,6 +314,20 @@ export const proxyGroupFilterMap = useStorage<Record<string, string>>(
 )
 export const displayFinalOutbound = useStorage('config/show-selected-for-now-node', false)
 export const twoColumnProxyGroup = useStorage('config/two-columns', true)
+// v0.1.368：代理组分列按设备独立设置：PC 最多 3 列、移动端最多 2 列，
+// 策略／节点／订阅三个页签统一生效（ObProxiesView 三 tab 的容器共用
+// 下面的列数类）。默认 PC 2 列（与原生页 twoColumnProxyGroup 默认
+// true 一致）、移动端 1 列（保持现网移动端单列观感）；旧布尔开关
+// 仅原生 ProxiesPage 用，本页不再读它。
+export const proxyGroupColumnsPc = useStorage<1 | 2 | 3>('config/proxy-group-columns-pc', 2)
+export const proxyGroupColumnsMobile = useStorage<1 | 2>('config/proxy-group-columns-mobile', 1)
+export const proxyGroupColumns = computed(() =>
+  isMiddleScreen.value ? proxyGroupColumnsMobile.value : proxyGroupColumnsPc.value,
+)
+export const proxyGroupColumnsClass = computed(() => {
+  const map = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' } as const
+  return map[proxyGroupColumns.value as 1 | 2 | 3] ?? 'grid-cols-1'
+})
 export const proxyFolderMode = useStorage<FOLDER_MODE>(
   'config/proxy-folder-mode-setting',
   FOLDER_MODE.AUTO,

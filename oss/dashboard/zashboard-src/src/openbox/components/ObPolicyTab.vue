@@ -1,5 +1,6 @@
 <template>
-  <div class="flex flex-col gap-3">
+  <!-- v0.1.368：组卡片按设备分列（与节点、订阅页签统一） -->
+  <div :class="['grid gap-3', proxyGroupColumnsClass]">
     <div
       v-for="site in orderedSites"
       :key="site.id"
@@ -47,6 +48,7 @@ import { obxGet, obxPost } from '../api'
 import { siteIcon } from '../composables/useSiteIcon'
 import { displayOrder } from '../composables/useProxySettings'
 import ObPolicyMembers from './ObPolicyMembers.vue'
+import { proxyGroupColumnsClass } from '@/store/settings'
 
 const props = defineProps<{ searchText?: string }>()
 

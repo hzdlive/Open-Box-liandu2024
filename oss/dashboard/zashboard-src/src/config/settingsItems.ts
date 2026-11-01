@@ -330,6 +330,11 @@ export const SETTINGS_CATEGORIES: SettingsCategory[] = [
         section: 'settingsSectionProxyDisplay',
       },
       {
+        key: `${SETTINGS_MENU_KEY.proxies}.proxyGroupColumns`,
+        label: 'proxyGroupColumns',
+        section: 'settingsSectionProxyDisplay',
+      },
+      {
         key: `${SETTINGS_MENU_KEY.proxies}.truncateProxyName`,
         label: 'truncateProxyName',
         section: 'settingsSectionProxyDisplay',
