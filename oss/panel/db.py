@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 
 
@@ -173,7 +174,8 @@ CREATE TABLE IF NOT EXISTS node_health(
   latency_ms REAL,
   error TEXT NOT NULL DEFAULT '',
   error_kind TEXT NOT NULL DEFAULT '',
-  checked_at TEXT NOT NULL DEFAULT ''
+  checked_at TEXT NOT NULL DEFAULT '',
+  run_seq INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS pair_codes(
   token TEXT PRIMARY KEY,
@@ -387,6 +389,9 @@ def init_db(conn: sqlite3.Connection) -> None:
     nhcols = {r[1] for r in conn.execute("PRAGMA table_info(node_health)")}
     if "error_kind" not in nhcols:
         conn.execute("ALTER TABLE node_health ADD COLUMN error_kind TEXT NOT NULL DEFAULT ''")
+    # v0.1.380：测速轮次序号（防旧轮次结果覆盖新轮次）
+    if "run_seq" not in nhcols:
+        conn.execute("ALTER TABLE node_health ADD COLUMN run_seq INTEGER NOT NULL DEFAULT 0")
     gcols = {r[1] for r in conn.execute("PRAGMA table_info(groups)")}
     if "idle_timeout" not in gcols:
         conn.execute("ALTER TABLE groups ADD COLUMN idle_timeout TEXT NOT NULL DEFAULT '12h'")
@@ -1715,15 +1720,48 @@ def _prune_orphan_health(conn: sqlite3.Connection) -> None:
     conn.execute("DELETE FROM node_health WHERE tag NOT IN (SELECT tag FROM nodes)")
 
 
-def save_health(conn: sqlite3.Connection, results: list) -> None:
+# v0.1.380: monotonic speedtest run sequence. Each test run stamps its
+# results with the sequence taken at run START; save_health only
+# applies a row when its run is at least as new as the stored row.
+# Without this, an older run that finishes later (bulk test vs a
+# per-sub test, or a pre-network-switch run landing after a fresh
+# one) overwrites newer results with stale ones. The counter is
+# seeded from MAX(run_seq) so a process restart cannot rewind it
+# below rows written by the previous process.
+_HEALTH_SEQ_LOCK = threading.Lock()
+_HEALTH_SEQ = [None]
+
+
+def next_health_seq(conn: sqlite3.Connection) -> int:
+    with _HEALTH_SEQ_LOCK:
+        if _HEALTH_SEQ[0] is None:
+            row = conn.execute("SELECT MAX(run_seq) FROM node_health").fetchone()
+            _HEALTH_SEQ[0] = row[0] or 0
+        _HEALTH_SEQ[0] += 1
+        return _HEALTH_SEQ[0]
+
+
+def save_health(conn: sqlite3.Connection, results: list,
+                run_seq: int | None = None) -> None:
     for r in results:
-        conn.execute(
-            "INSERT INTO node_health(tag, ok, latency_ms, error, error_kind, checked_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)"
-            " ON CONFLICT(tag) DO UPDATE SET ok=excluded.ok, latency_ms=excluded.latency_ms,"
-            " error=excluded.error, error_kind=excluded.error_kind, checked_at=excluded.checked_at",
-            (r.tag, None if r.ok is None else int(r.ok), r.latency_ms, r.error,
-             getattr(r, "error_kind", ""), r.checked_at))
+        if run_seq is None:
+            conn.execute(
+                "INSERT INTO node_health(tag, ok, latency_ms, error, error_kind, checked_at)"
+                " VALUES (?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(tag) DO UPDATE SET ok=excluded.ok, latency_ms=excluded.latency_ms,"
+                " error=excluded.error, error_kind=excluded.error_kind, checked_at=excluded.checked_at",
+                (r.tag, None if r.ok is None else int(r.ok), r.latency_ms, r.error,
+                 getattr(r, "error_kind", ""), r.checked_at))
+        else:
+            conn.execute(
+                "INSERT INTO node_health(tag, ok, latency_ms, error, error_kind, checked_at, run_seq)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)"
+                " ON CONFLICT(tag) DO UPDATE SET ok=excluded.ok, latency_ms=excluded.latency_ms,"
+                " error=excluded.error, error_kind=excluded.error_kind, checked_at=excluded.checked_at,"
+                " run_seq=excluded.run_seq"
+                " WHERE excluded.run_seq >= node_health.run_seq",
+                (r.tag, None if r.ok is None else int(r.ok), r.latency_ms, r.error,
+                 getattr(r, "error_kind", ""), r.checked_at, run_seq))
     conn.commit()
 
 

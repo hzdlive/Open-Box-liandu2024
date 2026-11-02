@@ -1105,9 +1105,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
                 return jsonify({"ok": True, "subscription_id": sid, "tested": 0})
             test_url = dbmod.get_setting(
                 c, "speedtest_url", "http://www.gstatic.com/generate_204")
+            seq = dbmod.next_health_seq(c)
             results = check_nodes(nodes, timeout=5.0, max_workers=20,
                                   test_url=test_url)
-            dbmod.save_health(c, results)
+            dbmod.save_health(c, results, run_seq=seq)
             ok_count = sum(1 for r in results if r.ok)
             return jsonify({
                 "ok": True,
@@ -2539,10 +2540,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
         # API using the configured test URL; TCP nodes keep the direct probe.
         test_url = dbmod.get_setting(
             db(), "speedtest_url", "http://www.gstatic.com/generate_204")
+        seq = dbmod.next_health_seq(db())
         results = check_nodes(nodes, timeout=float(d.get("timeout", 5.0)),
                               max_workers=int(d.get("max_workers", 20)),
                               test_url=test_url)
-        dbmod.save_health(db(), results)
+        dbmod.save_health(db(), results, run_seq=seq)
         return jsonify([{"tag": r.tag, "ok": r.ok, "latency_ms": r.latency_ms,
                          "error": r.error, "error_kind": getattr(r, "error_kind", ""),
                          "checked_at": r.checked_at}
@@ -3157,8 +3159,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
         members = set(groups[0].members)
         nodes = [n for n in cfg.nodes if n.tag in members]
         if nodes:
+            seq = dbmod.next_health_seq(db())
             results = check_nodes(nodes, timeout=float(d.get("timeout", 5.0)))
-            dbmod.save_health(db(), results)
+            dbmod.save_health(db(), results, run_seq=seq)
         actions = watch_once(groups, dbmod.list_health(db()), api_base, secret)
         _failover_record(db(), actions)
         return jsonify(actions)
@@ -4645,10 +4648,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
             test_url = dbmod.get_setting(
                 c, "speedtest_url",
                 "http://www.gstatic.com/generate_204")
+            seq = dbmod.next_health_seq(c)
             results = _check(cfg.nodes, timeout=5.0, max_workers=20,
                              test_url=test_url)
             try:
-                dbmod.save_health(c, results)
+                dbmod.save_health(c, results, run_seq=seq)
             except Exception:
                 pass
             return jsonify({
