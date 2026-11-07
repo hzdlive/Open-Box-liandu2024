@@ -1,1 +1,0 @@
-import{a as e,i as t}from"./rules-Cg5B3tLV.js";var n=async()=>{e.value=[],t.value=[]};export{n as fetchRules};

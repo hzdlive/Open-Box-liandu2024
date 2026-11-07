@@ -155,6 +155,16 @@
             </label>
           </div>
         </SettingItem>
+        <SettingItem :setting-key="k.unavailableProxy">
+          <div class="setting-item-label">
+            {{ $t('unavailableProxy') }}
+          </div>
+          <input
+            class="toggle"
+            type="checkbox"
+            v-model="hideUnavailableProxies"
+          />
+        </SettingItem>
         <SettingItem :setting-key="k.truncateProxyName">
           <div class="setting-item-label">
             {{ $t('truncateProxyName') }}
@@ -278,6 +288,7 @@ import {
   twoColumnProxyGroup,
   proxyGroupColumnsPc,
   proxyGroupColumnsMobile,
+  hideUnavailableProxies,
 } from '@/store/settings'
 import { QuestionMarkCircleIcon } from '@heroicons/vue/24/outline'
 import { computed } from 'vue'
@@ -297,6 +308,7 @@ const isVisibleIndependentLatencyTest = useIsSettingVisible(k.independentLatency
 const isVisibleGroupTestUrls = useIsSettingVisible(k.groupTestUrls)
 const isVisibleTwoColumnProxyGroup = useIsSettingVisible(k.twoColumnProxyGroup)
 const isVisibleProxyGroupColumns = useIsSettingVisible(k.proxyGroupColumns)
+const isVisibleUnavailableProxy = useIsSettingVisible(k.unavailableProxy)
 const isVisibleProxyFolderMode = useIsSettingVisible(k.proxyFolderMode)
 const isVisibleTruncateProxyName = useIsSettingVisible(k.truncateProxyName)
 const isVisibleDisplayGlobalByMode = useIsSettingVisible(k.displayGlobalByMode)
@@ -337,6 +349,7 @@ const hasVisibleProxyStyleItems = computed(() => {
   return (
     isVisibleTwoColumnProxyGroup.value ||
     isVisibleProxyGroupColumns.value ||
+    isVisibleUnavailableProxy.value ||
     isVisibleProxyFolderMode.value ||
     isVisibleTruncateProxyName.value ||
     isVisibleDisplayGlobalByMode.value ||
