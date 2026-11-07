@@ -276,6 +276,8 @@
             class="rounded-box border border-base-300 p-2"
           />
         </div>
+        <!-- v0.1.413：扫码设备须能连到路由器（同局域网或公网可达） -->
+        <p v-if="shareLink" class="mt-2 text-center text-xs opacity-60">{{ $t('obx.shareQrHint') }}</p>
 
         <p v-if="dlgErr" class="mt-3 text-sm text-error">{{ dlgErr }}</p>
 

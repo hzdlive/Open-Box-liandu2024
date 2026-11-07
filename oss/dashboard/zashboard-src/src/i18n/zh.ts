@@ -69,6 +69,7 @@ const zh: LANG_MESSAGE = {
     subShare: '订阅分享',
     subShareHint: '生成可供其他设备或代理软件直接使用的订阅链接。',
     shareLink: '链接',
+    shareQrHint: '扫码的设备须与路由器在同一局域网，或能从公网访问路由器。',
     copy: '复制',
     noSubShare: '暂无订阅分享',
     lanes: '故障转移主备页签',

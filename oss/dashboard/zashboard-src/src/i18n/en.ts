@@ -67,6 +67,7 @@ const en = {
     subShare: 'Subscription sharing',
     subShareHint: 'Generate subscription links for other devices or proxy apps.',
     shareLink: 'Link',
+    shareQrHint: 'The scanning device must be on the same LAN as the router, or able to reach the router from the internet.',
     copy: 'Copy',
     noSubShare: 'No shared subscriptions yet',
     lanes: 'Failover lanes (primary/backup)',

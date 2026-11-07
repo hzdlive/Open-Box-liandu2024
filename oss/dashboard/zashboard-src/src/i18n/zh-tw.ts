@@ -69,6 +69,7 @@ const zhTW: LANG_MESSAGE = {
     subShare: '訂閱分享',
     subShareHint: '生成可供其他設備或代理軟件直接使用的訂閱鏈接。',
     shareLink: '鏈接',
+    shareQrHint: '掃碼的設備須與路由器在同一局域網，或能從公網訪問路由器。',
     copy: '複製',
     noSubShare: '暫無訂閱分享',
     lanes: '故障轉移主備頁籤',
