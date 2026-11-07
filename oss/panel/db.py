@@ -1588,7 +1588,7 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
          json.dumps(d.get("members", []), ensure_ascii=False),
          json.dumps(d.get("dynamic_keywords", []), ensure_ascii=False), pos,
          0 if d.get("enabled") is False else 1,
-         int(d.get("interval_s", 300) or 300),
+         int(d.get("interval_s") or (120 if d.get("type") == "loadbalance" else 300)),
          int(d.get("tolerance_ms", 100) or 100),
          d.get("idle_timeout", "12h") or "12h",
          (d.get("expected_status") or "").strip(),

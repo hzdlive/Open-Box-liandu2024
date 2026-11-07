@@ -830,6 +830,15 @@ function onTypeChange() {
     dlg.value.lanes.push({ id: genLaneId(), name: '', icon: '', mode: 'auto', members: [] })
     activeLane.value = 0
   }
+  // v0.1.387：新建负载均衡组默认检测间隔 120 秒（其余类型 300 秒）；
+  // 仅在间隔还是未改动的默认值时跟随类型走，已手动改过的不动。
+  if (dlg.value && dlg.value.id == null) {
+    if (dlg.value.type === 'loadbalance' && dlg.value.interval_s === 300) {
+      dlg.value.interval_s = 120
+    } else if (dlg.value.type !== 'loadbalance' && dlg.value.interval_s === 120) {
+      dlg.value.interval_s = 300
+    }
+  }
 }
 function openEdit(g: Group) {
   dlgErr.value = ''
