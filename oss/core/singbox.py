@@ -560,15 +560,17 @@ def front_rule_warnings(cfg: AppConfig) -> list[str]:
 
 def build_route_rules(cfg: AppConfig,
                       skip_rule_sets: set[str] | None = None,
-                      provenance: list | None = None
+                      provenance: list | None = None,
+                      dns_provenance: list | None = None
                       ) -> tuple[list[dict], list[dict], set[str]]:
     """Build (route_rules, dns_rules, group_names) from site sets.
 
     provenance: when a list is passed, one owner record is appended per
     route rule, in the same order (the route oracle maps a matched rule
     back to the front rule / site set / builtin that produced it).
-    When None (the default) nothing is recorded and the output is
-    byte-identical to before.
+    dns_provenance: same, one owner record per DNS rule, in the same
+    order as dns_rules. When None (the default) nothing is recorded
+    and the output is byte-identical to before.
     """
     groups = cfg.groups or default_groups()
     group_names = {g.name for g in groups}
@@ -576,6 +578,10 @@ def build_route_rules(cfg: AppConfig,
     def _prov(owner: dict) -> None:
         if provenance is not None:
             provenance.append(owner)
+
+    def _dns_prov(owner: dict) -> None:
+        if dns_provenance is not None:
+            dns_provenance.append(owner)
 
     dns_rules = []
     route_rules = []
@@ -754,6 +760,8 @@ def build_route_rules(cfg: AppConfig,
                "ref": _fr_idx, "note": fr.get("note", "")})
         if dns_sel is not None:
             dns_rules.append({**dns_sel, "server": dns_srv})
+            _dns_prov({"kind": "front", "name": "前置自定义分流",
+                       "ref": _fr_idx, "note": fr.get("note", "")})
     # Subscription & node server domains go direct (keeps subscription updates
     # and node dialing off the proxy).
     # 对标原版：使用 obnode-direct / obnode-direct-ip rule_set（而非 inline 规则）。
@@ -794,6 +802,7 @@ def build_route_rules(cfg: AppConfig,
             if snd:
                 dns_rules.append({"rule_set": ["obnode-direct"],
                                   "server": "dns-direct"})
+                _dns_prov({"kind": "obnode", "name": "订阅与节点直连"})
     # Collect remote ruleset URLs (side effect for build_config declarations)
     if not hasattr(cfg, "_remote_rulesets"):
         cfg._remote_rulesets = {}
@@ -909,6 +918,7 @@ def build_route_rules(cfg: AppConfig,
             _dns_rule["rule_set"] = _dns_rs
         if _dns_rule:
             dns_rules.append({**_dns_rule, "server": dns_server})
+            _dns_prov({"kind": "siteset", "name": s.name, "group": s.group})
     # QUIC 拦截已改为每个站点集独立生成（见上方循环内），不再全局拦截
     if _blocked and _df_block_tags and _df_allow_tag:
         # DNS 层拦截（原版形状）：先压掉 HTTPS/SVCB 查询（空 NOERROR），
@@ -926,6 +936,9 @@ def build_route_rules(cfg: AppConfig,
                 "type": "logical",
             })
         dns_rules = _df_dns + dns_rules
+        if dns_provenance is not None:
+            dns_provenance[0:0] = ([{"kind": "content", "name": "内容过滤"}]
+                                   * len(_df_dns))
     return route_rules, dns_rules, group_names
 
 

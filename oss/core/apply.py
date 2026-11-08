@@ -53,19 +53,15 @@ def _sync_selection_before_build(conn) -> None:
 
 
 def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
-    """Build the config from DB and validate it. Returns (config, ok, message)."""
+    """Build the config from DB and validate it. Returns (config, ok, message).
+
+    The Go core is used when a binary is available (OBX_CORE_BIN or
+    `oss-core` on PATH); a core failure raises CoreError and the deploy
+    fails loudly -- there is no silent fallback to the Python
+    generator. Without a binary, the in-process Python generator is
+    used (unchanged behavior).
+    """
     app_cfg = dbmod.load_app_config(conn, with_blocked_domains=True)
-    # Kernel-side DNS-filter rule-sets (aligned with the original):
-    # shard the blocklist into files BEFORE building the config, so the
-    # generated config can reference them. Failure here never breaks the
-    # apply: build_config falls back to the route-layer block rule.
-    try:
-        from core import dnsfilter as _df
-        if app_cfg.blocked_domains:
-            app_cfg._dns_filter_rulesets = _df.write_kernel_rulesets(
-                manager.workdir, app_cfg.blocked_domains)
-    except Exception:
-        pass
     # Local .srs rule-sets referenced by site sets: TTL-aware refresh now
     # (v6 #14 deploy-rulesets semantics: 24h TTL + URL match reuse, stale
     # files re-downloaded, failures keep the old file). Anything still
@@ -79,7 +75,26 @@ def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
         # Refresh must never break apply: fall back to missing-only ensure.
         _ok, _missing = _gd.ensure(names) if names else ([], [])
     missing = _missing
-    cfg = build_config(app_cfg, set(missing))
+    from core import corebin as _corebin
+    bin_path = _corebin.find_core_bin()
+    if bin_path is not None:
+        # The Go core writes the dns-filter rule-set files itself
+        # (from the blocked domains) before generating the config.
+        cfg = _corebin.build_config_via_core(
+            app_cfg, manager.workdir, set(missing), bin_path)
+    else:
+        # Kernel-side DNS-filter rule-sets (aligned with the original):
+        # shard the blocklist into files BEFORE building the config, so the
+        # generated config can reference them. Failure here never breaks the
+        # apply: build_config falls back to the route-layer block rule.
+        try:
+            from core import dnsfilter as _df
+            if app_cfg.blocked_domains:
+                app_cfg._dns_filter_rulesets = _df.write_kernel_rulesets(
+                    manager.workdir, app_cfg.blocked_domains)
+        except Exception:
+            pass
+        cfg = build_config(app_cfg, set(missing))
     fd, tmp = tempfile.mkstemp(suffix=".json")
     try:
         with os.fdopen(fd, "w") as f:

@@ -37,7 +37,6 @@ def _latency_queue_state() -> dict:
     return {"busy": n > 0, "running": n, "waiting": 0}
 
 from core.routing import preview_route
-from core.singbox import build_config
 from panel import db as dbmod
 
 VERSION = "0.1.0-oss"
@@ -1527,7 +1526,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
                     _manager().workdir, cfg.blocked_domains)
         except Exception:
             pass
-        return jsonify(build_config(cfg, missing))
+        from core import corebin as _corebin
+        return jsonify(_corebin.preview_config_auto(
+            cfg, _manager().workdir, missing))
 
     @app.get("/api/openbox/config/preview")
     def ob_config_preview():
@@ -1549,7 +1550,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
                     _manager().workdir, cfg.blocked_domains)
         except Exception:
             pass
-        return jsonify({"config": build_config(cfg, missing)})
+        from core import corebin as _corebin
+        return jsonify({"config": _corebin.preview_config_auto(
+            cfg, _manager().workdir, missing)})
 
     # ---- settings ----
     @app.get("/api/settings")
@@ -4976,11 +4979,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
         # Regenerate config so obflip/QUIC rules match the new flip state
         # (takes effect on next kernel restart; hot selector handles immediate traffic)
         try:
-            from core.singbox import build_config
+            from core import corebin as _corebin
             cfg = dbmod.load_app_config(db())
-            new_cfg = build_config(cfg, set())
             import os, json
             workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            new_cfg = _corebin.build_config_auto(cfg, workdir, set())
             with open(os.path.join(workdir, "config.json"), "w") as f:
                 json.dump(new_cfg, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -5020,11 +5023,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
             dbmod.update_site_set(c, sid, {"action": "proxy", "group": outbound})
         dbmod.set_site_set_flip(c, sid, "")
         try:
-            from core.singbox import build_config
+            from core import corebin as _corebin
             cfg = dbmod.load_app_config(db())
-            new_cfg = build_config(cfg, set())
             import os, json
             workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            new_cfg = _corebin.build_config_auto(cfg, workdir, set())
             with open(os.path.join(workdir, "config.json"), "w") as f:
                 json.dump(new_cfg, f, ensure_ascii=False, indent=2)
         except Exception:
@@ -5052,11 +5055,11 @@ def create_app(db_path: str = ":memory:") -> Flask:
         dbmod.set_setting(c, "routing_fallback", outbound)
         dbmod.set_setting(c, "final_outbound", outbound)
         try:
-            from core.singbox import build_config
+            from core import corebin as _corebin
             cfg = dbmod.load_app_config(db())
-            new_cfg = build_config(cfg, set())
             import os, json
             workdir = os.environ.get("OPENBOX_WORKDIR", "/root/.openbox-zashboard")
+            new_cfg = _corebin.build_config_auto(cfg, workdir, set())
             with open(os.path.join(workdir, "config.json"), "w") as f:
                 json.dump(new_cfg, f, ensure_ascii=False, indent=2)
         except Exception:
