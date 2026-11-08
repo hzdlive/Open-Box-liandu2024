@@ -206,3 +206,69 @@ def test_oracle_dns_block(monkeypatch):
     assert r["final_outbound"] == "reject"
     r = orc.predict(c, "www.example.com")
     assert r["matched"]["source"] == "siteset"
+
+
+def test_dns_rules_carry_no_ip_matchers():
+    # sing-box 1.14：DNS 规则表含 query_type 规则时，IP 型匹配
+    # （geoip 规则集、ip_cidr、port）直接 FATAL；原版 2726 条 DNS
+    # 规则里 geoip/ip_cidr 均为 0。geoip 前置规则不发 DNS 伴生规则；
+    # 站点集的 DNS 规则只抄域名型匹配。
+    c = _cfg(sites=[SiteSet(name="mix", group="所有-自动", action="proxy",
+                            domain_suffix=["example.com"],
+                            ip_cidr=["10.0.0.0/8"],
+                            rule_sets=["geoip-cn", "geosite-google"])])
+    c.front_rules = [
+        {"rtype": "geoip", "domain": "google", "target": "direct",
+         "enabled": True},
+        {"rtype": "geosite", "domain": "google", "target": "direct",
+         "enabled": True},
+    ]
+    _, dns_rules, _ = build_route_rules(c)
+    assert not any("ip_cidr" in r for r in dns_rules)
+    assert not any("port" in r for r in dns_rules)
+    assert not any(str(t).startswith("geoip-")
+                   for r in dns_rules for t in (r.get("rule_set") or []))
+    # geosite 伴生规则还在，geoip 的不在。
+    assert any(r.get("rule_set") == ["geosite-google"] for r in dns_rules)
+    assert not any(r.get("rule_set") == ["geoip-google"] for r in dns_rules)
+    # 站点集的 DNS 规则保留 domain_suffix，丢掉 ip_cidr 与 geoip-cn。
+    mix = [r for r in dns_rules if r.get("domain_suffix") == ["example.com"]]
+    assert mix and "ip_cidr" not in mix[0]
+    assert mix[0].get("rule_set") == ["geosite-google"]
+
+
+def test_tls_block_drops_unknown_utls_fingerprint():
+    # 订阅/导入带进来的哈希串指纹原样发出会让整份配置校验失败；
+    # 未知值丢 utls 段（等同旧配置里该节点无 utls），合法名照发。
+    from core.singbox import _tls_block
+    h = "5343bfcb1c5db62de169584dd7ae238dc9a8f2659283f1ee99b06d744c644806"
+    out = _tls_block({"tls": {"server_name": "x.example", "insecure": True,
+                              "fingerprint": h}})
+    assert "utls" not in out
+    assert out["server_name"] == "x.example" and out["insecure"] is True
+    out = _tls_block({"tls": {"fingerprint": "chrome"}})
+    assert out["utls"] == {"enabled": True, "fingerprint": "chrome"}
+    out = _tls_block({"tls": {"utls": {"fingerprint": h}}})
+    assert "utls" not in out
+    out = _tls_block({"tls": {"utls": {"fingerprint": "firefox"}}})
+    assert out["utls"]["fingerprint"] == "firefox"
+
+
+def test_anytls_idle_durations_get_seconds_unit():
+    # 订阅链接里时长是裸数字（=30），sing-box 只要 Go 时长串；
+    # 裸数字按秒补 s，已带单位的原样。
+    from core.singbox import _duration_str, node_to_outbound
+    assert _duration_str(30) == "30s"
+    assert _duration_str("30") == "30s"
+    assert _duration_str("30s") == "30s"
+    assert _duration_str("1m30s") == "1m30s"
+    n = Node(tag="a", protocol="anytls", server="example.com",
+             server_port=443,
+             params={"password": "p",
+                     "idle_session_check_interval": "30",
+                     "idle_session_timeout": 45,
+                     "min_idle_session": 2})
+    ob = node_to_outbound(n)
+    assert ob["idle_session_check_interval"] == "30s"
+    assert ob["idle_session_timeout"] == "45s"
+    assert ob["min_idle_session"] == 2

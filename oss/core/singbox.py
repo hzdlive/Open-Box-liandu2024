@@ -61,11 +61,37 @@ def resolve_host_ips(hosts: list[str], budget_s: float = 5.0) -> list[str]:
     return sorted(ips)
 
 
+# sing-box 1.14 接受的 uTLS 指纹名。节点 params 里可能带进哈希串等
+# 未知值（见 _tls_block），不在此列的一律不发。
+_UTLS_FINGERPRINTS = frozenset({
+    "chrome", "firefox", "safari", "ios", "android", "edge",
+    "360", "qq", "random",
+})
+
+
+def _duration_str(value) -> str:
+    """Go duration for sing-box: bare numbers mean seconds.
+
+    Subscription links carry durations as bare numbers
+    (``idle_session_check_interval=30``); sing-box rejects a duration
+    without a unit, so ``30`` -> ``"30s"``. Values that already carry
+    a unit (``"30s"``, ``"1m30s"``) pass through untouched.
+    """
+    if isinstance(value, (int, float)):
+        return f"{value:g}s"
+    s = str(value).strip()
+    if s and s.replace(".", "", 1).isdigit():
+        return s + "s"
+    return s
+
+
 def _tls_block(params: dict) -> dict | None:
     tls = params.get("tls")
     if not tls:
         return None
-    # 兼容两种格式：内部格式 tls.fingerprint 和原始 sing-box 格式 tls.utls.fingerprint
+    # sing-box 接受的 uTLS 指纹名（1.14）。订阅/导入可能带进哈希串等
+    # 未知值，原样发出会让整份配置校验失败、内核起不来；未知值直接
+    # 丢弃 utls 段（等同旧配置里该节点无 utls 的行为），只保留 TLS。
     if isinstance(tls.get("utls"), dict) and tls["utls"].get("fingerprint"):
         # 已经是 sing-box 原生格式，直接返回（确保 enabled）
         out = dict(tls)
@@ -73,6 +99,9 @@ def _tls_block(params: dict) -> dict | None:
         if isinstance(out.get("utls"), dict):
             out["utls"] = dict(out["utls"])
             out["utls"]["enabled"] = True
+            _fp = out["utls"].get("fingerprint")
+            if _fp is not None and _fp not in _UTLS_FINGERPRINTS:
+                del out["utls"]
         if isinstance(out.get("reality"), dict):
             out["reality"] = dict(out["reality"])
             out["reality"]["enabled"] = True
@@ -84,7 +113,7 @@ def _tls_block(params: dict) -> dict | None:
         out["insecure"] = True
     if tls.get("alpn"):
         out["alpn"] = tls["alpn"]
-    if tls.get("fingerprint"):
+    if tls.get("fingerprint") in _UTLS_FINGERPRINTS:
         out["utls"] = {"enabled": True, "fingerprint": tls["fingerprint"]}
     reality = tls.get("reality")
     if reality:
@@ -189,9 +218,13 @@ def node_to_outbound(node: Node) -> dict:
     elif node.protocol == "anytls":
         ob["password"] = p.get("password", "")
         # v0.1.376 (#663)：会话参数与客户端元数据（字段名与类型经
-        # sing-box 1.14.1 二进制实测：时长串 / 整数 / 字符串）
-        for key in ("idle_session_check_interval", "idle_session_timeout",
-                    "min_idle_session", "client_metadata"):
+        # sing-box 1.14.1 二进制实测：时长串 / 整数 / 字符串）。
+        # 订阅链接里时长常是裸数字（idle_session_check_interval=30），
+        # sing-box 只要 Go 时长串；裸数字按秒补单位，已带单位的原样。
+        for key in ("idle_session_check_interval", "idle_session_timeout"):
+            if p.get(key) is not None:
+                ob[key] = _duration_str(p[key])
+        for key in ("min_idle_session", "client_metadata"):
             if p.get(key) is not None:
                 ob[key] = p[key]
     elif proto == "socks":
@@ -682,7 +715,10 @@ def build_route_rules(cfg: AppConfig,
             dns_sel = {"rule_set": [f"geosite-{val}"]}
         elif rtype == "geoip":
             rule["rule_set"] = [f"geoip-{val}"]
-            dns_sel = {"rule_set": [f"geoip-{val}"]}
+            # 无 DNS 伴生规则：DNS 查询没有 IP 可匹配，geoip 规则集是
+            # IP 型内容；sing-box 1.14 在 DNS 规则表含 query_type 规则时
+            # 对 IP 型匹配直接 FATAL（原版 2726 条 DNS 规则里 geoip
+            # 引用为 0）。路由规则仍按 IP 正常分流。
         elif rtype == "ruleset_url":
             if not val.lower().endswith(".srs"):
                 continue  # surfaced via front_rule_warnings()
@@ -860,7 +896,19 @@ def build_route_rules(cfg: AppConfig,
         # the real domain is handed to the node at connect time.
         dns_server = ("dns-fakeip" if (s.action == "proxy" and cfg.dns.enable_fakeip)
                       else "dns-proxy" if s.action == "proxy" else "dns-direct")
-        dns_rules.append({**rule, "server": dns_server})
+        # DNS 规则只抄域名型匹配：sing-box 1.14 在 DNS 规则表含
+        # query_type 规则时，对 IP 型匹配（ip_cidr、geoip 规则集、
+        # port）直接 FATAL；原版 2726 条 DNS 规则里 geoip/ip_cidr
+        # 均为 0。只剩 IP 匹配的站点集不发 DNS 规则，查询走默认解析，
+        # 路由规则仍按 IP 正常分流。
+        _dns_rule = {k: v for k, v in rule.items()
+                     if k in ("domain", "domain_suffix", "domain_keyword")}
+        _dns_rs = [t for t in (rule.get("rule_set") or [])
+                   if not str(t).startswith("geoip-")]
+        if _dns_rs:
+            _dns_rule["rule_set"] = _dns_rs
+        if _dns_rule:
+            dns_rules.append({**_dns_rule, "server": dns_server})
     # QUIC 拦截已改为每个站点集独立生成（见上方循环内），不再全局拦截
     if _blocked and _df_block_tags and _df_allow_tag:
         # DNS 层拦截（原版形状）：先压掉 HTTPS/SVCB 查询（空 NOERROR），
