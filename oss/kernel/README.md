@@ -25,7 +25,7 @@
    install -m 0755 sing-box /usr/local/bin/sing-box
    ```
    或用环境变量 `OPENBOX_SINGBOX_BIN=/path/to/sing-box` 指定。
-3. 路由器一键安装：`oss/scripts/install.sh --kernel-url <产物直链>`。
+3. 路由器一键安装：`oss/scripts/install.sh --kernel-url <内核产物直链> --core-url <core 产物直链>`（core 产物见 oss/core-go/README.md 的“分发”一节）。
 
 ## 许可
 

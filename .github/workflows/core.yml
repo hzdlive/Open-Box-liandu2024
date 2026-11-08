@@ -1,0 +1,73 @@
+name: Core (oss-core Go binary)
+
+# Builds the Go core (oss-core) for linux amd64 + arm64. Static
+# binaries, uploaded as workflow artifacts. The harness comparisons
+# (Go vs the Python generator) run as the smoke test on amd64.
+#
+# Artifacts are per-arch bare binaries: oss-core-linux-amd64 and
+# oss-core-linux-arm64. The router installer
+# (oss/scripts/install.sh --core-url <direct link>) takes the asset
+# matching the target's arch.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [oss, oss-zabbix]
+    paths:
+      - '.github/workflows/core.yml'
+      - 'oss/core-go/**'
+      - 'oss/core/profile.py'
+      - 'oss/core/corebin.py'
+      - 'oss/core/singbox.py'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: oss/core-go/go.mod
+
+      - name: Set up Python (harness needs stdlib only)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build core (${{ matrix.arch }})
+        run: |
+          cd oss/core-go
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} \
+            go build -trimpath -ldflags="-s -w" -o oss-core .
+          file oss-core
+          ls -la oss-core
+
+      - name: Smoke test (version handshake)
+        # arm64 binaries cannot execute on the amd64 runner; `file`
+        # above already verifies the format.
+        if: matrix.arch == 'amd64'
+        run: ./oss/core-go/oss-core version
+
+      - name: Harness comparisons (Go vs Python generator)
+        if: matrix.arch == 'amd64'
+        run: |
+          cp oss/core-go/oss-core /tmp/oss-core
+          cd oss/core-go
+          for h in compare_outbounds compare_route_rules compare_config \
+                   compare_dnsfilter compare_emitgroups compare_configdetailed; do
+            python3 harness/$h.py --bin /tmp/oss-core || exit 1
+          done
+
+      - name: Upload core binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: oss-core-linux-${{ matrix.arch }}
+          path: oss/core-go/oss-core
+          if-no-files-found: error

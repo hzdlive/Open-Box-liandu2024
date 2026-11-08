@@ -1,0 +1,20 @@
+[Unit]
+Description=openbox-oss panel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=@PREFIX@/panel
+Environment=OBX_DB=@PREFIX@/var/panel.db
+Environment=OPENBOX_WORKDIR=@PREFIX@/var
+Environment=PORT=8081
+Environment=OBX_CORE_BIN=@PREFIX@/bin/oss-core
+Environment=OBX_TRAFFIC_COLLECT=1
+ExecStart=@PREFIX@/venv/bin/python @PREFIX@/panel/panel/run.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

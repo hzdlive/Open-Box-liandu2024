@@ -58,3 +58,19 @@ Go 版本与内核构建对齐（当前 1.25.5；开发机工具链在 `~/go-dis
 `debug-outbounds` 是开发用命令（只出 outbounds + endpoints，供对照
 工具用），`config` 完整实现后保留或移除。
 
+
+## 分发
+
+- 构建：`.github/workflows/core.yml`（Go 1.25，`go.mod` 定版），
+  linux amd64 + arm64 静态二进制，产物为 workflow artifact
+  `oss-core-linux-amd64` / `oss-core-linux-arm64`（裸二进制，非
+  tar 包）。amd64 构建后跑全部 6 个 harness 对照当冒烟测试。
+- 路由器安装：`oss/scripts/install.sh --kernel-url <内核直链>
+  --core-url <core 直链>`（Debian + OpenWrt，amd64/arm64；两个
+  URL 都必填，无默认上游）。脚本装内核 + core（`$PREFIX/bin/`，
+  并链到 `/usr/local/bin`）+ 面板文件（`core/`、`panel/`、
+  `dashboard/zashboard-src/dist/`、requirements.txt）+ 服务
+  （Debian 用 systemd，OpenWrt 用 procd），面板经
+  `OBX_CORE_BIN=$PREFIX/bin/oss-core` 找到 core。
+- 手动装一个：`install -m 0755 oss-core /usr/local/bin/oss-core`，
+  或 `OBX_CORE_BIN=/path/to/oss-core` 指定。
