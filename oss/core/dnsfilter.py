@@ -13,6 +13,8 @@ dnsmasq snippet includes it with ``conf-file=`` when the filter is on.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import threading
@@ -167,3 +169,90 @@ def apply_lists(workdir: str, lists: list[dict],
     return {"all_failed": False, "total_domains": total, "path": path,
             "lists": stats, "dnsmasq_reloaded": False,
             "applied_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+
+
+# ---------------------------------------------------------------------------
+# Kernel-side enforcement (aligned with the original core, v0.1.337 golden):
+# the original does NOT block ad domains in route rules. It shards the
+# blocklist into local rule-set files (dns-filter-anti-ad-block[-2..-4]
+# + dns-filter-anti-ad-allow) and answers NXDOMAIN for them in the DNS
+# module (predefined + rcode NXDOMAIN, mode and, unless allow-listed).
+# This module writes the same shape as sing-box JSON source rule-sets
+# (format "source"; the original uses binary .srs, behaviorally identical
+# for domain_suffix matching) so build_config can reference them.
+# ---------------------------------------------------------------------------
+
+KERNEL_RULESET_DIR = "dns-filter"
+KERNEL_BLOCK_TAG = "dns-filter-anti-ad-block"
+KERNEL_ALLOW_TAG = "dns-filter-anti-ad-allow"
+KERNEL_SHARD_SIZE = 25000
+# Sentinel: keeps the allow rule-set non-empty when the panel has no
+# allow list (mirrors the obnode-direct.invalid sentinel). Matches nothing.
+ALLOW_SENTINEL = "dns-filter-allow.invalid"
+
+
+def kernel_shard_tags(n_domains: int) -> list[str]:
+    """Shard tags for a blocklist of n_domains (original: 4 shards)."""
+    if n_domains <= 0:
+        return []
+    n = (n_domains + KERNEL_SHARD_SIZE - 1) // KERNEL_SHARD_SIZE
+    return [KERNEL_BLOCK_TAG if i == 0 else f"{KERNEL_BLOCK_TAG}-{i + 1}"
+            for i in range(n)]
+
+
+def _write_if_changed(path: str, content: str) -> bool:
+    """Write content unless the file already has it. Returns True if written."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            if f.read() == content:
+                return False
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(content)
+    os.replace(tmp, path)
+    return True
+
+
+def kernel_ruleset_entries(workdir: str, domains, allow=None) -> list[dict]:
+    """Deterministic [{tag, path}] for the kernel rule-sets, without writing.
+
+    Previews use this so the shown config matches what apply will emit
+    (apply writes the files first via write_kernel_rulesets).
+    """
+    d = sorted({x.lower().strip(".") for x in (domains or []) if x})
+    tags = kernel_shard_tags(len(d))
+    base = os.path.join(workdir, KERNEL_RULESET_DIR)
+    out = [{"tag": t, "path": os.path.join(base, f"{t}.json")} for t in tags]
+    out.append({"tag": KERNEL_ALLOW_TAG,
+                "path": os.path.join(base, f"{KERNEL_ALLOW_TAG}.json")})
+    return out
+
+
+def write_kernel_rulesets(workdir: str, domains, allow=None) -> list[dict]:
+    """Write the kernel-side DNS-filter rule-set files.
+
+    domains: the blocked domain list (flat). allow: optional allow-list
+    domains (None = no allow list -> sentinel file). Returns
+    [{"tag": ..., "path": ...}] for the block shards + the allow set,
+    in declaration order (blocks first, allow last). Files are only
+    rewritten when their content changed.
+    """
+    d = sorted({x.lower().strip(".") for x in (domains or []) if x})
+    entries = kernel_ruleset_entries(workdir, domains, allow)
+    for i, entry in enumerate(entries):
+        if entry["tag"] == KERNEL_ALLOW_TAG:
+            allow_domains = sorted({x.lower().strip(".")
+                                    for x in (allow or []) if x})
+            if not allow_domains:
+                allow_domains = [ALLOW_SENTINEL]
+            chunk = allow_domains
+        else:
+            chunk = d[i * KERNEL_SHARD_SIZE:(i + 1) * KERNEL_SHARD_SIZE]
+        content = json.dumps({"version": 3,
+                              "rules": [{"domain_suffix": chunk}]},
+                             ensure_ascii=False, separators=(",", ":"))
+        _write_if_changed(entry["path"], content)
+    return entries

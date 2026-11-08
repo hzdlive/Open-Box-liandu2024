@@ -137,7 +137,10 @@ def test_quic_block_udp_443(monkeypatch):
     c = cfg(sites=[s])
     r = run(c, "www.example.com", monkeypatch, network="udp", port=443)
     assert r["matched"]["source"] == "quic"
-    assert r["matched"]["target"] == "block"
+    # 2026-11-08 对标原版：QUIC 拦截用 action=reject，不用 outbound=block
+    # （金语料 {action, network, port, rule_set} 371 条）。
+    assert r["matched"]["target"] == "reject"
+    assert r["matched"]["action"] == "reject"
     r = run(c, "www.example.com", monkeypatch)
     assert r["matched"]["source"] == "siteset"
 

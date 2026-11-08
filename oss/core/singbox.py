@@ -10,6 +10,7 @@ from __future__ import annotations
 import ipaddress
 
 from .models import AppConfig, Chain, Group, Node
+from .dnsfilter import KERNEL_ALLOW_TAG, KERNEL_BLOCK_TAG
 from .failover_sm import failover_lane_tag
 
 
@@ -416,15 +417,28 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                 _default_lane = all_members[0] if all_members else "direct"
                 outbounds.append({"type": "selector", "tag": g.name,
                                   "outbounds": all_members or ["direct"],
-                                  "default": _default_lane})
+                                  "default": _default_lane,
+                                  # 原版 failover selector 带此字段：切换 lane 时断开
+                                  # 已有连接，否则旧 lane 上的连接会一直不断。
+                                  "interrupt_exist_connections": True})
             else:
                 outbounds.append({"type": "urltest", "tag": g.name,
                                   "outbounds": tags or ["direct"],
                                   "tolerance": g.tolerance_ms,
                                   **fo_kwargs})
-        elif g.type in ("urltest", "smart", "loadbalance"):
-            # urltest: 标准 URL 测试；smart: 按延迟智能选择（映射为 urltest）；
-            # loadbalance: 负载均衡（映射为 urltest）
+        elif g.type == "loadbalance":
+            # 负载均衡：原版 core（v0.1.331 黑盒捕获，normalizeGroups +
+            # emitGroups）把 loadbalance 组归一化为 selector（手动选择），
+            # 没有真分流出站类型；我方此前映射为 urltest 是自行决定，
+            # 未证实与原版相同，现按原版改回 selector。interval_s 仍按
+            # 387 存为 120s（面板侧元数据，core 不用）。
+            default = g.default_outbound if g.default_outbound in tags \
+                else (tags[0] if tags else "direct")
+            outbounds.append({"type": "selector", "tag": g.name,
+                              "outbounds": tags or ["direct"],
+                              "default": default})
+        elif g.type in ("urltest", "smart"):
+            # urltest: 标准 URL 测试；smart: 按延迟智能选择（映射为 urltest）
             ob = {"type": "urltest", "tag": g.name,
                   "outbounds": tags or ["direct"],
                   "url": g.test_url or cfg.speedtest_url,
@@ -617,16 +631,21 @@ def build_route_rules(cfg: AppConfig,
                                     "outbound": tr.outbound})
                 _prov({"kind": "terminal",
                        "name": f"终端 IPv6 补充策略（{tr.outbound}）"})
-    # 内容过滤 (0.1.328): 拦截启用的过滤器中的域名。位置在分流规则
-    # （前置自定义分流、站点集）之前、基础设施规则（入口旁路、终端
-    # 策略）之后：拦截是安全决策，应胜过一切基于内容的分流选择，
-    # 但不干扰入口旁路与终端身份规则。此前它在站点集之后，导致与
-    # 代理站点集重叠的域名（如 doubleclick.net 落在 geosite-google）
-    # 先被代理而非拦截。订阅与节点直连规则在分流段之后，理论上
-    # 若节点域名撞上拦截名单会被拦截，实际中过滤名单（广告/跟踪器/
-    # 恶意软件）与随机节点域名无交集，属可接受的次序。
+    # 内容过滤 (0.1.328, 2026-11-08 对标原版)：拦截在 DNS 层执行，不在路由层。
+    # 原版把名单分片成规则集文件，在 DNS 规则里以 predefined + NXDOMAIN
+    # 回答（mode and，除外放行名单）；路由层没有任何规则指向 block 出站。
+    # 此前这里是一条 domain_suffix 内联大名单 → block 的路由规则，现改为
+    # DNS 规则（见函数末尾）；规则集文件由 apply 流程写好后经
+    # cfg._dns_filter_rulesets 传入。未传入时（预览/干跑/旧调用方）回退到
+    # 旧的路由层规则，保证拦截不断。
     _blocked = getattr(cfg, 'blocked_domains', []) or []
-    if _blocked:
+    _df_sets = getattr(cfg, '_dns_filter_rulesets', None) or []
+    _df_block_tags = [s["tag"] for s in _df_sets
+                      if s.get("tag", "") == KERNEL_BLOCK_TAG
+                      or s.get("tag", "").startswith(KERNEL_BLOCK_TAG + "-")]
+    _df_allow_tag = next((s["tag"] for s in _df_sets
+                          if s.get("tag") == KERNEL_ALLOW_TAG), None)
+    if _blocked and not (_df_block_tags and _df_allow_tag):
         route_rules.append({
             "domain_suffix": _blocked,
             "outbound": "block",
@@ -789,7 +808,9 @@ def build_route_rules(cfg: AppConfig,
         if not rule:
             continue
         if s.action == "reject":
-            target = "block"
+            # 原版：拒绝用 action=reject（金语料 1260 条），不用 outbound=block；
+            # 前置自定义分流早已如此（上文 target == "reject" 分支）。
+            target = None
         else:
             target = flip_tag(s)  # hot-switch selector; default = action/flip state
         # 每个代理站点集独立 QUIC 拦截（对标原版 obflip 机制）：
@@ -816,7 +837,9 @@ def build_route_rules(cfg: AppConfig,
                     "rule_set": [_ob_tag],
                     "network": "udp",
                     "port": 443,
-                    "outbound": "block",
+                    # 原版用 action=reject（金语料 {action, network, port,
+                    # rule_set} 371 条），不用 outbound=block。
+                    "action": "reject",
                 })
                 _prov({"kind": "quic", "name": f"QUIC 拦截：{s.name}"})
             elif rule.get("rule_set"):
@@ -825,10 +848,13 @@ def build_route_rules(cfg: AppConfig,
                     "rule_set": rule["rule_set"],
                     "network": "udp",
                     "port": 443,
-                    "outbound": "block",
+                    "action": "reject",
                 })
                 _prov({"kind": "quic", "name": f"QUIC 拦截：{s.name}"})
-        route_rules.append({**rule, "outbound": target})
+        if target is None:
+            route_rules.append({**rule, "action": "reject"})
+        else:
+            route_rules.append({**rule, "outbound": target})
         _prov({"kind": "siteset", "name": s.name, "group": s.group})
         # FakeIP: proxied domains resolve to placeholder addresses locally;
         # the real domain is handed to the node at connect time.
@@ -836,6 +862,22 @@ def build_route_rules(cfg: AppConfig,
                       else "dns-proxy" if s.action == "proxy" else "dns-direct")
         dns_rules.append({**rule, "server": dns_server})
     # QUIC 拦截已改为每个站点集独立生成（见上方循环内），不再全局拦截
+    if _blocked and _df_block_tags and _df_allow_tag:
+        # DNS 层拦截（原版形状）：先压掉 HTTPS/SVCB 查询（空 NOERROR），
+        # 再按分片各一条 NXDOMAIN 逻辑规则（命中拦截名单且不在放行名单）。
+        # 顺序与原版一致：这两类规则排在 DNS 规则最前面（原版 DNS 规则
+        # 顺序：rewrite → local → NOERROR → NXDOMAIN → 其余；rewrite/local
+        # 我方未实现，故 NOERROR/NXDOMAIN 打头）。
+        _df_dns = [{"action": "predefined",
+                    "query_type": ["HTTPS", "SVCB"], "rcode": "NOERROR"}]
+        for _tag in _df_block_tags:
+            _df_dns.append({
+                "action": "predefined", "mode": "and", "rcode": "NXDOMAIN",
+                "rules": [{"rule_set": [_tag]},
+                          {"invert": True, "rule_set": [_df_allow_tag]}],
+                "type": "logical",
+            })
+        dns_rules = _df_dns + dns_rules
     return route_rules, dns_rules, group_names
 
 
@@ -1013,7 +1055,11 @@ def build_config(cfg: AppConfig,
         """Reorder rules to match original: logical bypass first, then sniff, hijack-dns."""
         logical_rules = [r for r in rules if r.get("type") == "logical"]
         other_rules = [r for r in rules if r.get("type") != "logical"]
-        return logical_rules + [{"action": "sniff"}, {"protocol": "dns", "action": "hijack-dns"}] + other_rules
+        # 原版开头：[0] logical bypass → [1] sniff → [2] hijack-dns
+        # （protocol=dns）→ [3] hijack-dns（inbound=dns-in）；此前只有一条。
+        return logical_rules + [{"action": "sniff"},
+                                {"protocol": "dns", "action": "hijack-dns"},
+                                {"inbound": ["dns-in"], "action": "hijack-dns"}] + other_rules
 
     route_rules, dns_rules, _ = build_route_rules(cfg, skip_rule_sets)
     # split=false: all DNS via the proxy upstream (no direct/proxy split).
@@ -1058,6 +1104,16 @@ def build_config(cfg: AppConfig,
             "tag": tag,
             "rules": rules,
         })
+    # DNS-filter rule sets (content filter, kernel-side DNS NXDOMAIN):
+    # declared when the apply flow wrote them (cfg._dns_filter_rulesets).
+    # Format source (JSON); the original uses binary .srs, same matching.
+    for _s in getattr(cfg, "_dns_filter_rulesets", None) or []:
+        rule_set_decls.append({
+            "type": "local",
+            "tag": _s["tag"],
+            "format": "source",
+            "path": _s["path"],
+        })
     # obnode-direct / obnode-direct-ip: direct-host DOMAIN/CIDR sets (1:1 with original).
     # 空集时用 sentinel 值，保证 rule_set 非空。
     _obd = getattr(cfg, "_obnode_direct", None)
@@ -1080,7 +1136,7 @@ def build_config(cfg: AppConfig,
         "dns": {
             "servers": (
                 [{"type": "fakeip", "tag": "dns-fakeip",
-                  "inet4_range": "198.19.0.0/16", "inet6_range": "fc00::/18"}]
+                  "inet4_range": "198.19.0.0/16"}]
                 if cfg.dns.enable_fakeip else []
             ) + (_dns_servers("dns-direct", cfg.dns.direct_dns, "direct",
                              cfg.dns.upstream_latency)
@@ -1088,12 +1144,23 @@ def build_config(cfg: AppConfig,
                                 cfg.dns.upstream_latency)),
             "rules": dns_rules,
             "final": dns_final,
+            # 原版 38/38 份配置：strategy 恒为 ipv4_only（只解析 A 记录）、
+            # reverse_mapping 恒为 true（IP→域名反向映射，供路由按域名匹配）。
+            # 此前两项都不写，走 sing-box 缺省（strategy 非 ipv4_only、
+            # reverse_mapping 关），与原版不等价。fakeip 也只含 inet4 段
+            # （34/34），此前多一段 inet6 fc00::/18，已随 strategy 去掉。
+            "strategy": "ipv4_only",
+            "reverse_mapping": True,
         },
         "inbounds": [
             {"type": "tun", "tag": "tun-in", "stack": cfg.tun_stack,
              "mtu": cfg.tun_mtu, "address": cfg.tun_address,
              "auto_route": True, "strict_route": False},
-            {"type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": 2080},
+            # 原版：mixed 入站叫 panel-in（127.0.0.1:7891），不是 mixed-in:2080；
+            # 另有 dns-in（direct，0.0.0.0:7853）：dnsmasq 把查询转发到这里，
+            # 靠第二条 hijack-dns 规则接进 DNS 模块（金语料 38/38 都有）。
+            {"type": "mixed", "tag": "panel-in", "listen": "127.0.0.1", "listen_port": 7891},
+            {"type": "direct", "tag": "dns-in", "listen": "0.0.0.0", "listen_port": 7853},
         ] + ([{"type": "mixed", "tag": "lan-share-in", "listen": "0.0.0.0",
                "listen_port": cfg.share_lan_port}]
              if cfg.share_lan_enabled else []) + [

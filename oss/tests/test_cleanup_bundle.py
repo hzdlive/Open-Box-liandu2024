@@ -45,10 +45,17 @@ def test_config_preview_includes_blocked_domains():
     conn.commit()
     conn.close()
     conf = c.get("/api/config").get_json()
-    blocks = [r for r in conf["route"]["rules"]
-              if r.get("outbound") == "block"
-              and "blocked.example.com" in (r.get("domain_suffix") or [])]
-    assert blocks, "preview must carry the content-filter block rule"
+    # 2026-11-08 对标原版：内容过滤在 DNS 层执行（NXDOMAIN + 规则集），
+    # 不再是路由层 domain_suffix → block。
+    nx = [r for r in conf["dns"]["rules"] if r.get("rcode") == "NXDOMAIN"]
+    assert nx, "preview must carry the content-filter NXDOMAIN DNS rules"
+    assert any("dns-filter-anti-ad-block" in (s.get("rule_set") or [])
+               for r in nx for s in r.get("rules", []))
+    decls = {r["tag"]: r for r in conf["route"]["rule_set"]}
+    assert "dns-filter-anti-ad-block" in decls
+    assert decls["dns-filter-anti-ad-block"]["type"] == "local"
+    assert not any(r.get("outbound") == "block"
+                   for r in conf["route"]["rules"])
 
 
 def test_failover_member_count():

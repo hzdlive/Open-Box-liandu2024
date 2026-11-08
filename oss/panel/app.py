@@ -1518,6 +1518,15 @@ def create_app(db_path: str = ":memory:") -> Flask:
         # .srs is missing are dropped (apply downloads them first).
         names = _gd.referenced_rule_sets(cfg)
         missing = {n for n in names if not _gd.is_available(n)}
+        # Preview matches what apply will emit: reference the DNS-filter
+        # rule-sets (apply writes the files first; paths are deterministic).
+        try:
+            from core import dnsfilter as _df
+            if cfg.blocked_domains:
+                cfg._dns_filter_rulesets = _df.kernel_ruleset_entries(
+                    _manager().workdir, cfg.blocked_domains)
+        except Exception:
+            pass
         return jsonify(build_config(cfg, missing))
 
     @app.get("/api/openbox/config/preview")
@@ -1532,6 +1541,14 @@ def create_app(db_path: str = ":memory:") -> Flask:
         cfg = dbmod.load_app_config(db(), with_blocked_domains=True)
         names = _gd.referenced_rule_sets(cfg)
         missing = {n for n in names if not _gd.is_available(n)}
+        # Same DNS-filter reference as /api/config above.
+        try:
+            from core import dnsfilter as _df
+            if cfg.blocked_domains:
+                cfg._dns_filter_rulesets = _df.kernel_ruleset_entries(
+                    _manager().workdir, cfg.blocked_domains)
+        except Exception:
+            pass
         return jsonify({"config": build_config(cfg, missing)})
 
     # ---- settings ----
@@ -4617,7 +4634,7 @@ def create_app(db_path: str = ":memory:") -> Flask:
         m = _manager()
         proxy = None
         if m.status().running:
-            proxy = "http://127.0.0.1:2080"  # kernel loopback mixed inbound
+            proxy = "http://127.0.0.1:7891"  # kernel loopback mixed inbound (panel-in)
         c = db()
         out = []
         for s in dbmod.list_site_latency_sites(c):
@@ -4763,8 +4780,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
         pv = preview_route(cfg.site_sets, host)
         t0 = time.time()
         try:
-            proxy = _url.ProxyHandler({"http": "http://127.0.0.1:2080",
-                                       "https": "http://127.0.0.1:2080"})
+            proxy = _url.ProxyHandler({"http": "http://127.0.0.1:7891",
+                                       "https": "http://127.0.0.1:7891"})
             opener = _url.build_opener(proxy)
             req = _url.Request(url, headers={"User-Agent": "openbox-oss/route-test"})
             with opener.open(req, timeout=15) as r:

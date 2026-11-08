@@ -55,6 +55,17 @@ def _sync_selection_before_build(conn) -> None:
 def build_and_validate(conn, manager: KernelManager) -> tuple[dict, bool, str]:
     """Build the config from DB and validate it. Returns (config, ok, message)."""
     app_cfg = dbmod.load_app_config(conn, with_blocked_domains=True)
+    # Kernel-side DNS-filter rule-sets (aligned with the original):
+    # shard the blocklist into files BEFORE building the config, so the
+    # generated config can reference them. Failure here never breaks the
+    # apply: build_config falls back to the route-layer block rule.
+    try:
+        from core import dnsfilter as _df
+        if app_cfg.blocked_domains:
+            app_cfg._dns_filter_rulesets = _df.write_kernel_rulesets(
+                manager.workdir, app_cfg.blocked_domains)
+    except Exception:
+        pass
     # Local .srs rule-sets referenced by site sets: TTL-aware refresh now
     # (v6 #14 deploy-rulesets semantics: 24h TTL + URL match reuse, stale
     # files re-downloaded, failures keep the old file). Anything still

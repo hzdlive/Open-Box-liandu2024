@@ -4,12 +4,14 @@
 但规则表不手写：直接取 ``core.singbox.build_route_rules`` 的输出——
 预言机评估的是 build_config 将要生成的规则，顺序与内核一致
 （逻辑旁路 → 终端 → 前置 → 订阅节点直连 → QUIC 拦截 → 站点集 →
-内容过滤 → 兜底），命中规则用 provenance 映射回前置/站点集/内置项。
+兜底；内容过滤在 DNS 层先行 NXDOMAIN，不再进路由），命中规则用
+provenance 映射回前置/站点集/内置项。
 
 与旧版 ``core.penetration.penetrate``（前置→站点集→兜底三段字面匹配）
 相比，预言机补齐的维度：
 - 目标解析与校验（域名/IP/[IPv6]/可选端口；非法目标 400）；
-- 内置规则全量（旁路、终端、订阅直连、QUIC、内容过滤），兜底按内核
+- 内置规则全量（旁路、终端、订阅直连、QUIC），内容过滤在 DNS 层先行
+  （命中即 NXDOMAIN，不再进路由），兜底按内核
   的 ``route.final = 其他`` 而非面板的 final_outbound；
 - 规则集引用展开（geosite exact/suffix 分开、geoip CIDR、obnode、
   obflip 内联、任意本地 .srs 经 decompile；远程 url-* 无法本地展开
@@ -36,6 +38,7 @@ import re
 import socket
 
 from core import geodata as _gd
+from core.dnsfilter import KERNEL_ALLOW_TAG, KERNEL_BLOCK_TAG
 from core.penetration import _match_domain, _match_ip
 
 FAKEIP_V4 = ipaddress.ip_network("198.19.0.0/16")
@@ -308,6 +311,19 @@ def _match_rule_set(tag: str, ctx: Ctx, depth=0, seen=None,
             return "unknown", f"规则集 {tag} 需目的 IP，域名未解析"
         hit, detail = _match_ip_field(ctx.obnode_cidrs, ips)
         return ("hit", f"rule_set {tag}: {detail}") if hit else ("miss", "")
+    if tag == KERNEL_ALLOW_TAG or tag == KERNEL_BLOCK_TAG or tag.startswith(KERNEL_BLOCK_TAG + "-"):
+        # Kernel-side DNS-filter rule-sets (content filter): the block
+        # shards match cfg.blocked_domains by suffix; the allow set is a
+        # sentinel file (matches nothing) unless the panel gains an
+        # allow list. File contents are not read here: the config the
+        # oracle evaluates was built from the same cfg.
+        if t.kind != "domain":
+            return "miss", ""
+        if tag == KERNEL_ALLOW_TAG:
+            return "miss", ""
+        blocked = getattr(getattr(ctx, "cfg", None), "blocked_domains", None) or []
+        hit, detail = _match_suffix_field(blocked, t.value)
+        return ("hit", f"rule_set {tag}: {detail}") if hit else ("miss", "")
     if tag.startswith("obflip-"):
         rules = ctx.obflip.get(tag)
         if rules is None:
@@ -565,7 +581,8 @@ def _dns_walk(cfg, dns_rules, ctx: Ctx):
     """
     if ctx.target.kind != "domain":
         return {"server": None, "rule_index": None, "detail": "",
-                "rewrite": None, "assumptions": [], "note": "IP 目标无需 DNS"}
+                "rewrite": None, "assumptions": [], "note": "IP 目标无需 DNS",
+                "rcode": None, "action": None}
     assumptions = []
     for idx, rule in enumerate(dns_rules):
         st, detail = _eval_rule(rule, ctx, dns_mode=True)
@@ -573,14 +590,16 @@ def _dns_walk(cfg, dns_rules, ctx: Ctx):
             return {"server": rule.get("server"), "rule_index": idx,
                     "detail": detail,
                     "rewrite": _rewrite_of(cfg, ctx.target.value),
-                    "assumptions": assumptions, "note": ""}
+                    "assumptions": assumptions, "note": "",
+                    "rcode": rule.get("rcode"), "action": rule.get("action")}
         if st in ("unknown", "skip-source", "skip-port"):
             assumptions.append({"rule_index": idx, "reason": detail})
     split = getattr(getattr(cfg, "dns", None), "split", True)
     return {"server": "dns-direct" if split else "dns-proxy",
             "rule_index": None, "detail": "未命中 DNS 规则，走 final",
             "rewrite": _rewrite_of(cfg, ctx.target.value),
-            "assumptions": assumptions, "note": ""}
+            "assumptions": assumptions, "note": "",
+            "rcode": None, "action": None}
 
 
 # ---------------------------------------------------------------- chain walk
@@ -716,6 +735,47 @@ def predict(cfg, target_raw, port=None, network="tcp", ip_version=None,
                   geosite_split, geoip_expand)
     dns = _dns_walk(cfg, dns_rules, dns_ctx)
     fakeip_dns = dns.get("server") == "dns-fakeip"
+    if dns.get("rcode") == "NXDOMAIN":
+        # DNS-layer content filter: the query is answered NXDOMAIN, so
+        # there is no connection to route. Report it as a content block
+        # (same matched shape as the old route-layer rule).
+        matched = {
+            "source": "content",
+            "source_name": "内容过滤",
+            "rule_type": "dns",
+            "rule_value": dns.get("detail", ""),
+            "rule_note": "DNS 层返回 NXDOMAIN",
+            "target": "block",
+            "rule_index": None,
+            "dns_rule_index": dns.get("rule_index"),
+            "owner": {"kind": "content", "name": "内容过滤"},
+            "action": "predefined",
+            "outbound": "",
+            "chain": ["reject"],
+            "final_outbound": "reject",
+            "chain_unresolved": False,
+            "chain_note": "",
+        }
+        return {
+            "query": target.value,
+            "is_ip": target.kind == "ip",
+            "port": target.port,
+            "network": network,
+            "ip_version": target.version if target.kind == "ip" else ip_version,
+            "classification": target.classify() or None,
+            "resolved_ips": [],
+            "matched": matched,
+            "verdict": "hit",
+            "rule_index": None,
+            "owner": matched["owner"],
+            "chain": matched["chain"],
+            "final_outbound": "reject",
+            "dns": dns,
+            "dns_server": None,
+            "assumptions": dns.get("assumptions", []),
+            "skipped_source_rules": [],
+            "skipped_port_rules": [],
+        }
 
     resolved = []
     if target.kind == "domain" and not fakeip_dns:
