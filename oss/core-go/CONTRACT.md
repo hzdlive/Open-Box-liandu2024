@@ -85,8 +85,9 @@ stdout 只出一个 JSON 文档（配置本身）；诊断信息走 stderr。
 
 - 分流算法是**轮询**：2026-11-14 在 lab 内核 1.14.4-openbox-38 上
   实测，2 个真实节点、12 个连接严格 A,B 交替（各 6 次），不是随机、
-  不是按延迟。成员按 `interval` 做 generate_204 健康检查，不健康的
-  成员会被排除。
+  不是按延迟；同日在现网内核 1.14.4-openbox-45 上复测，6 个并发
+  连接两成员各接 3 个，轮询分流在 45 上同样证实。成员按 `interval`
+  做 generate_204 健康检查，不健康的成员会被排除。
 - `interval` 取组的 `interval_s`（面板默认 120s，未设时 120s），
   `url` 取组的 `test_url`、未设时取 profile 的 `speedtest_url`。
 - 成员必须是**真实代理节点**：内核在启动时拒绝 direct/block/组/链
@@ -97,6 +98,10 @@ stdout 只出一个 JSON 文档（配置本身）；诊断信息走 stderr。
 - schema 只有 `{type, tag, outbounds, interval, url}` 这五个字段：
   内核拒绝 `pick` / `strategy` 等字段（`json: unknown field`），
   别拿其他 fork 的 pick/objective/strategy 文档当原版行为。
+- **loadbalance 不是按带宽选节点**：轮询按连接数 1:1 分流，不看
+  节点带宽、不看延迟。原版 v0.1.388 的“带宽择优”（按组启用、2 小时
+  测一次、单次上限 64MB）是另一套机制，仍挂起、仍需单独设计，
+  与 loadbalance 无关。
 
 ### 未实现的方法
 

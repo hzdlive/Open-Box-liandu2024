@@ -25,7 +25,11 @@ Flask（Python）实现，对应源项目面板后端除授权外的全部管理
 - [x] 配置生成/预览接口（复用 `core/`，含组、链式代理 detour、规则集展开）
 - [x] 规则集：远程抓取、clash-classical / domain-list 解析、合并进站点集参与匹配
 - [x] 链式代理：socks/http 出口经前置节点/组 detour；加入静态 selector，不进动态 urltest
-- [x] 节点组：urltest / selector，动态关键词自动收编，默认 auto / manual
+- [x] 节点组：urltest / selector / loadbalance，动态关键词自动收编，默认 auto / manual。
+      loadbalance 是内核原生出站（v0.1.384+，轮询分流，成员须为真实节点，间隔默认 120s），
+      需要魔改内核 1.14.4-openbox-38+（现网已换 1.14.4-openbox-45，2026-11-14），
+      内核不支持时拒绝建组、不静默退回 selector。loadbalance 不是按带宽选节点，
+      原版 v0.1.388 的“带宽择优”仍挂起、仍需单独设计，与 loadbalance 无关。
 - [x] 节点健康检查：TCP 连通 + TLS 握手延迟；UDP 协议（tuic/hysteria2/wireguard）如实标记跳过
 - [ ] 故障转移组：sing-box 原生无 failover 出站类型。真 failover 语义留到 Phase 3，
       方案二选一：a) 基于 GPL 内核源码自研补丁新增出站类型；b) 面板侧 watcher 动态改写。
