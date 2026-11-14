@@ -24,7 +24,9 @@ from core.profile import app_config_to_profile
 # version and these methods. A mismatch means the installed binary
 # does not match this panel, and using it would silently generate
 # configs for the wrong kernel.
-EXPECTED_SINGBOX = "1.14.1"
+# 1.14.4: the loadbalance outbound needs the modified kernel
+# 1.14.4-openbox-38+ (the 1.14.1-openbox tcp28 kernel rejects it).
+EXPECTED_SINGBOX = "1.14.4"
 REQUIRED_METHODS = {"config", "configDetailed", "emitGroups"}
 
 # Generous: the core is a local static binary, normally <1s.

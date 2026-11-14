@@ -19,12 +19,16 @@
 握手。stdout 一行 JSON：
 
 ```json
-{"name": "oss-core", "version": "0.1.0", "singbox": "1.14.1",
+{"name": "oss-core", "version": "0.1.0", "singbox": "1.14.4",
  "methods": ["emitGroups", "configDetailed", "config"]}
 ```
 
 面板首次使用前调一次，主版本必须一致才允许部署；版本记入部署状态。
 `routingFingerprint` 不在 methods 里——它明确不实现。
+
+`singbox` 是配置面向的内核版本。1.14.4：loadbalance 出站需要
+魔改内核 1.14.4-openbox-38+（1.14.1-openbox tcp28 与原版 1.14.x
+都拒绝 `type: loadbalance`）。
 
 ### `oss-core config --profile <file> --workdir <dir> [--skip-rule-sets a,b]`
 
@@ -69,6 +73,30 @@ stdout 只出一个 JSON 文档（配置本身）；诊断信息走 stderr。
 `groups` 是组派生的出站（订阅组、用户组、内置、热切换选择器、“其他”），
 与 `config` 的 `outbounds` 里节点/链之后的部分相同。原版 `emitGroups`
 的 lane id 与 `dropped` 等字段不做（见上）。
+
+### 组类型：loadbalance
+
+`loadbalance` 组发内核原生出站（v0.1.384+，不是 selector）：
+
+```json
+{"type": "loadbalance", "tag": "<组名>", "outbounds": ["<节点1>", "<节点2>"],
+ "interval": "120s", "url": "http://www.gstatic.com/generate_204"}
+```
+
+- 分流算法是**轮询**：2026-11-14 在 lab 内核 1.14.4-openbox-38 上
+  实测，2 个真实节点、12 个连接严格 A,B 交替（各 6 次），不是随机、
+  不是按延迟。成员按 `interval` 做 generate_204 健康检查，不健康的
+  成员会被排除。
+- `interval` 取组的 `interval_s`（面板默认 120s，未设时 120s），
+  `url` 取组的 `test_url`、未设时取 profile 的 `speedtest_url`。
+- 成员必须是**真实代理节点**：内核在启动时拒绝 direct/block/组/链
+  成员（`load balance requires real proxy nodes`），且 `sing-box
+  check` 不拦（check 能过、run 即 FATAL，整个内核起不来）。所以
+  core 只把解析出的节点 tag 放进 `outbounds`；面板保存时也要校验
+  成员是真实节点（见面板层），空成员的 loadbalance 组不允许保存。
+- schema 只有 `{type, tag, outbounds, interval, url}` 这五个字段：
+  内核拒绝 `pick` / `strategy` 等字段（`json: unknown field`），
+  别拿其他 fork 的 pick/objective/strategy 文档当原版行为。
 
 ### 未实现的方法
 

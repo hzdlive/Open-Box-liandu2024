@@ -19,6 +19,32 @@ from dataclasses import dataclass, field
 PANEL_VERSION = "0.1.0-oss"
 
 
+def version_supports_loadbalance(version: str | None) -> bool:
+    """Whether a kernel version string has the native loadbalance
+    outbound type (Open-Box v0.1.384+, kernel 1.14.4-openbox-38+).
+
+    The type exists only in the modified Open-Box kernel: stock
+    sing-box and the 1.14.1-openbox tcp28 kernel reject it. A later
+    upstream (e.g. 1.14.5-openbox-*) inherits it; a 1.14.4-openbox-N
+    needs N >= 38.
+    """
+    if not version or "-openbox-" not in version:
+        return False
+    upstream, _, patch = version.partition("-openbox-")
+    try:
+        up = tuple(int(x) for x in upstream.strip().split("."))
+    except ValueError:
+        return False
+    if up > (1, 14, 4):
+        return True
+    if up == (1, 14, 4):
+        try:
+            return int(patch.strip()) >= 38
+        except ValueError:
+            return False
+    return False
+
+
 @dataclass
 class ServiceStatus:
     installed: bool
@@ -75,6 +101,12 @@ class KernelManager:
                 except (ValueError, IndexError):
                     return line.strip()
         return out.stdout.strip().splitlines()[0] if out.stdout.strip() else None
+
+    def supports_loadbalance(self) -> bool:
+        """Whether the installed kernel has the native loadbalance
+        outbound type (Open-Box v0.1.384+, kernel 1.14.4-openbox-38+).
+        The 1.14.1-openbox tcp28 kernel and stock sing-box reject it."""
+        return version_supports_loadbalance(self.version())
 
     def check_config(self, path: str | None = None) -> tuple[bool, str]:
         """Validate a config file with `sing-box check -c`. Returns (ok, message)."""

@@ -1572,6 +1572,44 @@ def _validate_failover(members, dynamic_keywords, lanes) -> None:
         raise ValueError("failover 需要主备页签（lanes）")
 
 
+def _validate_loadbalance(conn, members, dynamic_keywords, interval_s) -> None:
+    """Validate a loadbalance group: members must resolve to real proxy
+    nodes only. The kernel refuses direct/block/group/chain members at
+    startup ("load balance requires real proxy nodes"), and sing-box
+    check does NOT catch it, so validate here, not at deploy time."""
+    node_tags = [r[0] for r in conn.execute("SELECT tag FROM nodes")]
+    node_set = set(node_tags)
+    resolved = []
+    for m in (members or []):
+        if m in ("*nodes*", "*all*"):
+            # *all* is nodes+chains; chains are not real proxy nodes,
+            # so it resolves to nodes only (same as *nodes* here).
+            for t in node_tags:
+                if t not in resolved:
+                    resolved.append(t)
+        elif m in node_set:
+            if m not in resolved:
+                resolved.append(m)
+        else:
+            raise ValueError(f"loadbalance 成员必须是真实节点：{m!r} 不是节点")
+    for kw in (dynamic_keywords or []):
+        kl = str(kw).lower()
+        for t in node_tags:
+            if kl in t.lower() and t not in resolved:
+                resolved.append(t)
+    if not resolved:
+        raise ValueError("loadbalance 至少需要一个真实节点成员")
+    if len(resolved) > 64:
+        raise ValueError(f"loadbalance 成员最多 64 个，当前 {len(resolved)} 个")
+    if interval_s is not None:
+        try:
+            iv = int(interval_s)
+        except (TypeError, ValueError):
+            raise ValueError("loadbalance 间隔必须是秒数")
+        if iv < 5 or iv > 86400:
+            raise ValueError("loadbalance 间隔须为 5 秒至 24 小时（5–86400）")
+
+
 def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     if d.get("type", "urltest") not in ("urltest", "selector", "failover", "smart", "loadbalance"):
         raise ValueError("type must be urltest|selector|failover|smart|loadbalance")
@@ -1579,6 +1617,10 @@ def create_group(conn: sqlite3.Connection, d: dict) -> dict:
     lanes = _normalize_lanes(d.get("lanes"))
     if d.get("type") == "failover":
         _validate_failover(d.get("members", []), d.get("dynamic_keywords", []), lanes)
+    if d.get("type") == "loadbalance":
+        _validate_loadbalance(conn, d.get("members", []),
+                              d.get("dynamic_keywords", []),
+                              d.get("interval_s") or 120)
     cur = conn.execute(
         "INSERT INTO groups(name, type, members, dynamic_keywords, position,"
         " enabled, interval_s, tolerance_ms, idle_timeout,"
@@ -1638,7 +1680,7 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
                      ("default_outbound", "default_outbound"),
                      ("icon", "icon"), ("icon_scale", "icon_scale")):
         if key in d:
-            if key == "type" and d[key] not in ("urltest", "selector", "failover"):
+            if key == "type" and d[key] not in ("urltest", "selector", "failover", "smart", "loadbalance"):
                 raise ValueError("type must be urltest|selector|failover|smart|loadbalance")
             fields.append(f"{col}=?")
             v = d[key]
@@ -1672,6 +1714,26 @@ def update_group(conn: sqlite3.Connection, gid: int, d: dict) -> dict | None:
             _validate_failover(cur_members, cur_kw, lanes)
         fields.append("lanes=?")
         vals.append(json.dumps(lanes, ensure_ascii=False))
+    # loadbalance: validate the effective (post-update) members/interval
+    # whenever the group is or becomes a loadbalance group.
+    _eff_type = d.get("type")
+    if _eff_type is None:
+        _eff_type = conn.execute("SELECT type FROM groups WHERE id=?",
+                                 (gid,)).fetchone()[0]
+    if _eff_type == "loadbalance":
+        _eff_members = d.get("members")
+        _eff_kw = d.get("dynamic_keywords")
+        _eff_iv = d.get("interval_s")
+        if _eff_members is None or _eff_kw is None or _eff_iv is None:
+            _row = conn.execute("SELECT members, dynamic_keywords, interval_s"
+                                " FROM groups WHERE id=?", (gid,)).fetchone()
+            if _eff_members is None:
+                _eff_members = json.loads(_row[0])
+            if _eff_kw is None:
+                _eff_kw = json.loads(_row[1])
+            if _eff_iv is None:
+                _eff_iv = _row[2]
+        _validate_loadbalance(conn, _eff_members, _eff_kw, _eff_iv)
     if fields:
         vals.append(gid)
         conn.execute(f"UPDATE groups SET {', '.join(fields)} WHERE id=?", vals)

@@ -649,19 +649,29 @@ func buildOutbounds(p Profile) ([]*Obj, error) {
 				))
 			}
 		case "loadbalance":
-			def := g.DefaultOutbound
-			found := false
+			// Load balance: emit the kernel-native loadbalance outbound
+			// (v0.1.384+, round-robin over healthy members, verified
+			// against the lab kernel 2026-11-14). Members must be real
+			// proxy nodes only: the kernel refuses direct/block/group/
+			// chain members at startup ("load balance requires real
+			// proxy nodes"), and sing-box check does NOT catch it, so
+			// filter the resolved tags to node tags here; the panel
+			// also validates members at save time.
+			var members []string
 			for _, t := range tags {
-				if t == def {
-					found = true
+				if containsStr(nodeTags, t) {
+					members = append(members, t)
 				}
 			}
-			if !found {
-				def = firstOrDirect()
+			intervalS := g.IntervalS
+			if intervalS == 0 {
+				intervalS = 120 // panel default for loadbalance groups
 			}
 			outbounds = append(outbounds, O(
-				"type", "selector", "tag", g.Name,
-				"outbounds", orDirect(), "default", def,
+				"type", "loadbalance", "tag", g.Name,
+				"outbounds", outs(members),
+				"interval", fmt.Sprintf("%ds", intervalS),
+				"url", firstNonEmpty(g.TestURL, p.SpeedtestURL),
 			))
 		case "urltest", "smart":
 			ob := O(

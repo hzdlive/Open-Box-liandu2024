@@ -96,17 +96,19 @@ def test_route_rule_order_hijack_dns_twice():
     assert rules[3] == {"inbound": ["dns-in"], "action": "hijack-dns"}
 
 
-def test_loadbalance_emits_selector_not_urltest():
-    # 原版 core（v0.1.331 黑盒捕获：normalizeGroups + emitGroups）把
-    # loadbalance 组归一化为 selector（手动选择），没有真分流出站类型；
-    # 此前我方映射为 urltest 是自行决定。
-    g = Group(name="LB", type="loadbalance", members=["n1", "n2"])
+def test_loadbalance_emits_real_loadbalance_outbound():
+    # 真负载均衡（2026-11-14，用户已批）：loadbalance 组发内核原生
+    # loadbalance 出站（v0.1.384+，轮询），不再归一化为 selector。
+    # interval 取组的 interval_s（面板默认 120s），url 取全局测速地址。
+    g = Group(name="LB", type="loadbalance", members=["n1", "n2"],
+              interval_s=120)
     obs = build_outbounds(_cfg(groups=[g]))
     lb = next(o for o in obs if o.get("tag") == "LB")
-    assert lb["type"] == "selector"
+    assert lb["type"] == "loadbalance"
     assert lb["outbounds"] == ["n1", "n2"]
-    assert lb["default"] == "n1"
-    assert "url" not in lb and "interval" not in lb
+    assert lb["interval"] == "120s"
+    assert lb["url"] == "http://www.gstatic.com/generate_204"
+    assert "default" not in lb
 
 
 def test_siteset_reject_and_quic_use_action_reject():

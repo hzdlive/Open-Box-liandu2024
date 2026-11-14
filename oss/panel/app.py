@@ -2359,6 +2359,17 @@ def create_app(db_path: str = ":memory:") -> Flask:
         return jsonify(result)
 
     # ---- groups ----
+    def _is_loadbalance_group(c, gid: int) -> bool:
+        """Whether the group with this id is a loadbalance group."""
+        if gid in (0, -1):
+            return False
+        try:
+            row = c.execute("SELECT type FROM groups WHERE id=?",
+                            (gid,)).fetchone()
+        except Exception:
+            return False
+        return bool(row and row[0] == "loadbalance")
+
     @app.get("/api/groups")
     def group_list():
         return jsonify(dbmod.list_groups(db()))
@@ -2368,6 +2379,9 @@ def create_app(db_path: str = ":memory:") -> Flask:
         d = request.get_json(force=True, silent=True) or {}
         if not d.get("name"):
             return jsonify({"error": "name is required"}), 400
+        if d.get("type") == "loadbalance" and not _manager().supports_loadbalance():
+            return jsonify({"error": "当前内核不支持负载均衡（需要 1.14.4-openbox-38+ 内核），"
+                                     "请先升级内核再创建 loadbalance 组"}), 400
         try:
             return jsonify(dbmod.create_group(db(), d)), 201
         except ValueError as e:
@@ -2378,6 +2392,10 @@ def create_app(db_path: str = ":memory:") -> Flask:
     @app.put("/api/groups/<sint:gid>")
     def group_update(gid: int):
         d = request.get_json(force=True, silent=True) or {}
+        if d.get("type") == "loadbalance" or _is_loadbalance_group(db(), gid):
+            if not _manager().supports_loadbalance():
+                return jsonify({"error": "当前内核不支持负载均衡（需要 1.14.4-openbox-38+ 内核），"
+                                         "请先升级内核再修改 loadbalance 组"}), 400
         try:
             row = dbmod.update_group(db(), gid, d)
         except ValueError as e:
@@ -2413,6 +2431,8 @@ def create_app(db_path: str = ":memory:") -> Flask:
         c = db()
         current = {r[0]: r[1] for r in c.execute(
             "SELECT id, name FROM groups")}
+        current_types = {r[0]: r[1] for r in c.execute(
+            "SELECT id, type FROM groups")}
         for it in items:
             if not isinstance(it, dict):
                 return jsonify({"error": "each group must be an object"}), 400
@@ -2423,15 +2443,24 @@ def create_app(db_path: str = ":memory:") -> Flask:
                     return jsonify({"error": f"unknown group id: {gid}"}), 400
             elif not str(it.get("name") or "").strip():
                 return jsonify({"error": "name is required"}), 400
-            # update_group itself only accepts urltest|selector|failover
-            # on update (its message names all five); mirror it here so
-            # a bad type fails before any write, not mid-apply.
+            # update_group accepts all five types on update; mirror it
+            # here so a bad type fails before any write, not mid-apply.
             _allowed = ("urltest", "selector", "failover", "smart",
-                        "loadbalance") if it.get("id") is None else \
-                ("urltest", "selector", "failover")
+                        "loadbalance")
             if it.get("type") is not None and it["type"] not in _allowed:
                 return jsonify({"error": "type must be urltest|selector|"
                                         "failover|smart|loadbalance"}), 400
+        # loadbalance groups need a kernel with the native loadbalance
+        # outbound type (1.14.4-openbox-38+); reject the whole bulk
+        # write when one is involved and the kernel lacks it.
+        _lb_involved = any(
+            it.get("type") == "loadbalance" or
+            (it.get("id") is not None and
+             current_types.get(it["id"]) == "loadbalance")
+            for it in items if isinstance(it, dict))
+        if _lb_involved and not _manager().supports_loadbalance():
+            return jsonify({"error": "当前内核不支持负载均衡（需要 1.14.4-openbox-38+ 内核），"
+                                     "请先升级内核再创建或修改 loadbalance 组"}), 400
         new_ids = {it["id"] for it in items if it.get("id") is not None}
         builtins = {"所有-自动", "所有-手动"}
         dropped = sorted(gid for gid, name in current.items()

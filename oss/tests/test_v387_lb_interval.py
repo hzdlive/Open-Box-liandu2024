@@ -19,12 +19,19 @@ from panel import db as dbmod  # noqa: E402
 def fresh_db():
     conn = sqlite3.connect(":memory:")
     dbmod.init_db(conn)
+    # a node for loadbalance members to resolve against
+    conn.execute("INSERT INTO subscriptions(id, name, url, created_at)"
+                 " VALUES (1, 'sub1', 'https://example.com/sub', '2026-11-14')")
+    conn.execute("INSERT INTO nodes(sub_id, tag, protocol, server, port, params)"
+                 " VALUES (1, 'n1', 'vless', 'example.com', 443, '{}')")
+    conn.commit()
     return conn
 
 
 def test_lb_default_120():
     conn = fresh_db()
-    g = dbmod.create_group(conn, {"name": "LB1", "type": "loadbalance"})
+    g = dbmod.create_group(conn, {"name": "LB1", "type": "loadbalance",
+                                  "members": ["n1"]})
     assert g["interval_s"] == 120, g
 
 
@@ -44,7 +51,7 @@ def test_other_types_default_300():
 def test_explicit_interval_preserved():
     conn = fresh_db()
     g = dbmod.create_group(conn, {"name": "LB60", "type": "loadbalance",
-                                  "interval_s": 60})
+                                  "members": ["n1"], "interval_s": 60})
     assert g["interval_s"] == 60, g
     g = dbmod.create_group(conn, {"name": "U600", "type": "urltest",
                                   "interval_s": 600})
@@ -53,7 +60,8 @@ def test_explicit_interval_preserved():
 
 def test_update_keeps_stored_interval():
     conn = fresh_db()
-    g = dbmod.create_group(conn, {"name": "LB1", "type": "loadbalance"})
+    g = dbmod.create_group(conn, {"name": "LB1", "type": "loadbalance",
+                                  "members": ["n1"]})
     assert g["interval_s"] == 120
     # Rename only: no interval_s key -> stored value untouched.
     g2 = dbmod.update_group(conn, g["id"], {"name": "LB1-renamed"})

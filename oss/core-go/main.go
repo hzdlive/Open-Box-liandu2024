@@ -24,7 +24,10 @@ const (
 	coreName    = "oss-core"
 	coreVersion = "0.1.0"
 	// sing-box version the generated config targets.
-	singboxVersion = "1.14.1"
+	// 1.14.4: the loadbalance outbound (v0.1.384+) needs the modified
+	// kernel 1.14.4-openbox-38+; stock 1.14.x and the 1.14.1-openbox
+	// tcp28 kernel reject type: loadbalance.
+	singboxVersion = "1.14.4"
 )
 
 var supportedMethods = []string{"emitGroups", "configDetailed", "config"}

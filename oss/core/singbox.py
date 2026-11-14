@@ -460,16 +460,18 @@ def build_outbounds(cfg: AppConfig) -> list[dict]:
                                   "tolerance": g.tolerance_ms,
                                   **fo_kwargs})
         elif g.type == "loadbalance":
-            # 负载均衡：原版 core（v0.1.331 黑盒捕获，normalizeGroups +
-            # emitGroups）把 loadbalance 组归一化为 selector（手动选择），
-            # 没有真分流出站类型；我方此前映射为 urltest 是自行决定，
-            # 未证实与原版相同，现按原版改回 selector。interval_s 仍按
-            # 387 存为 120s（面板侧元数据，core 不用）。
-            default = g.default_outbound if g.default_outbound in tags \
-                else (tags[0] if tags else "direct")
-            outbounds.append({"type": "selector", "tag": g.name,
-                              "outbounds": tags or ["direct"],
-                              "default": default})
+            # 负载均衡：发内核原生 loadbalance 出站（v0.1.384+，轮询，
+            # 2026-11-14 在 lab 内核上实测：12 连接严格 A,B 交替）。
+            # 成员必须是真实代理节点——内核在启动时拒绝 direct/block/
+            # 组/链成员（"load balance requires real proxy nodes"），
+            # 且 sing-box check 不拦，所以这里只取节点 tag；面板保存
+            # 时也会校验成员。
+            members = [t for t in tags if t in node_tags]
+            interval_s = g.interval_s or 120  # 面板默认 120s
+            outbounds.append({"type": "loadbalance", "tag": g.name,
+                              "outbounds": members,
+                              "interval": f"{interval_s}s",
+                              "url": g.test_url or cfg.speedtest_url})
         elif g.type in ("urltest", "smart"):
             # urltest: 标准 URL 测试；smart: 按延迟智能选择（映射为 urltest）
             ob = {"type": "urltest", "tag": g.name,

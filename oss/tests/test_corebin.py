@@ -31,7 +31,7 @@ if cmd == "version":
     if mode == "bad-json":
         print("not json")
         sys.exit(0)
-    hs = {"name": "oss-core", "version": "0.1.0", "singbox": "1.14.1",
+    hs = {"name": "oss-core", "version": "0.1.0", "singbox": "1.14.4",
           "methods": ["emitGroups", "configDetailed", "config"]}
     if mode == "wrong-singbox":
         hs["singbox"] = "1.13.0"
@@ -85,7 +85,7 @@ def _cfg():
 
 def test_handshake_ok(tmp_path):
     hs = corebin.handshake(_fake_bin(tmp_path))
-    assert hs["name"] == "oss-core" and hs["singbox"] == "1.14.1"
+    assert hs["name"] == "oss-core" and hs["singbox"] == "1.14.4"
     assert "config" in hs["methods"]
 
 
